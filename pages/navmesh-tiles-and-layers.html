@@ -68,7 +68,7 @@ dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
   <div class="ctl">
     <label for="tile">TileSizeUU <span class="val" id="tileV"></span></label>
     <input id="tile" type="range" min="300" max="4000" step="10" value="1000">
-    <div class="hint">기본값 1000. 300 미만으로는 내려가지 않고, CellSize·AgentRadius 에 따라 더 올라갈 수도 있다.</div>
+    <div class="hint">기본값 1000. 하한 보정과 셀 크기 정수배 보정을 거치므로 입력값이 그대로 쓰이는 일은 드물다.</div>
   </div>
 </div>
 
@@ -176,11 +176,13 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
 <tr><td><code>AverageLayersPerTile</code></td><td>3</td><td rowspan="4"><code>RecastNavMesh.cpp</code> 생성자 / <code>RecastNavMesh.h</code></td></tr>
 <tr><td><code>TilePoolSize</code></td><td>1024</td></tr>
 <tr><td><code>TileNumberHardLimit</code></td><td>1 &lt;&lt; 20</td></tr>
-<tr><td><code>CellSize</code> / <code>CellHeight</code></td><td>25 / 10</td></tr>
+<tr><td><code>CellSize</code> / <code>CellHeight</code></td><td>19 / 10</td></tr>
 </tbody>
 </table>
 
-<p class="note">타일 크기에는 하한이 있다. <code>max(300, CellSize &times; 16, AgentRadius &times; 4)</code> 보다 작게는 못 내려간다. 기본값으로 계산하면 400 이므로, 300 을 넣어도 400 으로 올라간다. 또 실제 타일 크기는 셀 크기의 정수배로 잘린다 — <code>trunc(TileSizeUU / CellSize) &times; CellSize</code>. 1번 그림에서 슬라이더를 10씩 움직여 보면 값이 25 단위로만 움직이는 것이 이 때문이다.</p>
+<p class="note"><code>CellSize</code> 는 해상도마다 따로 있다. 클래스 헤더의 구조체 초기값은 25 지만 <code>BaseEngine.ini</code> 가 <code>NavMeshResolutionParams</code> 로 <code>Low=38, Default=19, High=19</code> 를 덮어쓴다. 여기서 쓰는 값은 Default 의 19 다.</p>
+
+<p class="note">타일 크기에는 하한이 있다. <code>max(300, CellSize &times; 16, AgentRadius &times; 4)</code> 보다 작게는 못 내려간다. 기본값으로 계산하면 304 이므로, 300 을 넣어도 304 로 올라간다. 또 실제 타일 크기는 셀 크기의 정수배로 잘린다 — <code>trunc(TileSizeUU / CellSize) &times; CellSize</code>. <b>기본값 1000 도 그대로 쓰이지 않는다</b> — 1000 / 19 = 52.6 이므로 52 &times; 19 = <b>988</b> 이 실제 타일 크기다. 1번 그림에서 슬라이더를 움직여 보면 값이 19 단위로만 움직인다.</p>
 
 </article>
 
@@ -196,7 +198,9 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
   var cssv = function(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
 
   // 엔진 기본값 (출처는 본문 표 참고)
-  var CELL_SIZE = 25;
+  // CellSize 는 해상도별로 따로 있고, Default 해상도(인덱스 1)의 값이 19 다.
+  // 클래스 헤더의 구조체 초기값은 25 지만 BaseEngine.ini 가 덮어쓴다.
+  var CELL_SIZE = 19;
   var AGENT_RADIUS = 34;
   var TILE_NUMBER_HARD_LIMIT = 1 << 20;
 
