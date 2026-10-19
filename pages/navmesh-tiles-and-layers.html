@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NavMesh 타일과 레이어</title>
+<meta name="note-title" content="NavMesh 타일과 레이어">
+<meta name="note-summary" content="타일을 반으로 줄이면 예산은 4배가 된다. 엔진의 실제 계산식으로 직접 확인한다.">
+<meta name="note-tags" content="NavMesh, Recast, 내비게이션">
+<meta name="note-order" content="20">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+/* 이 페이지 전용 */
+.stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;margin:0 0 10px}
+.stage canvas{display:block;width:100%}
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{font:inherit;font-size:.85rem;padding:9px 14px;border:0;background:transparent;color:var(--text-dim);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--bg);font-weight:600}
+
+.bar{margin:0 0 6px}
+.bar .lab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:.85rem;margin-bottom:5px}
+.bar .lab b{font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:.95rem}
+.track{position:relative;height:22px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);overflow:hidden}
+.fill{height:100%;background:var(--accent);width:0;transition:width .12s linear}
+.fill.over{background:var(--warn)}
+.limitmark{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--text);opacity:.55}
+
+.verdict{padding:12px 14px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);font-size:.9rem;line-height:1.65;margin:12px 0 0}
+.verdict.bad{border-color:var(--warn)}
+.verdict .err{display:block;margin-top:8px;font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:.78rem;color:var(--warn);line-height:1.5;word-break:break-all}
+
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+dl.defs{margin:0 0 16px}
+dl.defs dt{font-weight:600;margin-top:12px}
+dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>NavMesh 타일과 레이어</h1>
+<p>타일을 반으로 줄이면 예산은 4배가 된다. 엔진이 실제로 쓰는 계산식을 그대로 옮겨 놓았으니, 숫자를 직접 움직여 확인하면 된다.</p>
+</header>
+
+<article>
+
+<h2>1. 타일은 바닥을 격자로 자른 것이다</h2>
+
+<p>Recast 는 월드 전체를 한 번에 굽지 않는다. 바닥을 <code>TileSizeUU</code> 크기의 정사각형으로 자르고, 그 칸 하나하나를 따로 굽는다. 한 칸이 타일이다. 지형을 고치면 그 칸만 다시 구우면 되기 때문에 이렇게 되어 있다.</p>
+
+<p>격자가 몇 칸이 되는지는 월드 크기를 타일 크기로 나눈 값이다. 다만 엔진의 나눗셈에는 눈여겨볼 데가 두 군데 있다 — <b>정수 나눗셈</b>이고, 끝에 <b>1을 더한다</b>.</p>
+
+<div class="controls">
+  <div class="ctl">
+    <label for="world">내비게이션 영역 한 변 <span class="val" id="worldV"></span></label>
+    <input id="world" type="range" min="0" max="100" step="1" value="50">
+    <div class="hint">Nav Mesh Bounds Volume 의 가로·세로 크기. 정사각형으로 가정한다. 50 m 부터 20 km 까지 로그 눈금이다.</div>
+  </div>
+  <div class="ctl">
+    <label for="tile">TileSizeUU <span class="val" id="tileV"></span></label>
+    <input id="tile" type="range" min="300" max="4000" step="10" value="1000">
+    <div class="hint">기본값 1000. 300 미만으로는 내려가지 않고, CellSize·AgentRadius 에 따라 더 올라갈 수도 있다.</div>
+  </div>
+</div>
+
+<div class="stage"><canvas id="cvGrid" aria-label="위에서 내려다본 타일 격자"></canvas></div>
+
+<div class="readout">
+  <div class="cell"><span class="k">한 축 타일 수</span><span class="v" id="rAxis"></span></div>
+  <div class="cell"><span class="k">격자 칸 수</span><span class="v" id="rCells"></span></div>
+  <div class="cell"><span class="k">실제 타일 크기</span><span class="v" id="rEff"></span></div>
+</div>
+
+<p class="note" id="snapNote"></p>
+
+<h3>왜 1을 더하나</h3>
+<p>영역의 시작점이 타일 경계와 맞는다는 보장이 없다. 한 칸만큼 밀려 있으면 마지막 줄이 한 칸 더 필요하다. 그래서 딱 맞아떨어지는 크기를 넣어도 한 축이 1칸 더 잡힌다. 위 슬라이더에서 영역을 타일 크기의 정확한 배수로 맞춰 보면 바로 보인다.</p>
+
+<blockquote>
+<p class="src">엔진 계산식 — <code>XSize = (ceil(영역X) / (int)TileSizeUU) + 1</code>, <code>칸 수 = XSize * YSize</code><br>
+<code>Engine/Source/Runtime/NavigationSystem/Private/NavMesh/RecastNavMeshGenerator.cpp</code> 의 <code>CalculateMaxTilesCount</code></p>
+</blockquote>
+
+<h2>2. 한 칸이 타일 한 장이 아니다</h2>
+
+<p>여기가 핵심이다. 격자의 한 칸은 <b>바닥 평면의 한 구역</b>일 뿐이고, 그 구역에 걸어다닐 수 있는 면이 몇 겹이냐는 별개다. 다리 아래로도 지나가고 다리 위로도 지나간다면, 그 칸에는 걸을 수 있는 면이 두 겹 있다. Recast 는 이것을 <b>레이어</b>로 나눠 저장하고, <b>레이어 하나가 타일 한 장</b>을 차지한다.</p>
+
+<div class="controls">
+  <div class="ctl">
+    <label for="decks">가운데 칸에 쌓인 층 <span class="val" id="decksV"></span></label>
+    <input id="decks" type="range" min="1" max="5" step="1" value="2">
+    <div class="hint">바닥 위에 육교·구름다리·건물 바닥이 몇 겹 지나가는지.</div>
+  </div>
+</div>
+
+<div class="stage"><canvas id="cvSide" aria-label="다리가 걸친 지형의 단면과 레이어"></canvas></div>
+
+<p class="note">왼쪽·오른쪽 칸은 바닥 하나뿐이라 레이어 1장이다. 가운데 칸만 여러 장이 된다. 같은 넓이의 격자라도 맵의 생김새에 따라 실제 타일 수가 몇 배씩 달라지는 이유가 이것이다.</p>
+
+<h2>3. 그래서 예산이 얼마나 필요한가</h2>
+
+<p>엔진은 격자 칸 수에 <code>AverageLayersPerTile</code> 을 곱해서 타일을 몇 장 담을지 미리 잡아 둔다. 맵을 다 뒤져 세는 것이 아니라 <b>평균값을 믿고 곱하는</b> 방식이다. 그래서 이 값이 실제보다 낮으면 빌드 도중에 자리가 모자라고, 높으면 쓰지도 않을 자리를 잡아 둔다.</p>
+
+<div class="controls">
+  <div class="ctl">
+    <label for="layers">AverageLayersPerTile <span class="val" id="layersV"></span></label>
+    <input id="layers" type="range" min="1" max="12" step="0.5" value="3">
+    <div class="hint">기본값 3. 1 미만으로는 내려가지 않는다.</div>
+  </div>
+  <div class="ctl">
+    <label>타일 개수를 정하는 방식</label>
+    <div class="seg" role="group" aria-label="타일 풀 방식">
+      <button type="button" data-pool="auto" aria-pressed="true">영역에서 계산</button>
+      <button type="button" data-pool="fixed" aria-pressed="false">고정 풀</button>
+    </div>
+    <div class="hint" id="poolHint"></div>
+  </div>
+  <div class="ctl" id="poolCtl" hidden>
+    <label for="pool">TilePoolSize <span class="val" id="poolV"></span></label>
+    <input id="pool" type="range" min="64" max="65536" step="64" value="1024">
+    <div class="hint">기본값 1024. <code>bFixedTilePoolSize</code> 를 켰을 때만 쓰인다.</div>
+  </div>
+</div>
+
+<div class="readout">
+  <div class="cell"><span class="k">격자 칸 수</span><span class="v" id="rCells2"></span></div>
+  <div class="cell" id="cellNeed"><span class="k">필요한 타일 장수</span><span class="v" id="rNeed"></span></div>
+  <div class="cell"><span class="k">담을 수 있는 한계</span><span class="v" id="rLimit"></span></div>
+</div>
+
+<div class="bar">
+  <div class="lab"><span>타일 예산</span><b id="barPct"></b></div>
+  <div class="track"><div class="fill" id="barFill"></div><div class="limitmark" id="barMark" hidden></div></div>
+</div>
+
+<div class="verdict" id="verdict"></div>
+
+<h3>타일을 반으로 줄이면 예산은 네 배가 된다</h3>
+<p>격자는 2차원이다. 한 변을 반으로 자르면 칸 수는 가로·세로 양쪽에서 두 배씩, 합쳐서 네 배가 된다. 거기에 레이어 수를 곱한 것이 예산이다. 위의 <code>TileSizeUU</code> 슬라이더를 1000에서 500으로 내려 보면 숫자가 어떻게 움직이는지 바로 보인다.</p>
+
+<p>그렇다고 타일을 무작정 키울 수도 없다. 타일이 크면 지형을 조금만 고쳐도 다시 구워야 할 범위가 넓어지고, 한 타일을 굽는 데 드는 시간과 메모리도 같이 커진다. 런타임에 조금씩 다시 굽는 맵일수록 타일은 작아야 하고, 작으면 예산이 터진다. 이 둘 사이에서 고르는 일이다.</p>
+
+<h2>4. 한계에 걸리면 무슨 일이 생기나</h2>
+
+<p>두 가지 다른 한계가 있고, 증상이 다르다.</p>
+
+<dl class="defs">
+  <dt>타일 식별자 비트가 모자랄 때</dt>
+  <dd>타일 번호를 담을 비트 수는 <code>TileNumberHardLimit</code> 에서 나온다. 계산된 타일 수가 이 한계를 넘으면 빌드 때 에러를 찍고 한계값으로 잘라 버린다. 잘린 만큼은 아예 생기지 않는다.</dd>
+
+  <dt>잡아 둔 자리가 모자랄 때</dt>
+  <dd>비트는 충분한데 실제 평균 레이어가 예상보다 많으면, 타일을 추가하다가 중간에 실패한다. 이때는 <b>에러도 크래시도 없이 그 구역의 길만 사라진다</b>. 로그를 보지 않으면 모른다.</dd>
+</dl>
+
+<p>두 번째가 특히 성가신 쪽이다. 맵 어딘가에서만 AI 가 길을 못 찾는데 원인이 안 보인다면, 타일 한계에 걸려 조용히 빠진 구역일 수 있다. 로그에 남는 문구는 아래와 같다.</p>
+
+<pre><code>Failed to add tile (x,y:layer), N tile limit reached.
+Increase AverageLayersPerTile or, if using FixedTilePoolSize,
+increase the TilePoolSize or use bigger tiles.</code></pre>
+
+<h2>5. 기본값과 출처</h2>
+
+<table>
+<thead><tr><th>값</th><th>기본</th><th>어디에</th></tr></thead>
+<tbody>
+<tr><td><code>TileSizeUU</code></td><td>1000</td><td><code>Engine/Config/BaseEngine.ini</code></td></tr>
+<tr><td><code>AverageLayersPerTile</code></td><td>3</td><td rowspan="4"><code>RecastNavMesh.cpp</code> 생성자 / <code>RecastNavMesh.h</code></td></tr>
+<tr><td><code>TilePoolSize</code></td><td>1024</td></tr>
+<tr><td><code>TileNumberHardLimit</code></td><td>1 &lt;&lt; 20</td></tr>
+<tr><td><code>CellSize</code> / <code>CellHeight</code></td><td>25 / 10</td></tr>
+</tbody>
+</table>
+
+<p class="note">타일 크기에는 하한이 있다. <code>max(300, CellSize &times; 16, AgentRadius &times; 4)</code> 보다 작게는 못 내려간다. 기본값으로 계산하면 400 이므로, 300 을 넣어도 400 으로 올라간다. 또 실제 타일 크기는 셀 크기의 정수배로 잘린다 — <code>trunc(TileSizeUU / CellSize) &times; CellSize</code>. 1번 그림에서 슬라이더를 10씩 움직여 보면 값이 25 단위로만 움직이는 것이 이 때문이다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>수치는 전부 위 슬라이더에서 계산한 값이다. 계산식은 엔진 5.8 소스를 그대로 옮겼으나, 실제 빌드에는 영역이 여러 개 겹칠 때의 처리 등 여기서 다루지 않은 조건이 더 있다.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var cssv = function(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+
+  // 엔진 기본값 (출처는 본문 표 참고)
+  var CELL_SIZE = 25;
+  var AGENT_RADIUS = 34;
+  var TILE_NUMBER_HARD_LIMIT = 1 << 20;
+
+  var S = { worldT:50, tile:1000, layers:3, decks:2, pool:1024, poolMode:'auto' };
+
+  // 슬라이더 위치(0~100)를 영역 한 변으로 바꾼다. 50 m ~ 20 km 로그 눈금.
+  // 한계(2^20 장)에 닿으려면 오픈월드급 크기가 필요해서 선형 눈금으로는 다룰 수 없다.
+  function worldMeters(){
+    var m = 50 * Math.pow(400, S.worldT / 100);
+    return m < 1000 ? Math.round(m / 10) * 10 : Math.round(m / 100) * 100;
+  }
+  function worldUU(){ return worldMeters() * 100; }
+
+  /* ---------- 엔진 계산식 ---------- */
+
+  // GetClampedTileSizeUU: min = max(300, CellSize*16, AgentRadius*4), max = max(300, CellSize*1024)
+  function clampTileSize(v){
+    var lo = Math.max(300, CELL_SIZE * 16, AGENT_RADIUS * 4);
+    var hi = Math.max(300, CELL_SIZE * 1024);
+    return Math.min(hi, Math.max(lo, v));
+  }
+  // GetTileSizeUU: trunc(TileSizeUU / CellSize) * CellSize
+  function snapTileSize(v){ return Math.trunc(v / CELL_SIZE) * CELL_SIZE; }
+  function effTileSize(){ return snapTileSize(clampTileSize(S.tile)); }
+
+  // CalculateMaxTilesCount: (ceil(size) / (int64)TileSize) + 1, 정수 나눗셈
+  function axisTiles(sizeUU, tileUU){
+    var t = Math.trunc(tileUU);
+    if (t < 1) t = 1;
+    return Math.floor(Math.ceil(sizeUU) / t) + 1;
+  }
+  function gridCells(){
+    var t = effTileSize();
+    var n = axisTiles(worldUU(), t);
+    return { axis:n, cells:n * n, tile:t };
+  }
+  function budget(){
+    var g = gridCells();
+    var need = (S.poolMode === 'fixed') ? S.pool : Math.ceil(g.cells * S.layers);
+    // CalcPolyRefBits: MaxTileBits = ceil(log2(TileNumberHardLimit))
+    var bits = Math.ceil(Math.log2(TILE_NUMBER_HARD_LIMIT));
+    var limit = Math.pow(2, bits);
+    return { cells:g.cells, axis:g.axis, tile:g.tile, need:need, limit:limit, bits:bits,
+             computed: Math.ceil(g.cells * S.layers) };
+  }
+
+  var fmt = function(n){ return n.toLocaleString('ko-KR'); };
+
+  /* ---------- 캔버스 공통 ---------- */
+  var views = [];
+  function makeView(id, ratio, draw){
+    var cv = $(id), v = { cv:cv, ctx:cv.getContext('2d'), w:0, h:0 };
+    v.draw = function(){ v.ctx.clearRect(0, 0, v.w, v.h); draw(v); };
+    v.resize = function(){
+      var w = cv.clientWidth;
+      if (!w) return;
+      v.w = w; v.h = Math.round(w * ratio);
+      var dpr = window.devicePixelRatio || 1;
+      cv.style.height = v.h + 'px';
+      cv.width = Math.round(w * dpr); cv.height = Math.round(v.h * dpr);
+      v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      v.draw();
+    };
+    var last = 0;
+    new ResizeObserver(function(){ if (cv.clientWidth !== last){ last = cv.clientWidth; v.resize(); } }).observe(cv);
+    views.push(v);
+    return v;
+  }
+  function redrawAll(){ views.forEach(function(v){ v.draw(); }); }
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll);
+
+  function label(ctx, s, x, y, color, align, size){
+    ctx.font = (size || 11) + 'px ui-monospace, Consolas, monospace';
+    ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = color; ctx.fillText(s, x, y);
+  }
+
+  /* ---------- 1. 위에서 본 격자 ---------- */
+  var vGrid = makeView('cvGrid', 0.62, function(v){
+    var ctx = v.ctx, g = gridCells();
+    var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'), sf2 = cssv('--surface-2');
+
+    var pad = 26, side = Math.min(v.w - pad * 2, v.h - pad * 2);
+    var x0 = (v.w - side) / 2, y0 = (v.h - side) / 2;
+
+    ctx.fillStyle = sf2;
+    ctx.fillRect(x0, y0, side, side);
+
+    // 격자가 너무 촘촘하면 선을 솎아 그린다 (칸 수 표기는 실제 값 그대로)
+    var n = g.axis, step = side / n, drawn = n, skip = 1;
+    if (step < 2){ skip = Math.ceil(2 / step); drawn = Math.floor(n / skip); }
+
+    ctx.strokeStyle = line; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var i = 0; i <= n; i += skip){
+      var p = x0 + Math.min(side, i * step);
+      ctx.moveTo(Math.round(p) + 0.5, y0); ctx.lineTo(Math.round(p) + 0.5, y0 + side);
+      ctx.moveTo(x0, Math.round(y0 + Math.min(side, i * step)) + 0.5);
+      ctx.lineTo(x0 + side, Math.round(y0 + Math.min(side, i * step)) + 0.5);
+    }
+    ctx.stroke();
+
+    // 타일 한 칸 강조
+    ctx.fillStyle = accent; ctx.globalAlpha = 0.35;
+    ctx.fillRect(x0, y0, Math.max(1, step), Math.max(1, step));
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    ctx.strokeRect(x0 + 1, y0 + 1, side - 2, side - 2);
+
+    label(ctx, '타일 1장 = ' + fmt(g.tile) + ' uu', x0, y0 - 12, accent);
+    label(ctx, g.axis + ' x ' + g.axis + ' = ' + fmt(g.cells) + ' 칸', x0 + side, y0 - 12, dim, 'right');
+    label(ctx, '영역 한 변 ' + fmt(worldMeters()) + ' m (' + fmt(worldUU()) + ' uu)', x0 + side / 2, y0 + side + 14, dim, 'center');
+    if (skip > 1) label(ctx, '격자선은 ' + skip + '칸마다 그림', x0 + side / 2, y0 + side / 2, dim, 'center', 10);
+  });
+
+  /* ---------- 2. 다리 단면 ---------- */
+  var vSide = makeView('cvSide', 0.5, function(v){
+    var ctx = v.ctx;
+    var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'),
+        warn = cssv('--warn'), sf2 = cssv('--surface-2'), text = cssv('--text');
+
+    var pad = 30, w = v.w - pad * 2, h = v.h - pad * 2;
+    var cols = 3, cw = w / cols;
+    var groundY = pad + h * 0.86;
+
+    // 타일 칸 경계 (세로 점선)
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = line; ctx.lineWidth = 1;
+    for (var i = 0; i <= cols; i++){
+      var x = Math.round(pad + i * cw) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, groundY + 16); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // 바닥
+    ctx.fillStyle = sf2;
+    ctx.fillRect(pad, groundY, w, 14);
+    ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(pad, groundY); ctx.lineTo(pad + w, groundY); ctx.stroke();
+
+    // 가운데 칸 위로 쌓이는 층
+    var mid = pad + cw, gap = (groundY - pad - 24) / Math.max(1, S.decks);
+    for (var d = 1; d <= S.decks - 1; d++){
+      var y = groundY - gap * d;
+      ctx.fillStyle = sf2; ctx.fillRect(mid - cw * 0.12, y, cw * 1.24, 11);
+      ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(mid - cw * 0.12, y); ctx.lineTo(mid + cw * 1.12, y); ctx.stroke();
+      label(ctx, '레이어 ' + (d + 1), mid + cw / 2, y - 11, dim, 'center');
+    }
+    label(ctx, '레이어 1', pad + w - 6, groundY - 11, dim, 'right');
+
+    // 가운데 칸 강조
+    ctx.fillStyle = warn; ctx.globalAlpha = 0.12;
+    ctx.fillRect(mid, pad, cw, groundY + 14 - pad);
+    ctx.globalAlpha = 1;
+
+    var labels = ['1장', S.decks + '장', '1장'];
+    for (var c = 0; c < cols; c++){
+      var cx = pad + cw * c + cw / 2;
+      label(ctx, '격자 1칸', cx, groundY + 30, dim, 'center', 10);
+      label(ctx, '타일 ' + labels[c], cx, groundY + 46, c === 1 ? warn : text, 'center', 12);
+    }
+    label(ctx, '격자 3칸 → 타일 ' + (2 + S.decks) + '장', pad + w / 2, pad + 6, accent, 'center', 12);
+  });
+
+  /* ---------- 판독 ---------- */
+  function render(){
+    var b = budget(), g = gridCells();
+
+    $('worldV').textContent = fmt(worldMeters()) + ' m';
+    $('tileV').textContent = fmt(S.tile) + ' uu';
+    $('layersV').textContent = S.layers.toFixed(1);
+    $('decksV').textContent = S.decks + '층';
+    $('poolV').textContent = fmt(S.pool);
+
+    $('rAxis').textContent = g.axis;
+    $('rCells').textContent = fmt(g.cells);
+    $('rCells2').textContent = fmt(g.cells);
+    $('rEff').textContent = fmt(g.tile);
+    $('rNeed').textContent = fmt(b.need);
+    $('rLimit').textContent = fmt(b.limit);
+
+    var snapped = effTileSize(), msg;
+    if (snapped !== S.tile){
+      msg = '입력한 ' + fmt(S.tile) + ' uu 는 그대로 쓰이지 않는다. 하한과 셀 크기 정수배 보정을 거쳐 실제로는 ' + fmt(snapped) + ' uu 가 된다.';
+    } else {
+      msg = '입력한 값이 하한을 넘고 셀 크기(' + CELL_SIZE + ' uu)의 정수배라서 그대로 쓰인다.';
+    }
+    $('snapNote').textContent = msg;
+
+    var over = b.need > b.limit;
+    $('cellNeed').classList.toggle('over', over);
+
+    var pct = b.need / b.limit;
+    $('barFill').style.width = Math.min(100, pct * 100).toFixed(2) + '%';
+    $('barFill').classList.toggle('over', over);
+    $('barPct').textContent = (pct * 100 < 0.01 ? '<0.01' : (pct * 100).toFixed(2)) + ' %';
+
+    var vd = $('verdict');
+    vd.classList.toggle('bad', over);
+    if (S.poolMode === 'fixed'){
+      vd.innerHTML = '고정 풀이므로 영역 크기와 상관없이 <b>' + fmt(S.pool) + '장</b>이 전부다. ' +
+        '지금 격자가 ' + fmt(g.cells) + '칸이고 평균 ' + S.layers.toFixed(1) + '장이 필요하다면 ' +
+        fmt(b.computed) + '장이 있어야 하는데, ' +
+        (b.computed > S.pool
+          ? '<b>' + fmt(b.computed - S.pool) + '장이 모자란다.</b> 모자란 만큼은 조용히 빠진다.'
+          : '여유가 ' + fmt(S.pool - b.computed) + '장 있다.');
+    } else if (over){
+      vd.innerHTML = '필요한 <b>' + fmt(b.need) + '장</b>이 한계 <b>' + fmt(b.limit) + '장</b>을 넘는다. ' +
+        '빌드 때 에러를 찍고 한계값으로 잘린다.' +
+        '<span class="err">Navmesh bounds are too large! Limiting requested tiles count (' + fmt(b.need) +
+        ') to: (' + fmt(b.limit) + ')</span>';
+    } else {
+      vd.innerHTML = '격자 ' + fmt(g.cells) + '칸 &times; 평균 ' + S.layers.toFixed(1) + '장 = <b>' + fmt(b.need) + '장</b>. ' +
+        '한계 ' + fmt(b.limit) + '장의 ' + (pct * 100).toFixed(2) + '% 다. ' +
+        '타일 번호에 쓰는 비트는 ' + b.bits + '비트.';
+    }
+
+    vGrid.draw(); vSide.draw();
+  }
+
+  /* ---------- 입력 ---------- */
+  function bind(id, key, parse){
+    $(id).addEventListener('input', function(e){ S[key] = parse(e.target.value); render(); });
+  }
+  bind('world', 'worldT', Number);
+  bind('tile', 'tile', Number);
+  bind('layers', 'layers', Number);
+  bind('decks', 'decks', Number);
+  bind('pool', 'pool', Number);
+
+  var segBtns = document.querySelectorAll('.seg button');
+  segBtns.forEach(function(b){
+    b.addEventListener('click', function(){
+      segBtns.forEach(function(o){ o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+      S.poolMode = b.getAttribute('data-pool');
+      $('poolCtl').hidden = (S.poolMode !== 'fixed');
+      $('poolHint').textContent = S.poolMode === 'fixed'
+        ? 'bFixedTilePoolSize 를 켠 상태. 레벨 스트리밍을 쓰면 이쪽이어야 한다.'
+        : '기본값. 영역 크기와 평균 레이어 수로 매번 계산한다.';
+      render();
+    });
+  });
+  $('poolHint').textContent = '기본값. 영역 크기와 평균 레이어 수로 매번 계산한다.';
+
+  render();
+})();
+</script>
+
+</body>
+</html>
