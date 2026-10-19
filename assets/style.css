@@ -290,29 +290,70 @@ figcaption {
   font-size: 0.82rem;
 }
 
-/* --- 목차 분류 --- */
+/* --- 목차 분류 (접이식) --- */
 
-.cat {
+details.cat {
+  margin: 0 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+details.cat > summary {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 30px 0 12px;
-  font-size: 0.82rem;
+  padding: 15px 16px;
+  cursor: pointer;
   font-weight: 700;
+  font-size: 0.98rem;
   color: var(--accent);
-  letter-spacing: 0.02em;
+  list-style: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.cat:first-child { margin-top: 4px; }
+details.cat > summary::-webkit-details-marker { display: none; }
+details.cat > summary::marker { content: ""; }
 
-.cat::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--line);
+details.cat > summary:active { background: var(--surface-2); }
+
+details.cat > summary .chev {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--text-dim);
+  border-bottom: 2px solid var(--text-dim);
+  transform: rotate(-45deg);
+  transition: transform .18s ease;
 }
 
-.cat .n {
-  font-weight: 400;
+details.cat[open] > summary .chev { transform: rotate(45deg); }
+
+details.cat > summary .n {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 0.8rem;
   color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 2px 10px;
+  border-radius: 999px;
 }
+
+details.cat .toc {
+  margin: 0;
+  padding: 0 8px 8px;
+  border-top: 1px solid var(--line);
+}
+
+details.cat .toc li { margin: 0; }
+details.cat .toc li + li { border-top: 1px solid var(--line); }
+
+details.cat .toc a {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 14px 8px;
+}
+
+details.cat .toc a:active { background: var(--surface-2); }

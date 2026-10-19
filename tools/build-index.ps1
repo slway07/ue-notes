@@ -97,6 +97,10 @@ foreach ($f in $files) {
         $category = $meta['note-category'].Trim()
     }
 
+    # 링크에 붙일 버전: 파일 전체 바이트의 SHA256 앞 8자리(소문자).
+    # 내용이 그대로면 주소가 그대로라 캐시가 유효하고, 바뀌면 반드시 새로 받는다.
+    $version = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.Substring(0, 8).ToLowerInvariant()
+
     $pages.Add([pscustomobject]@{
         FileName = $f.Name
         Title    = $title
@@ -104,6 +108,7 @@ foreach ($f in $files) {
         Tags     = $tags
         Order    = $order
         Category = $category
+        Version  = $version
     })
 }
 
@@ -154,17 +159,22 @@ $extraCats.Sort([System.Comparison[object]]{
 })
 foreach ($c in $extraCats) { $catOrder.Add($c) }
 
+# 페이지가 8개 이하면 전부 펼쳐 둔다. 9개 이상이면 전부 접힌 채로 시작한다.
+$openAttr = ""
+if ($count -le 8) { $openAttr = " open" }
+
 $listLines = New-Object System.Collections.Generic.List[string]
 if ($count -eq 0) {
     $listLines.Add('<p class="empty">아직 페이지가 없다.</p>')
 } else {
     foreach ($c in $catOrder) {
         $items = $groups[$c]
-        $listLines.Add('<h2 class="cat">' + (Escape-Html $c) + ' <span class="n">' + $items.Count + '</span></h2>')
+        $listLines.Add('<details class="cat" data-cat="' + (Escape-Html $c) + '"' + $openAttr + '>')
+        $listLines.Add('<summary><span class="chev"></span>' + (Escape-Html $c) + '<span class="n">' + $items.Count + '</span></summary>')
         $listLines.Add('<ul class="toc">')
         foreach ($p in $items) {
             $href = Get-HrefName $p.FileName
-            $listLines.Add("<li><a href=""pages/$href"">")
+            $listLines.Add('<li><a href="pages/' + $href + '?v=' + $p.Version + '">')
             $listLines.Add('<span class="t">' + (Escape-Html $p.Title) + '</span>')
             if ($p.Summary -ne "") {
                 $listLines.Add('<span class="s">' + (Escape-Html $p.Summary) + '</span>')
@@ -176,6 +186,7 @@ if ($count -eq 0) {
             $listLines.Add('</a></li>')
         }
         $listLines.Add('</ul>')
+        $listLines.Add('</details>')
     }
 }
 
@@ -211,10 +222,33 @@ $template = @(
     '</html>'
 )
 
+# 펼친 상태를 localStorage 에 기억하는 스크립트. 서버 없이 정적으로 동작한다.
+$openScript = @(
+    '<script>',
+    '(function(){',
+    "  var KEY = 'ue-notes-open';",
+    '  var saved = {};',
+    "  try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}",
+    "  var list = document.querySelectorAll('details.cat');",
+    '  Array.prototype.forEach.call(list, function(d){',
+    "    var k = d.getAttribute('data-cat');",
+    '    if (Object.prototype.hasOwnProperty.call(saved, k)) { d.open = !!saved[k]; }',
+    "    d.addEventListener('toggle', function(){",
+    '      saved[k] = d.open;',
+    '      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}',
+    '    });',
+    '  });',
+    '})();',
+    '</script>'
+)
+
 $outLines = New-Object System.Collections.Generic.List[string]
 foreach ($line in $template) {
     if ($line -eq '<!-- LIST -->') {
         foreach ($l in $listLines) { $outLines.Add($l) }
+    } elseif ($line -eq '</body>') {
+        foreach ($l in $openScript) { $outLines.Add($l) }
+        $outLines.Add($line)
     } else {
         $outLines.Add($line)
     }
