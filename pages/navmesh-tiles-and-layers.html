@@ -8,6 +8,7 @@
 <meta name="note-summary" content="타일을 반으로 줄이면 예산은 4배가 된다. 엔진의 실제 계산식으로 직접 확인한다.">
 <meta name="note-tags" content="NavMesh, Recast, 내비게이션">
 <meta name="note-order" content="20">
+<meta name="note-category" content="AI와 길찾기">
 <meta name="theme-color" content="#2f6f4f">
 <link rel="stylesheet" href="../assets/style.css">
 <style>
@@ -248,7 +249,13 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
   var views = [];
   function makeView(id, ratio, draw){
     var cv = $(id), v = { cv:cv, ctx:cv.getContext('2d'), w:0, h:0 };
-    v.draw = function(){ v.ctx.clearRect(0, 0, v.w, v.h); draw(v); };
+    // 크기가 아직 안 잡혔으면 그리지 않는다. ResizeObserver 가 늦게 돌기 때문에
+    // 첫 render() 시점에는 w/h 가 0 이고, 그 상태로 그리면 좌표가 음수가 된다.
+    v.draw = function(){
+      if (!(v.w > 0) || !(v.h > 0)) return;
+      v.ctx.clearRect(0, 0, v.w, v.h);
+      draw(v);
+    };
     v.resize = function(){
       var w = cv.clientWidth;
       if (!w) return;
@@ -279,14 +286,16 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
     var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'), sf2 = cssv('--surface-2');
 
     var pad = 26, side = Math.min(v.w - pad * 2, v.h - pad * 2);
+    if (side <= 0) return;
     var x0 = (v.w - side) / 2, y0 = (v.h - side) / 2;
 
     ctx.fillStyle = sf2;
     ctx.fillRect(x0, y0, side, side);
 
     // 격자가 너무 촘촘하면 선을 솎아 그린다 (칸 수 표기는 실제 값 그대로)
-    var n = g.axis, step = side / n, drawn = n, skip = 1;
-    if (step < 2){ skip = Math.ceil(2 / step); drawn = Math.floor(n / skip); }
+    // skip 은 무슨 일이 있어도 1 이상이어야 한다. 0 이나 음수가 되면 아래 루프가 끝나지 않는다.
+    var n = g.axis, step = side / n, skip = 1;
+    if (step < 2){ skip = Math.max(1, Math.ceil(2 / step)); }
 
     ctx.strokeStyle = line; ctx.lineWidth = 1;
     ctx.beginPath();
@@ -319,6 +328,7 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
         warn = cssv('--warn'), sf2 = cssv('--surface-2'), text = cssv('--text');
 
     var pad = 30, w = v.w - pad * 2, h = v.h - pad * 2;
+    if (w <= 0 || h <= 0) return;
     var cols = 3, cw = w / cols;
     var groundY = pad + h * 0.86;
 

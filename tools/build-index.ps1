@@ -2,7 +2,9 @@
 .SYNOPSIS
   pages\*.html 의 meta 태그를 읽어 index.html 목차를 만든다.
 .DESCRIPTION
-  읽는 meta: note-title (필수), note-summary, note-tags (쉼표 구분), note-order (정수).
+  읽는 meta: note-title (필수), note-summary, note-tags (쉼표 구분), note-order (정수),
+             note-category (없거나 비면 "기타").
+  카테고리 표시 순서는 tools\categories.txt 를 따른다. 없는 카테고리는 목록 뒤에 가나다순.
   종료 코드
     0  생성 완료 (페이지 0개 포함)
     1  note-title 이 없는 페이지가 있음
@@ -90,12 +92,18 @@ foreach ($f in $files) {
         }
     }
 
+    $category = "기타"
+    if ($meta.ContainsKey('note-category') -and -not [string]::IsNullOrWhiteSpace($meta['note-category'])) {
+        $category = $meta['note-category'].Trim()
+    }
+
     $pages.Add([pscustomobject]@{
         FileName = $f.Name
         Title    = $title
         Summary  = $summary
         Tags     = $tags
         Order    = $order
+        Category = $category
     })
 }
 
@@ -110,26 +118,68 @@ $sorted.Sort([System.Comparison[object]]{
 
 $count = $sorted.Count
 
+# 카테고리 표시 순서: tools\categories.txt 에 적힌 순서 먼저, 나머지는 가나다순.
+$catPath = Join-Path (Join-Path $Root "tools") "categories.txt"
+$listedCats = New-Object System.Collections.Generic.List[string]
+if (Test-Path -LiteralPath $catPath -PathType Leaf) {
+    foreach ($line in [System.IO.File]::ReadAllLines($catPath, [System.Text.Encoding]::UTF8)) {
+        $name = $line.Trim()
+        if ($name -eq '' -or $name.StartsWith('#')) { continue }
+        if (-not $listedCats.Contains($name)) { $listedCats.Add($name) }
+    }
+} else {
+    Write-Host "[알림] 카테고리 목록 파일이 없습니다: $catPath — 순서 없이 가나다순으로 생성합니다." -ForegroundColor Yellow
+}
+
+# 카테고리별 묶음. $sorted 는 이미 note-order/제목 순이라 그룹 안 순서도 그대로 유지된다.
+$groups = @{}
+foreach ($p in $sorted) {
+    if (-not $groups.ContainsKey($p.Category)) {
+        $groups[$p.Category] = New-Object System.Collections.Generic.List[object]
+    }
+    $groups[$p.Category].Add($p)
+}
+
+$catOrder = New-Object System.Collections.Generic.List[string]
+foreach ($c in $listedCats) {
+    if ($groups.ContainsKey($c)) { $catOrder.Add($c) }
+}
+$extraCats = New-Object System.Collections.Generic.List[string]
+foreach ($c in $groups.Keys) {
+    if (-not $listedCats.Contains($c)) { $extraCats.Add($c) }
+}
+$extraCats.Sort([System.Comparison[object]]{
+    param($a, $b)
+    return [string]::Compare($a, $b, $true)
+})
+foreach ($c in $extraCats) { $catOrder.Add($c) }
+
 $listLines = New-Object System.Collections.Generic.List[string]
 if ($count -eq 0) {
     $listLines.Add('<p class="empty">아직 페이지가 없다.</p>')
 } else {
-    $listLines.Add('<ul class="toc">')
-    foreach ($p in $sorted) {
-        $href = Get-HrefName $p.FileName
-        $listLines.Add("<li><a href=""pages/$href"">")
-        $listLines.Add('<span class="t">' + (Escape-Html $p.Title) + '</span>')
-        if ($p.Summary -ne "") {
-            $listLines.Add('<span class="s">' + (Escape-Html $p.Summary) + '</span>')
+    foreach ($c in $catOrder) {
+        $items = $groups[$c]
+        $listLines.Add('<h2 class="cat">' + (Escape-Html $c) + ' <span class="n">' + $items.Count + '</span></h2>')
+        $listLines.Add('<ul class="toc">')
+        foreach ($p in $items) {
+            $href = Get-HrefName $p.FileName
+            $listLines.Add("<li><a href=""pages/$href"">")
+            $listLines.Add('<span class="t">' + (Escape-Html $p.Title) + '</span>')
+            if ($p.Summary -ne "") {
+                $listLines.Add('<span class="s">' + (Escape-Html $p.Summary) + '</span>')
+            }
+            if ($p.Tags.Count -gt 0) {
+                $tagHtml = ($p.Tags | ForEach-Object { '<span class="tag">' + (Escape-Html $_) + '</span>' }) -join ''
+                $listLines.Add('<span class="tags">' + $tagHtml + '</span>')
+            }
+            $listLines.Add('</a></li>')
         }
-        if ($p.Tags.Count -gt 0) {
-            $tagHtml = ($p.Tags | ForEach-Object { '<span class="tag">' + (Escape-Html $_) + '</span>' }) -join ''
-            $listLines.Add('<span class="tags">' + $tagHtml + '</span>')
-        }
-        $listLines.Add('</a></li>')
+        $listLines.Add('</ul>')
     }
-    $listLines.Add('</ul>')
 }
+
+$catCount = $catOrder.Count
 
 $today = Get-Date -Format "yyyy-MM-dd"
 
@@ -173,5 +223,5 @@ foreach ($line in $template) {
 $text = ($outLines -join "`n") + "`n"
 [System.IO.File]::WriteAllText($indexPath, $text, $utf8)
 
-Write-Host "[목차] index.html 생성 — 페이지 ${count}개" -ForegroundColor Green
+Write-Host "[목차] index.html 생성 — 페이지 ${count}개, 분류 ${catCount}개" -ForegroundColor Green
 exit 0

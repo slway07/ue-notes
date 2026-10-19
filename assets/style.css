@@ -289,3 +289,30 @@ figcaption {
   color: var(--text-dim);
   font-size: 0.82rem;
 }
+
+/* --- 목차 분류 --- */
+
+.cat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 30px 0 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.cat:first-child { margin-top: 4px; }
+
+.cat::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.cat .n {
+  font-weight: 400;
+  color: var(--text-dim);
+}
