@@ -13,8 +13,8 @@
 <link rel="stylesheet" href="../assets/style.css">
 <style>
 /* 이 페이지 전용 */
-.stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow-x:auto;margin:0 0 12px}
-.stage canvas{display:block;width:100%;min-width:680px}
+.stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);margin:0 0 12px}
+.stage canvas{display:block;width:100%}
 .note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
 .src{font-size:.8rem;color:var(--text-dim)}
 .src code{font-size:.95em}
@@ -86,7 +86,7 @@
   </dl>
 </div>
 
-<p class="note">레인 사이를 잇는 비스듬한 선은 스레드가 바뀌는 지점이다. 병렬을 끄면 4~7번이 전부 게임 스레드 레인으로 올라가고 워커 레인은 비게 된다. 좁은 화면에서는 그림을 옆으로 밀어서 볼 수 있다.</p>
+<p class="note">레인 사이를 잇는 비스듬한 선은 스레드가 바뀌는 지점이다. 병렬을 끄면 4~7번이 전부 게임 스레드 레인으로 올라가고 워커 레인은 비게 된다. 좁은 화면에서는 같은 내용이 세로로 바뀌어, 시간이 위에서 아래로 흐르고 좌우 두 칸이 스레드가 된다.</p>
 
 <h2>2. 세 개의 Update 는 무엇이 다른가</h2>
 
@@ -234,6 +234,37 @@
     ctx.fillStyle = color; ctx.fillText(s, x, y);
   }
 
+  // 세로 배치 상수. 단계 8개 고정이라 높이는 폭과 무관하게 항상 같다.
+  var V_PAD = 8, V_GUTTER = 6, V_HEAD_H = 48, V_BOX_H = 44, V_BOX_GAP = 14, V_BOTTOM = 34;
+  var V_COL_H = 8 * V_BOX_H + 7 * V_BOX_GAP;
+
+  // 캔버스 높이는 배치에 따라 다르게 계산한다.
+  function frameHeight(w){
+    if (w < 560){
+      // 머리 높이 + 8 × (박스 + 간격) + 아래 여백
+      return V_HEAD_H + 8 * (V_BOX_H + V_BOX_GAP) + V_BOTTOM;
+    }
+    return Math.max(215, Math.min(268, Math.round(w * 0.30)));
+  }
+
+  // 공백 기준 줄바꿈. 단어 배열 길이가 고정 경계다.
+  function wrapWords(ctx, s, maxW){
+    var words = s.split(' ');
+    var out = [];
+    var cur = '';
+    for (var k = 0; k < words.length; k++){
+      var test = cur ? cur + ' ' + words[k] : words[k];
+      if (cur && ctx.measureText(test).width > maxW){
+        out.push(cur);
+        cur = words[k];
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+
   function makeView(id, draw){
     var cv = $(id);
     var v = { cv: cv, ctx: cv.getContext('2d'), w: 0, h: 0, boxes: [] };
@@ -247,8 +278,9 @@
       var w = cv.clientWidth;
       if (!(w > 0)) return;
       v.w = w;
-      v.h = Math.max(215, Math.min(268, Math.round(w * 0.30)));
+      v.h = frameHeight(w);
       var dpr = window.devicePixelRatio || 1;
+      // 배치가 바뀌면 높이도 바뀐다. style.height 와 canvas.height 를 함께 갱신한다.
       cv.style.height = v.h + 'px';
       cv.width = Math.round(w * dpr);
       cv.height = Math.round(v.h * dpr);
@@ -257,13 +289,22 @@
     };
     var last = 0;
     new ResizeObserver(function(){
-      // 폭이 이전과 같으면 아무것도 하지 않는다.
+      // 폭이 바뀐 경우에만 다시 그린다. 높이 변경이 옵저버를 다시 깨워도 여기서 멈춘다.
       if (cv.clientWidth !== last){ last = cv.clientWidth; v.resize(); }
     }).observe(cv);
     return v;
   }
 
   var view = makeView('cvFrame', function(v){
+    if (v.w < 560){
+      drawVertical(v);
+    } else {
+      drawHorizontal(v);
+    }
+  });
+
+  // 가로 배치: 시간이 왼쪽에서 오른쪽, 레인 2줄.
+  function drawHorizontal(v){
     var ctx = v.ctx;
     var w = v.w, h = v.h;
     var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'),
@@ -390,7 +431,111 @@
     ctx.fill();
     label(ctx, '프레임 시작', padL, ay + 8, dim, 'left', 9);
     label(ctx, '시간', padL + plotW - 10, ay + 8, dim, 'right', 9);
-  });
+  }
+
+  // 세로 배치: 시간이 위에서 아래로, 칸 2개(왼쪽 게임 / 오른쪽 워커).
+  function drawVertical(v){
+    var ctx = v.ctx;
+    var w = v.w, h = v.h;
+    var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'),
+        warn = cssv('--warn'), sf = cssv('--surface'), sf2 = cssv('--surface-2'), text = cssv('--text');
+
+    var colW = (w - V_PAD * 2 - V_GUTTER) / 2;
+    if (!(colW > 0)) return;
+    var gameX = V_PAD;
+    var workerX = V_PAD + colW + V_GUTTER;
+    var top0 = V_HEAD_H;
+    var i, k;
+
+    // 칸 머리
+    label(ctx, '게임 스레드', gameX + colW / 2, 20, text, 'center', 11);
+    if (state.parallel){
+      label(ctx, '워커 스레드', workerX + colW / 2, 20, text, 'center', 11);
+    } else {
+      label(ctx, '워커 스레드', workerX + colW / 2, 13, dim, 'center', 10);
+      label(ctx, '(사용 안 함)', workerX + colW / 2, 28, warn, 'center', 9);
+    }
+    ctx.strokeStyle = line; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(V_PAD, 38);
+    ctx.lineTo(w - V_PAD, 38);
+    ctx.stroke();
+
+    // 칸 바탕. 워커 칸은 병렬이 꺼지면 더 흐리게.
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = sf2;
+    ctx.fillRect(gameX, top0, colW, V_COL_H);
+    ctx.globalAlpha = state.parallel ? 0.55 : 0.28;
+    ctx.fillRect(workerX, top0, colW, V_COL_H);
+    ctx.globalAlpha = 1;
+
+    // 박스 사각형. 가로·세로 배치 모두 이 배열을 클릭 판정에 쓴다.
+    v.boxes = [];
+    for (i = 0; i < 8; i++){
+      var lane = laneOf(i);
+      v.boxes.push({
+        x: lane === 'worker' ? workerX : gameX,
+        y: top0 + i * (V_BOX_H + V_BOX_GAP),
+        w: colW,
+        h: V_BOX_H,
+        i: i
+      });
+    }
+
+    // 레인이 바뀌는 지점의 연결선. 이전 박스 아래 가장자리에서 다음 박스 위 가장자리로.
+    if (state.parallel){
+      ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.globalAlpha = 0.9;
+      for (i = 1; i < 8; i++){
+        if (laneOf(i - 1) === laneOf(i)) continue;
+        var a = v.boxes[i - 1], c = v.boxes[i];
+        ctx.beginPath();
+        ctx.moveTo(a.x + a.w / 2, a.y + a.h);
+        ctx.lineTo(c.x + c.w / 2, c.y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // 박스와 단계 이름. 글자는 폭에 맞춰 공백 기준으로 줄바꿈한다.
+    var fs = colW >= 120 ? 11 : 10;
+    var inner = colW - 12;
+    for (i = 0; i < 8; i++){
+      var b = v.boxes[i];
+      var sel = (i === state.selected);
+      var bx = Math.round(b.x) + 0.5, by = Math.round(b.y) + 0.5;
+      var bw = Math.round(b.w), bh = Math.round(b.h);
+
+      ctx.beginPath();
+      ctx.rect(bx, by, bw, bh);
+      ctx.fillStyle = sel ? accent : sf2;
+      ctx.fill();
+      ctx.strokeStyle = sel ? accent : line;
+      ctx.lineWidth = sel ? 3 : 1;
+      ctx.stroke();
+
+      // 순서 번호를 왼쪽 위 모서리에 작게.
+      ctx.font = '8px ui-monospace, Consolas, monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillStyle = sel ? sf : dim;
+      ctx.fillText(String(i + 1), b.x + 4, b.y + 3);
+
+      if (!(inner > 0)) continue;
+      ctx.font = fs + 'px ui-monospace, Consolas, monospace';
+      var ls = wrapWords(ctx, STEPS[i].lines.join(' '), inner);
+      if (ls.length < 1) continue;
+      var lh = Math.round(fs * 1.22);
+      var startY = b.y + b.h / 2 - ((ls.length - 1) * lh) / 2;
+      ctx.fillStyle = sel ? sf : text;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (k = 0; k < ls.length; k++){
+        // maxWidth 로 마지막 안전장치를 둔다. 박스 밖으로 새지 않게 한다.
+        ctx.fillText(ls[k], b.x + b.w / 2, startY + k * lh, inner);
+      }
+    }
+
+    // 방향 표시
+    label(ctx, '시간 ↓', w / 2, h - 14, dim, 'center', 9);
+  }
 
   function refresh(){
     var i = state.selected;
