@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>NavMesh는 어떻게 만들어지나</title>
+<meta name="note-title" content="NavMesh는 어떻게 만들어지나">
+<meta name="note-summary" content="지형이 걷기면이 되기까지. 네 개의 Agent 값이 바닥을 어떻게 깎는지 단면으로 본다.">
+<meta name="note-tags" content="NavMesh, Recast, 내비게이션">
+<meta name="note-order" content="15">
+<meta name="note-category" content="AI와 길찾기">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+/* 이 페이지 전용 */
+.stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow:hidden;margin:0 0 10px}
+.stage canvas{display:block;width:100%}
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>NavMesh는 어떻게 만들어지나</h1>
+<p>지형이 걷기면이 되기까지. 네 개의 Agent 값이 바닥을 어떻게 깎는지 단면으로 본다.</p>
+</header>
+
+<article>
+
+<p>NavMesh 는 지형 삼각형을 그대로 쓰지 않는다. 삼각형 수백만 개에 "여기 설 수 있나"를 매번 묻는 것은 불가능하다. 그래서 <b>공간을 일정한 크기의 칸(복셀)으로 바꿔 놓고, 그 칸 위에서 걸을 수 있는 면만 골라낸다.</b> 그 결과물이 NavMesh 다.</p>
+
+<p>여기서 중요한 것: <b>NavMesh 는 지형의 모양이 아니라 "이 캐릭터가 갈 수 있는 곳"의 모양이다.</b> 같은 지형이라도 캐릭터가 뚱뚱하면 길이 좁아지고, 키가 크면 못 지나는 데가 생긴다.</p>
+
+<h2>1. 공간을 칸으로 바꾼다</h2>
+
+<p>Recast 는 지형을 먼저 <b>복셀</b>로 바꾼다. 가로 한 칸이 <code>CellSize</code> 19 uu, 높이 한 칸이 <code>CellHeight</code> 10 uu 다. 지형의 모든 높이는 이 격자에 맞춰 반올림된다. 그래서 19 uu 보다 좁은 틈은 애초에 표현되지 않는다. 문틈이 손가락만큼 벌어져 있어도 AI 가 못 지나가는 일이 여기서 생긴다.</p>
+
+<p>칸을 작게 잡을수록 지형을 정밀하게 담지만, 같은 넓이라도 칸 수가 가로·세로로 함께 늘어나기 때문에 전체 칸 수는 제곱으로 늘어난다. 굽는 시간과 메모리도 같이 늘어난다. 정밀도와 비용 사이에서 고르는 값이다.</p>
+
+<h2>2. 네 개의 값이 바닥을 깎는다</h2>
+
+<p>복셀을 다 채웠다고 그 전부가 길이 되는 것은 아니다. 캐릭터가 감당할 수 없는 곳을 차례로 걸러 낸다. 아래 단면도에서 슬라이더를 움직이면 각 값이 걷기면을 어디서 자르는지 보인다.</p>
+
+<div class="controls">
+  <div class="ctl">
+    <label for="slope">AgentMaxSlope <span class="val" id="slopeV"></span></label>
+    <input id="slope" type="range" min="10" max="80" step="1" value="44">
+    <div class="hint">오를 수 있는 경사. 이보다 가파른 면은 걷기면에서 빠진다. 벽은 90도라 항상 빠진다.</div>
+  </div>
+  <div class="ctl">
+    <label for="height">AgentHeight <span class="val" id="heightV"></span></label>
+    <input id="height" type="range" min="60" max="300" step="2" value="144">
+    <div class="hint">캐릭터 키. 머리 위 공간이 이보다 좁으면 바닥이 멀쩡해도 지나갈 수 없다.</div>
+  </div>
+  <div class="ctl">
+    <label for="step">AgentMaxStepHeight <span class="val" id="stepV"></span></label>
+    <input id="step" type="range" min="5" max="120" step="1" value="35">
+    <div class="hint">넘을 수 있는 턱 높이. 이 이하면 이어진 길로 보고, 넘으면 그 자리에서 끊긴다.</div>
+  </div>
+  <div class="ctl">
+    <label for="radius">AgentRadius <span class="val" id="radiusV"></span></label>
+    <input id="radius" type="range" min="0" max="120" step="1" value="34">
+    <div class="hint">캐릭터 반지름. 벽에 붙어 설 수 없으므로 걷기면을 벽에서 이만큼 안쪽으로 깎는다.</div>
+  </div>
+</div>
+
+<div class="stage"><canvas id="cvStage" aria-label="지형 단면과 걷기면. 네 개의 Agent 값에 따라 걷기면이 깎이고 끊기는 모습을 보여준다."></canvas></div>
+
+<div class="readout">
+  <div class="cell"><span class="k">걸을 수 있는 칸</span><span class="v" id="rWalk"></span></div>
+  <div class="cell"><span class="k">끊긴 자리</span><span class="v" id="rBreaks"></span></div>
+  <div class="cell"><span class="k">침식으로 사라진 칸</span><span class="v" id="rEroded"></span></div>
+</div>
+
+<p class="note">가로 한 칸이 <code>CellSize</code> 19 uu 이고 모두 120칸이다. 위쪽이 +Z 다. 굵은 선이 실제로 걸을 수 있는 면, 점선이 걸러진 칸, 세로 막대가 구간이 끊긴 자리다. 그림은 판정을 눈으로 보이게 하려고 2D 단면으로 그렸다.</p>
+
+<h3>AgentMaxSlope — 44도</h3>
+<p>인접한 칸 사이의 기울기가 이 값보다 가파르면 그 칸은 걷기면에서 빠진다. 그림의 오른쪽 급경사는 한 칸당 <code>atan(24 / 19)</code>, 약 51.6도다. 기본값 44도에서는 이 구간이 통째로 빠지고, 슬라이더를 52도 위로 올리면 다시 길이 된다. 벽은 90도이므로 어느 값에서도 빠진다.</p>
+
+<h3>AgentHeight — 144</h3>
+<p>머리 위 공간이 이보다 좁으면 못 지나간다. 그림 가운데의 천장은 바닥에서 120 uu 떠 있다. 바닥 자체는 평평하지만 키 144 짜리 캐릭터에게는 24 uu 가 모자라서, 그 아래 구간만 길에서 빠진다. 바닥은 멀쩡한데 천장 때문에 길이 끊기는 경우가 여기서 나온다.</p>
+
+<h3>AgentMaxStepHeight — 35</h3>
+<p>높이 차가 이 이하면 <b>이어진 길</b>로 보고, 넘으면 <b>끊어진다.</b> 그림 오른쪽의 낮은 턱은 30 uu 씩 올라가므로 기본값 35 에서는 계단처럼 걸어 올라간다. 슬라이더를 30 아래로 내리면 같은 지형이 세 군데에서 끊긴다. 계단 한 칸이 35 이하면 걸어 올라가고, 36 이면 그 자리에서 길이 끊긴다.</p>
+
+<h3>AgentRadius — 34</h3>
+<p>캐릭터는 점이 아니라 원통이다. 벽에 붙어 설 수 없으므로 걷기면을 벽에서 반지름만큼 <b>안쪽으로 깎는다.</b> 이것을 침식이라고 한다. 칸 크기가 19 uu 이므로 반지름 34 는 두 칸이다. 급경사나 천장으로 빠진 칸에서 두 칸 이내에 있는 칸도 함께 사라진다. 좁은 통로가 통째로 사라지는 이유가 이것이다. 슬라이더를 키우면 길이 양쪽에서 갉아먹히는 것이 보인다.</p>
+
+<p class="note">엔진은 이 판정을 3D 복셀에서 한다. 이 그림은 이해를 위해 단면으로 줄인 것이며, 한 칸짜리 턱과 이어지는 경사를 구분하려고 "앞뒤로 같은 방향의 높이 변화가 이어지지 않는 고립된 차이"만 턱으로 취급했다.</p>
+
+<h2>3. 깎고 남은 것이 타일과 레이어로 저장된다</h2>
+
+<p>이렇게 걸러 낸 면을 Recast 는 일정한 구역으로 잘라 저장한다. 그 구역이 <b>타일</b>이고, 같은 구역에 걸을 수 있는 면이 여러 겹이면 <b>레이어</b>로 나눠 담는다. 여기까지 오면 남은 이야기는 저장 단위와 예산이다.</p>
+
+<p><a href="navmesh-tiles-and-layers.html">NavMesh 타일과 레이어</a></p>
+
+<h2>4. 무엇이 NavMesh 에 들어가나</h2>
+
+<p>모든 액터가 내비게이션 대상이 되는 것은 아니다. <code>UPrimitiveComponent::IsNavigationRelevant()</code> 는 콜리전 응답 가운데 <b><code>ECC_Pawn</code> 또는 <code>ECC_Vehicle</code> 이 Block 인 것만</b> 내비게이션 대상으로 본다. 둘 중 하나라도 Block 이면 된다. Query Collision 이 꺼져 있는 컴포넌트도 역시 제외된다.</p>
+
+<p>여기서 나오는 귀결이 하나 있다. <b>직접 만든 커스텀 콜리전 채널은 NavMesh 가 보지 않는다.</b> 캐릭터는 그 채널로 막혀 있어서 못 지나가는데, AI 경로는 그 벽을 뚫고 그어지는 증상이 여기서 나온다. 커스텀 채널로 벽을 세웠다면 그 컴포넌트의 <code>ECC_Pawn</code> 응답도 함께 Block 으로 두어야 한다.</p>
+
+<blockquote>
+<p class="src">출처 — <code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></p>
+</blockquote>
+
+<h2>5. 기본값 표</h2>
+
+<table>
+<thead><tr><th>이름</th><th>기본값</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>CellSize</code></td><td>19 uu</td><td>복셀 한 칸의 XY 크기. 해상도별로 따로 있고 Default 가 19 (Low 38, High 19)</td></tr>
+<tr><td><code>CellHeight</code></td><td>10 uu</td><td>복셀 한 칸의 높이</td></tr>
+<tr><td><code>AgentRadius</code></td><td>34 uu</td><td>캐릭터 반지름</td></tr>
+<tr><td><code>AgentHeight</code></td><td>144 uu</td><td>캐릭터 키</td></tr>
+<tr><td><code>AgentMaxStepHeight</code></td><td>35 uu</td><td>넘을 수 있는 턱 높이</td></tr>
+<tr><td><code>AgentMaxSlope</code></td><td>44 도</td><td>오를 수 있는 경사</td></tr>
+</tbody>
+</table>
+
+<p class="note">출처 — <code>Engine/Config/BaseEngine.ini</code>, <code>Engine/Source/Runtime/NavigationSystem/Public/NavMesh/RecastNavMesh.h</code></p>
+
+</article>
+
+<footer class="site-foot">
+<p>단면도는 2D 로 단순화한 것이다. 실제 Recast 는 3D 복셀에서 같은 판정을 한다.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var cssv = function(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+
+  var N = 120, CELL = 19, FAR = 99999;
+
+  // 고정 지형. 칸 i 의 X 는 i * 19 uu.
+  var H = new Array(N), C = new Array(N);
+  for (var i = 0; i < N; i++){
+    var h;
+    if (i <= 19) h = 0;
+    else if (i <= 29) h = (i - 19) * 6;
+    else if (i <= 39) h = 60;
+    else if (i <= 49) h = 60 + (i - 39) * 24;
+    else if (i <= 59) h = 300;
+    else if (i <= 61) h = 0;
+    else if (i <= 79) h = 0;
+    else if (i <= 83) h = 30;
+    else if (i <= 87) h = 60;
+    else h = 90;
+    H[i] = h;
+    C[i] = (i >= 66 && i <= 75) ? h + 120 : FAR;
+  }
+
+  function sameDir(a, b){
+    return a !== 0 && b !== 0 && ((a > 0 && b > 0) || (a < 0 && b < 0));
+  }
+
+  // 이웃한 두 칸의 높이차가 경사 판정에 들어가는지.
+  // 높이차가 턱 한계 이하이면서 앞뒤로 같은 방향의 변화가 이어지지 않는
+  // 고립된 차이만 턱으로 본다. 이어지는 경사는 턱이 아니라 경사다.
+  function pairIsSlope(i, stepH){
+    var d = H[i + 1] - H[i], ad = Math.abs(d);
+    if (ad === 0) return false;
+    if (ad > stepH) return true;
+    var prev = (i > 0) ? H[i] - H[i - 1] : 0;
+    var next = (i + 2 < N) ? H[i + 2] - H[i + 1] : 0;
+    return sameDir(d, prev) || sameDir(d, next);
+  }
+
+  function compute(s){
+    var walk = new Array(N), ero = new Array(N), seg = new Array(N);
+    var i, j;
+    for (i = 0; i < N; i++){ walk[i] = true; ero[i] = false; seg[i] = -1; }
+
+    // 1. 경사
+    for (i = 0; i < N; i++){
+      var g = 0;
+      if (i > 0 && pairIsSlope(i - 1, s.step)) g = Math.max(g, Math.abs(H[i] - H[i - 1]));
+      if (i < N - 1 && pairIsSlope(i, s.step)) g = Math.max(g, Math.abs(H[i + 1] - H[i]));
+      if (g > 0 && Math.atan(g / CELL) * 180 / Math.PI > s.slope) walk[i] = false;
+    }
+
+    // 2. 천장
+    for (i = 0; i < N; i++){
+      if (C[i] - H[i] < s.height) walk[i] = false;
+    }
+
+    // 3. 침식. 1~2 의 결과를 고정해 두고 별도 배열로 계산한다.
+    //    제자리에서 바꾸면 번진 결과가 다시 판정에 들어가 연쇄로 퍼진다.
+    var k = Math.ceil(s.radius / CELL);
+    var erodedCount = 0;
+    for (i = 0; i < N; i++){
+      if (!walk[i] || k <= 0) continue;
+      var hit = false;
+      for (j = 0; j < N; j++){
+        if (!walk[j] && Math.abs(j - i) <= k){ hit = true; break; }
+      }
+      if (hit){ ero[i] = true; erodedCount++; }
+    }
+    for (i = 0; i < N; i++){ if (ero[i]) walk[i] = false; }
+
+    // 4. 구간 나누기
+    var segs = 0, prev = -1, walkCount = 0;
+    for (i = 0; i < N; i++){
+      if (!walk[i]) continue;
+      walkCount++;
+      if (prev < 0) segs = 1;
+      else if (i !== prev + 1) segs++;
+      else if (Math.abs(H[i] - H[prev]) > s.step) segs++;
+      seg[i] = segs - 1;
+      prev = i;
+    }
+
+    return { walk: walk, seg: seg, walkCount: walkCount,
+             breaks: Math.max(0, segs - 1), eroded: erodedCount };
+  }
+
+  var S = { slope: 44, height: 144, step: 35, radius: 34 };
+  var cur = compute(S);
+  var views = [];
+
+  function makeView(id, ratio, draw){
+    var cv = $(id), v = { cv: cv, ctx: cv.getContext('2d'), w: 0, h: 0 };
+    // 크기가 아직 안 잡혔으면 그리지 않는다. ResizeObserver 가 늦게 돌기 때문에
+    // 첫 render() 시점에는 w/h 가 0 일 수 있고, 그 상태로 그리면 좌표가 음수가 된다.
+    v.draw = function(){
+      if (!(v.w > 0) || !(v.h > 0)) return;
+      v.ctx.clearRect(0, 0, v.w, v.h);
+      draw(v);
+    };
+    v.resize = function(){
+      var w = cv.clientWidth;
+      if (!(w > 0)) return;
+      v.w = w; v.h = Math.round(w * ratio);
+      var dpr = window.devicePixelRatio || 1;
+      cv.style.height = v.h + 'px';
+      cv.width = Math.round(w * dpr); cv.height = Math.round(v.h * dpr);
+      v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      v.draw();
+    };
+    var last = 0;
+    new ResizeObserver(function(){
+      if (cv.clientWidth !== last){ last = cv.clientWidth; v.resize(); }
+    }).observe(cv);
+    views.push(v);
+    return v;
+  }
+
+  function label(ctx, s, x, y, color, align, size){
+    ctx.font = (size || 11) + 'px ui-monospace, Consolas, monospace';
+    ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = color; ctx.fillText(s, x, y);
+  }
+
+  var view = makeView('cvStage', 0.46, function(v){
+    var ctx = v.ctx;
+    var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'),
+        warn = cssv('--warn'), sf2 = cssv('--surface-2'), text = cssv('--text');
+
+    var padL = 38, padR = 10, padT = 36, padB = 22;
+    var plotW = v.w - padL - padR, plotH = v.h - padT - padB;
+    if (plotW <= 0 || plotH <= 0) return;
+
+    var ZMAX = 420, XMAX = 2280;
+    var X = function(uu){ return padL + (uu / XMAX) * plotW; };
+    var Y = function(z){ return padT + (ZMAX - z) / ZMAX * plotH; };
+    var i;
+
+    // 바탕
+    ctx.fillStyle = sf2;
+    ctx.fillRect(padL, padT, plotW, plotH);
+
+    // 눈금
+    var zs = [0, 100, 200, 300, 400];
+    ctx.strokeStyle = line; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (i = 0; i < 5; i++){
+      var gy = Math.round(Y(zs[i])) + 0.5;
+      ctx.moveTo(padL, gy); ctx.lineTo(padL + plotW, gy);
+    }
+    ctx.stroke();
+    for (i = 0; i < 5; i++){
+      label(ctx, zs[i] + '', padL - 5, Y(zs[i]), dim, 'right', 10);
+    }
+    var xs = [0, 500, 1000, 1500, 2000];
+    for (i = 0; i < 5; i++){
+      label(ctx, xs[i] + '', X(xs[i]), v.h - 8, dim, 'center', 10);
+    }
+    label(ctx, 'uu', padL + plotW, v.h - 8, dim, 'right', 10);
+
+    // 지형 채움
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(0));
+    for (i = 0; i < N; i++){
+      ctx.lineTo(X(i * CELL), Y(H[i]));
+      ctx.lineTo(X((i + 1) * CELL), Y(H[i]));
+    }
+    ctx.lineTo(X(XMAX), Y(0));
+    ctx.closePath();
+    ctx.fillStyle = dim; ctx.globalAlpha = 0.18;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // 지형 윤곽
+    ctx.beginPath();
+    ctx.moveTo(X(0), Y(H[0]));
+    for (i = 0; i < N; i++){
+      ctx.lineTo(X(i * CELL), Y(H[i]));
+      ctx.lineTo(X((i + 1) * CELL), Y(H[i]));
+    }
+    ctx.strokeStyle = dim; ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // 천장
+    for (i = 0; i < N; i++){
+      if (C[i] >= FAR) continue;
+      var cx1 = X(i * CELL), cx2 = X((i + 1) * CELL);
+      ctx.fillStyle = warn; ctx.globalAlpha = 0.10;
+      ctx.fillRect(cx1, Y(C[i]), cx2 - cx1, Y(H[i]) - Y(C[i]));
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = warn; ctx.globalAlpha = 0.55; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx1, Y(C[i])); ctx.lineTo(cx2, Y(C[i]));
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    label(ctx, '천장', X(70.5 * CELL), Y(120) - 9, warn, 'center', 10);
+
+    // 못 걷는 칸 (옅은 점선)
+    ctx.strokeStyle = warn; ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    for (i = 0; i < N; i++){
+      if (cur.walk[i]) continue;
+      ctx.moveTo(X(i * CELL), Y(H[i]));
+      ctx.lineTo(X((i + 1) * CELL), Y(H[i]));
+    }
+    ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+
+    // 걸을 수 있는 면 (굵은 선)
+    ctx.strokeStyle = accent; ctx.lineWidth = 3; ctx.lineCap = 'butt';
+    ctx.beginPath();
+    for (i = 0; i < N; i++){
+      if (!cur.walk[i]) continue;
+      ctx.moveTo(X(i * CELL), Y(H[i]));
+      ctx.lineTo(X((i + 1) * CELL), Y(H[i]));
+    }
+    ctx.stroke();
+
+    // 끊긴 자리
+    var lastSeg = -1;
+    for (i = 0; i < N; i++){
+      if (cur.seg[i] < 0) continue;
+      if (cur.seg[i] !== lastSeg){
+        if (lastSeg >= 0){
+          var mx = X(i * CELL), my = Y(H[i]);
+          ctx.strokeStyle = warn; ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(mx, my - 9); ctx.lineTo(mx, my + 9);
+          ctx.stroke();
+        }
+        lastSeg = cur.seg[i];
+      }
+    }
+
+    // 범례
+    ctx.strokeStyle = accent; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(padL, 12); ctx.lineTo(padL + 16, 12); ctx.stroke();
+    label(ctx, '걸을 수 있는 면', padL + 21, 12, text, 'left', 11);
+
+    ctx.strokeStyle = warn; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(padL + 150, 12); ctx.lineTo(padL + 166, 12); ctx.stroke();
+    ctx.setLineDash([]);
+    label(ctx, '못 걷는 칸', padL + 171, 12, dim, 'left', 11);
+
+    ctx.strokeStyle = warn; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(padL + 1, 20); ctx.lineTo(padL + 1, 30); ctx.stroke();
+    label(ctx, '끊긴 자리', padL + 8, 25, dim, 'left', 11);
+  });
+
+  function render(){
+    S.slope = Number($('slope').value);
+    S.height = Number($('height').value);
+    S.step = Number($('step').value);
+    S.radius = Number($('radius').value);
+
+    $('slopeV').textContent = S.slope + '도';
+    $('heightV').textContent = S.height + ' uu';
+    $('stepV').textContent = S.step + ' uu';
+    $('radiusV').textContent = S.radius + ' uu';
+
+    cur = compute(S);
+
+    $('rWalk').textContent = cur.walkCount + ' / 120';
+    $('rBreaks').textContent = cur.breaks + '곳';
+    $('rEroded').textContent = cur.eroded + '칸';
+
+    view.draw();
+  }
+
+  ['slope', 'height', 'step', 'radius'].forEach(function(id){
+    $(id).addEventListener('input', render);
+  });
+
+  render();
+})();
+</script>
+
+</body>
+</html>
