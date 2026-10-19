@@ -1,0 +1,291 @@
+/* ue-notes 공용 스타일. 폰 세로 화면을 기준으로 잡고, 넓은 화면에서 폭만 제한한다. */
+
+:root {
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --surface-2: #f3f1ed;
+  --line: #e2ded7;
+  --text: #1c1b19;
+  --text-dim: #6b6761;
+  --accent: #2f6f4f;
+  --accent-dim: #dcebe2;
+  --warn: #9a5b12;
+  --radius: 12px;
+  --gutter: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #16161a;
+    --surface: #1e1e23;
+    --surface-2: #26262c;
+    --line: #35353d;
+    --text: #e8e6e3;
+    --text-dim: #9a968f;
+    --accent: #6fcf9a;
+    --accent-dim: #1f3a2c;
+    --warn: #e0a258;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #16161a;
+  --surface: #1e1e23;
+  --surface-2: #26262c;
+  --line: #35353d;
+  --text: #e8e6e3;
+  --text-dim: #9a968f;
+  --accent: #6fcf9a;
+  --accent-dim: #1f3a2c;
+  --warn: #e0a258;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo",
+               "Malgun Gothic", "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.7;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.wrap {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 var(--gutter) 64px;
+}
+
+/* --- 머리말 --- */
+
+.site-head {
+  padding: 28px 0 20px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+
+.site-head h1 {
+  margin: 0 0 6px;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+.site-head p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.back {
+  display: inline-block;
+  margin: 20px 0 0;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.back:hover { text-decoration: underline; }
+
+/* --- 목차 --- */
+
+.toc { list-style: none; margin: 0; padding: 0; }
+
+.toc li { margin: 0 0 12px; }
+
+.toc a {
+  display: block;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: inherit;
+}
+
+.toc a:active { background: var(--surface-2); }
+
+.toc .t {
+  display: block;
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-bottom: 4px;
+}
+
+.toc .s {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.tags { margin-top: 10px; }
+
+.tag {
+  display: inline-block;
+  padding: 2px 9px;
+  margin: 0 6px 0 0;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-dim);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+/* --- 본문 --- */
+
+article h2 {
+  margin: 36px 0 12px;
+  font-size: 1.2rem;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+article h3 { margin: 26px 0 8px; font-size: 1.03rem; }
+
+article p { margin: 0 0 14px; }
+
+article ul, article ol { margin: 0 0 14px; padding-left: 1.3em; }
+
+article li { margin-bottom: 6px; }
+
+code {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.88em;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+
+pre {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  overflow-x: auto;
+}
+
+pre code { background: none; padding: 0; }
+
+blockquote {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 0.92rem;
+}
+
+th, td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+th { background: var(--surface-2); font-weight: 600; }
+
+/* --- 그림과 조작 --- */
+
+figure {
+  margin: 0 0 20px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+figure svg, figure canvas { display: block; width: 100%; height: auto; }
+
+figcaption {
+  margin-top: 10px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.controls {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 14px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.ctl label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.88rem;
+  margin-bottom: 6px;
+}
+
+.ctl .val {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.ctl input[type="range"] {
+  width: 100%;
+  height: 28px;
+  accent-color: var(--accent);
+}
+
+.ctl .hint { font-size: 0.78rem; color: var(--text-dim); }
+
+.readout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.readout .cell {
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.readout .k { display: block; font-size: 0.78rem; color: var(--text-dim); }
+
+.readout .v {
+  display: block;
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.readout .cell.over { border-color: var(--warn); }
+.readout .cell.over .v { color: var(--warn); }
+
+.site-foot {
+  margin-top: 48px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}

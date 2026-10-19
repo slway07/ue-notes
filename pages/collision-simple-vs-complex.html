@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Collision 해부도</title>
+<meta name="note-title" content="Collision — Simple vs Complex">
+<meta name="note-summary" content="Simple은 속이 찬 솔리드, Complex는 속이 빈 껍데기. 공을 끌어 넣어 보며 차이를 확인한다.">
+<meta name="note-tags" content="Collision, Static Mesh, Trace">
+<meta name="note-order" content="10">
+<meta name="theme-color" content="#08796a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* 레이아웃: 좁은 단일 칼럼, 섹션마다 조작 가능한 단면도 하나 + 판독 카드 */
+:root{
+  --bg:#eff3f6; --surface:#ffffff; --fg:#13202b; --muted:#566676; --line:#d3dce4; --grid:#e8edf2; --chip:#e4ebf1;
+  --simple:#08796a; --complex:#c24a14; --probe:#3558d6; --hit:#d11f4d;
+  --sans:'IBM Plex Sans KR',system-ui,'Malgun Gothic',sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e141a; --surface:#151e26; --fg:#e5ecf2; --muted:#8ea0b1; --line:#27333e; --grid:#1c2731; --chip:#202c37;
+    --simple:#3ccbb5; --complex:#ff8d57; --probe:#8aa4ff; --hit:#ff5c84;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e141a; --surface:#151e26; --fg:#e5ecf2; --muted:#8ea0b1; --line:#27333e; --grid:#1c2731; --chip:#202c37;
+  --simple:#3ccbb5; --complex:#ff8d57; --probe:#8aa4ff; --hit:#ff5c84;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+img{max-width:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.7}
+.page{max-width:880px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1{font-size:30px;line-height:1.25;margin:0 0 10px;font-weight:700;text-wrap:balance}
+h2{font-size:21px;line-height:1.35;margin:0 0 8px;font-weight:700;text-wrap:balance}
+h3{font-size:15px;margin:0 0 4px;font-weight:700}
+p{margin:0 0 12px;max-width:66ch}
+code{font-family:var(--mono);font-size:.9em;background:var(--chip);padding:1px 5px;border-radius:4px}
+.lead{color:var(--muted);font-size:16px;max-width:62ch}
+section{margin-top:56px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+
+.nav{margin:0 0 24px;font-size:13px}
+.nav a{color:var(--simple);text-decoration:none}
+.nav a:hover{text-decoration:underline}
+
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
+.def{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px 18px;min-width:0}
+.def ul{margin:8px 0 0;padding-left:18px}
+.def li{margin-bottom:4px}
+.tag{display:inline-flex;align-items:center;gap:8px;font-weight:700}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px}
+.sw.simple{background:var(--simple)}
+.sw.complex{background:var(--complex)}
+
+.controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;margin:16px 0 10px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--surface)}
+.seg button{font:inherit;font-size:13px;line-height:1.2;padding:8px 13px;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+.seg button:focus-visible,input[type=range]:focus-visible{outline:2px solid var(--probe);outline-offset:2px}
+.slider{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+.slider output{font-family:var(--mono);color:var(--fg);min-width:2ch;text-align:right}
+input[type=range]{accent-color:var(--probe);width:150px}
+
+.stage{border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+.stage.narrow{max-width:520px}
+.stage canvas{display:block;width:100%;touch-action:none;cursor:grab}
+.stage canvas:active{cursor:grabbing}
+.hint{font-size:13px;color:var(--muted);margin:8px 0 0}
+
+.readouts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.readout{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0;transition:opacity .15s}
+.readout.off{opacity:.38}
+.rhead{display:flex;align-items:center;gap:8px;font-weight:700;margin-bottom:4px}
+.state{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:500;padding:2px 8px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.state.on{background:var(--hit);color:#fff}
+.readout p{margin:0;font-size:14px;line-height:1.6}
+.readout.single{grid-column:1 / -1}
+.stage.narrow + .readouts{max-width:520px;grid-template-columns:1fr}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface);margin-top:16px}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--line)}
+th{font-size:12px;letter-spacing:.04em;color:var(--muted);font-weight:500;background:var(--chip)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-family:var(--mono);font-size:13px;white-space:nowrap}
+
+.checks{margin:16px 0 0;padding:0;list-style:none;display:grid;gap:10px}
+.checks li{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
+.checks b{display:block;margin-bottom:2px}
+.foot{margin-top:56px;font-size:13px;color:var(--muted)}
+
+@media (max-width:640px){
+  .pair,.readouts{grid-template-columns:1fr}
+  h1{font-size:25px}
+  input[type=range]{width:120px}
+}
+</style>
+</head>
+<body>
+
+<div class="page">
+  <p class="nav"><a href="../index.html">&larr; 목차</a></p>
+  <header>
+    <div class="eyebrow">Unreal Engine 5 · Collision</div>
+    <h1>Collision 해부도</h1>
+    <p class="lead">Static Mesh의 Simple과 Complex 충돌이 실제로 어떻게 다른지, 구 모양 메시 하나로 직접 움직여 보며 확인합니다. 아래 그림의 점과 공은 마우스(또는 손가락)로 끌 수 있습니다.</p>
+    <div class="pair">
+      <div class="def">
+        <div class="tag"><span class="sw simple"></span>Simple</div>
+        <ul>
+          <li>Sphere, Box, Capsule, Convex 같은 단순 도형</li>
+          <li><b>부피가 있는 솔리드</b>, 내부가 꽉 참</li>
+          <li>이동, 물리 시뮬레이션의 기본값</li>
+        </ul>
+      </div>
+      <div class="def">
+        <div class="tag"><span class="sw complex"></span>Complex</div>
+        <ul>
+          <li>렌더링용 삼각형 메시를 그대로 사용 (Trimesh)</li>
+          <li><b>표면만 있는 껍데기</b>, 내부가 빔</li>
+          <li>정밀 트레이스, 정적 지형·건물에 사용</li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <section id="a">
+    <div class="eyebrow">1 · 단면도</div>
+    <h2>구 안쪽에 공을 넣어 보기</h2>
+    <p>구 모양 메시의 가운데를 자른 단면입니다. 파란 공을 구 안쪽으로 끌어 넣으면 두 방식의 반응이 갈립니다. Simple은 안쪽도 물체로 보기 때문에 겹침으로 잡고 밖으로 밀어내지만, Complex는 닿는 삼각형이 없으면 아무 일도 일어나지 않습니다.</p>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="표시할 충돌">
+        <button type="button" data-mode="both" aria-pressed="true">둘 다</button>
+        <button type="button" data-mode="simple" aria-pressed="false">Simple</button>
+        <button type="button" data-mode="complex" aria-pressed="false">Complex</button>
+      </div>
+      <label class="slider" for="nA">메시 분할 수 <input id="nA" type="range" min="6" max="48" value="12"><output id="nAo">12</output></label>
+    </div>
+    <div class="stage"><canvas id="cvA" aria-label="구 단면과 공의 충돌 비교"></canvas></div>
+    <p class="hint">Complex의 분할 수를 줄이면 다각형이 거칠어집니다. Simple은 수학적으로 완전한 구라서 분할 수와 무관합니다.</p>
+    <div class="readouts">
+      <div class="readout" id="roAS"><div class="rhead"><span class="sw simple"></span>Simple<span class="state" id="stAS">-</span></div><p id="txAS"></p></div>
+      <div class="readout" id="roAC"><div class="rhead"><span class="sw complex"></span>Complex<span class="state" id="stAC">-</span></div><p id="txAC"></p></div>
+    </div>
+  </section>
+
+  <section id="b">
+    <div class="eyebrow">2 · 라인 트레이스</div>
+    <h2>같은 선을 쏴도 맞는 지점이 다르다</h2>
+    <p>Start와 End 점을 끌어서 선을 옮겨 보세요. 라인 트레이스는 <code>bTraceComplex</code> 값에 따라 Simple 도형 또는 삼각형 메시와 검사합니다. 구가 다각형으로 근사되어 있어서 Complex의 히트 지점은 실제 구 표면보다 안쪽에 찍힙니다. Start를 구 안쪽으로 옮기면 두 방식의 처리 차이도 볼 수 있습니다.</p>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="bTraceComplex">
+        <button type="button" data-tr="0" aria-pressed="true">bTraceComplex = false</button>
+        <button type="button" data-tr="1" aria-pressed="false">bTraceComplex = true</button>
+      </div>
+      <label class="slider" for="nB">메시 분할 수 <input id="nB" type="range" min="6" max="48" value="10"><output id="nBo">10</output></label>
+    </div>
+    <div class="stage"><canvas id="cvB" aria-label="라인 트레이스 히트 지점 비교"></canvas></div>
+    <div class="readouts">
+      <div class="readout" id="roBS"><div class="rhead"><span class="sw simple"></span>Simple 히트<span class="state" id="stBS">-</span></div><p id="txBS"></p></div>
+      <div class="readout" id="roBC"><div class="rhead"><span class="sw complex"></span>Complex 히트<span class="state" id="stBC">-</span></div><p id="txBC"></p></div>
+      <div class="readout single" id="roBX"><p id="txBX"></p></div>
+    </div>
+  </section>
+
+  <section id="c">
+    <div class="eyebrow">3 · 오목한 모양</div>
+    <h2>컵 모양에서는 Simple이 막힌다</h2>
+    <p>Convex(볼록) 도형은 오목한 부분을 표현할 수 없습니다. 컵 단면에 Convex를 하나만 쓰면 안쪽 빈 공간이 뚜껑 덮인 상자처럼 막힙니다. 컵 안쪽으로 공을 끌어 넣어 세 가지 방식을 비교해 보세요.</p>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="충돌 방식">
+        <button type="button" data-cm="complex" aria-pressed="true">Complex</button>
+        <button type="button" data-cm="hull" aria-pressed="false">Convex 1개</button>
+        <button type="button" data-cm="multi" aria-pressed="false">Convex 3개</button>
+      </div>
+    </div>
+    <div class="stage narrow"><canvas id="cvC" aria-label="컵 모양 단면과 공의 충돌 비교"></canvas></div>
+    <div class="readouts">
+      <div class="readout single" id="roC"><div class="rhead"><span class="sw" id="swC"></span><span id="ttC">-</span><span class="state" id="stC">-</span></div><p id="txC"></p></div>
+    </div>
+    <p class="hint">Static Mesh 에디터의 <code>Collision &gt; Auto Convex Collision</code>이 이 분해를 자동으로 해 줍니다. Hull 수와 정점 수를 늘릴수록 모양에 가까워지지만 비용도 늘어납니다.</p>
+  </section>
+
+  <section id="d">
+    <div class="eyebrow">4 · 정리</div>
+    <h2>Collision Complexity 옵션</h2>
+    <p>Static Mesh의 Details 패널에 있는 <code>Collision Complexity</code>가 어느 쪽을 쓸지 결정합니다.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>옵션</th><th>Simple 쿼리(이동, 일반 검사)</th><th>Complex 쿼리(<code>bTraceComplex</code>)</th><th>주로 쓰는 곳</th></tr></thead>
+        <tbody>
+          <tr><td>Project Default</td><td colspan="2">프로젝트 설정의 기본값을 따름 (보통 Simple And Complex)</td><td>특별한 이유가 없을 때</td></tr>
+          <tr><td>Simple And Complex</td><td>Simple 도형 사용</td><td>삼각형 메시 사용</td><td>소품, 물리 시뮬레이션 물체</td></tr>
+          <tr><td>Use Simple Collision As Complex</td><td>Simple 도형 사용</td><td>Simple 도형으로 대신 처리</td><td>삼각형 메시를 만들지 않아 메모리 절약</td></tr>
+          <tr><td>Use Complex Collision As Simple</td><td>삼각형 메시로 대신 처리</td><td>삼각형 메시 사용</td><td>정적 지형, 건물. 시뮬레이션 불가</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul class="checks">
+      <li><b>구 모양 물체</b>Simple은 Sphere 1개면 충분합니다. 삼각형 수천 개짜리 Complex로 구를 검사할 이유가 없습니다.</li>
+      <li><b>Simulate Physics를 켤 물체</b>Simple 도형이 있어야 합니다. 삼각형 껍데기는 부피가 없어서 질량과 관성을 계산할 수 없기 때문입니다.</li>
+      <li><b>면 정보가 필요한 트레이스</b>맞은 면의 머티리얼이나 UV가 필요하면 <code>bTraceComplex</code>를 켜고, 필요에 따라 <code>bReturnFaceIndex</code>도 사용합니다.</li>
+      <li><b>에디터에서 확인</b>Static Mesh 에디터의 Show 메뉴에서 Simple Collision과 Complex Collision을 따로 켜서 볼 수 있습니다. Simple은 와이어로 보여도 내부가 찬 볼륨이라는 점만 기억하면 됩니다.</li>
+    </ul>
+  </section>
+
+  <p class="foot">그림 속 길이 단위는 구 반지름을 100 cm로 본 값입니다. 판정은 2D 단면에서 계산한 단순화이며, 엔진의 실제 알고리즘(Chaos)과 세부 처리는 다를 수 있습니다.</p>
+</div>
+
+<script>
+(function(){
+  var TAU = Math.PI * 2;
+  var MONO = "'IBM Plex Mono',ui-monospace,Consolas,monospace";
+  var cssv = function(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+  var col = function(){ return {
+    surface:cssv('--surface'), fg:cssv('--fg'), muted:cssv('--muted'), line:cssv('--line'), grid:cssv('--grid'),
+    simple:cssv('--simple'), complex:cssv('--complex'), probe:cssv('--probe'), hit:cssv('--hit')
+  }; };
+  var cm = function(v){ return (v * 100).toFixed(1); };
+  var $ = function(id){ return document.getElementById(id); };
+  var views = [];
+
+  /* ---------- 기하 ---------- */
+  function dist(a, b){ return Math.hypot(a.x - b.x, a.y - b.y); }
+  function polyVerts(n){
+    var v = [];
+    for (var i = 0; i < n; i++){ var a = Math.PI / 2 + i * TAU / n; v.push({x:Math.cos(a), y:Math.sin(a)}); }
+    return v;
+  }
+  function closestOnSeg(p, a, b){
+    var abx = b.x - a.x, aby = b.y - a.y, L = abx * abx + aby * aby;
+    var t = L ? ((p.x - a.x) * abx + (p.y - a.y) * aby) / L : 0;
+    t = Math.max(0, Math.min(1, t));
+    return {x:a.x + abx * t, y:a.y + aby * t};
+  }
+  function nearestOnPoly(p, v){
+    var best = null;
+    for (var i = 0; i < v.length; i++){
+      var c = closestOnSeg(p, v[i], v[(i + 1) % v.length]);
+      var d = dist(p, c);
+      if (!best || d < best.d) best = {d:d, pt:c, i:i};
+    }
+    return best;
+  }
+  function pointInPoly(p, v){
+    var inside = false;
+    for (var i = 0, j = v.length - 1; i < v.length; j = i++){
+      if (((v[i].y > p.y) !== (v[j].y > p.y)) &&
+          (p.x < (v[j].x - v[i].x) * (p.y - v[i].y) / (v[j].y - v[i].y) + v[i].x)) inside = !inside;
+    }
+    return inside;
+  }
+  function segCircle(A, B, R){
+    var d = {x:B.x - A.x, y:B.y - A.y};
+    var a = d.x * d.x + d.y * d.y;
+    if (a < 1e-9) return null;
+    var b = 2 * (A.x * d.x + A.y * d.y);
+    var c = A.x * A.x + A.y * A.y - R * R;
+    if (c <= 0) return {t:0, startInside:true, pt:{x:A.x, y:A.y}};
+    var disc = b * b - 4 * a * c;
+    if (disc < 0) return null;
+    var t = (-b - Math.sqrt(disc)) / (2 * a);
+    if (t < 0 || t > 1) return null;
+    return {t:t, startInside:false, pt:{x:A.x + d.x * t, y:A.y + d.y * t}};
+  }
+  function segPoly(A, B, v){
+    var best = null, d = {x:B.x - A.x, y:B.y - A.y};
+    for (var i = 0; i < v.length; i++){
+      var P = v[i], Q = v[(i + 1) % v.length];
+      var e = {x:Q.x - P.x, y:Q.y - P.y};
+      var den = d.x * e.y - d.y * e.x;
+      if (Math.abs(den) < 1e-9) continue;
+      var w = {x:P.x - A.x, y:P.y - A.y};
+      var t = (w.x * e.y - w.y * e.x) / den;
+      var u = (w.x * d.y - w.y * d.x) / den;
+      if (t >= 0 && t <= 1 && u >= 0 && u <= 1 && (!best || t < best.t)){
+        var len = Math.hypot(e.x, e.y);
+        best = {t:t, i:i, pt:{x:A.x + d.x * t, y:A.y + d.y * t}, n:{x:e.y / len, y:-e.x / len}};
+      }
+    }
+    return best;
+  }
+  function circleConvex(p, r, pg){
+    var inside = true, best = 1e9;
+    for (var i = 0; i < pg.length; i++){
+      var a = pg[i], b = pg[(i + 1) % pg.length];
+      if ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) < 0) inside = false;
+      best = Math.min(best, dist(p, closestOnSeg(p, a, b)));
+    }
+    return inside || best < r;
+  }
+
+  /* ---------- 캔버스 뷰 ---------- */
+  function makeView(id, ext, onDraw){
+    var canvas = $(id);
+    var v = {canvas:canvas, ctx:canvas.getContext('2d'), ext:ext, w:0, h:0, s:1};
+    v.px = function(p){ return {x:(p.x - ext.x0) * v.s, y:(ext.y1 - p.y) * v.s}; };
+    v.wd = function(x, y){ return {x:x / v.s + ext.x0, y:ext.y1 - y / v.s}; };
+    v.draw = function(){ v.ctx.clearRect(0, 0, v.w, v.h); onDraw(v); };
+    v.resize = function(){
+      var w = canvas.clientWidth;
+      if (!w) return;
+      v.w = w; v.s = w / (ext.x1 - ext.x0); v.h = Math.round(v.s * (ext.y1 - ext.y0));
+      var dpr = window.devicePixelRatio || 1;
+      canvas.style.height = v.h + 'px';
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(v.h * dpr);
+      v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      v.draw();
+    };
+    var lastW = 0;
+    new ResizeObserver(function(){ if (canvas.clientWidth !== lastW){ lastW = canvas.clientWidth; v.resize(); } }).observe(canvas);
+    views.push(v);
+    return v;
+  }
+  function redrawAll(){ views.forEach(function(v){ v.draw(); }); }
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll);
+  new MutationObserver(redrawAll).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+
+  /* ---------- 그리기 도구 ---------- */
+  function circ(v, p, r, o){
+    var q = v.px(p), c = v.ctx;
+    c.beginPath(); c.arc(q.x, q.y, r * v.s, 0, TAU);
+    if (o.fill){ c.globalAlpha = o.fa == null ? 1 : o.fa; c.fillStyle = o.fill; c.fill(); c.globalAlpha = 1; }
+    if (o.stroke){ c.setLineDash(o.dash || []); c.lineWidth = o.lw || 2; c.strokeStyle = o.stroke; c.stroke(); c.setLineDash([]); }
+  }
+  function poly(v, pts, o){
+    var c = v.ctx;
+    c.beginPath();
+    pts.forEach(function(p, i){ var q = v.px(p); if (i) c.lineTo(q.x, q.y); else c.moveTo(q.x, q.y); });
+    c.closePath();
+    if (o.fill){ c.globalAlpha = o.fa == null ? 1 : o.fa; c.fillStyle = o.fill; c.fill(); c.globalAlpha = 1; }
+    if (o.stroke){ c.setLineDash(o.dash || []); c.lineWidth = o.lw || 2; c.lineJoin = 'round'; c.strokeStyle = o.stroke; c.stroke(); c.setLineDash([]); }
+  }
+  function line(v, a, b, color, lw, dash){
+    var p = v.px(a), q = v.px(b), c = v.ctx;
+    c.beginPath(); c.moveTo(p.x, p.y); c.lineTo(q.x, q.y);
+    c.setLineDash(dash || []); c.lineWidth = lw || 1.5; c.strokeStyle = color; c.stroke(); c.setLineDash([]);
+  }
+  function arrow(v, a, b, color, lw){
+    line(v, a, b, color, lw || 2);
+    var p = v.px(a), q = v.px(b), c = v.ctx, ang = Math.atan2(q.y - p.y, q.x - p.x), h = 8;
+    c.beginPath();
+    c.moveTo(q.x, q.y);
+    c.lineTo(q.x - h * Math.cos(ang - 0.4), q.y - h * Math.sin(ang - 0.4));
+    c.lineTo(q.x - h * Math.cos(ang + 0.4), q.y - h * Math.sin(ang + 0.4));
+    c.closePath(); c.fillStyle = color; c.fill();
+  }
+  function dot(v, p, rpx, color, ring){
+    var q = v.px(p), c = v.ctx;
+    c.beginPath(); c.arc(q.x, q.y, rpx, 0, TAU); c.fillStyle = color; c.fill();
+    if (ring){ c.beginPath(); c.arc(q.x, q.y, rpx + 4, 0, TAU); c.lineWidth = 1.5; c.strokeStyle = color; c.stroke(); }
+  }
+  function textPx(v, str, x, y, color, o){
+    o = o || {};
+    var c = v.ctx;
+    c.font = (o.weight || 400) + ' ' + (o.size || 12) + 'px ' + MONO;
+    c.textAlign = o.align || 'left'; c.textBaseline = 'middle'; c.fillStyle = color;
+    c.fillText(str, x, y);
+  }
+  function grid(v, c){
+    var e = v.ext, ctx = v.ctx, x, y, p, q;
+    ctx.lineWidth = 1; ctx.strokeStyle = c.grid;
+    for (x = Math.ceil(e.x0 * 2) / 2; x <= e.x1; x += 0.5){
+      p = v.px({x:x, y:e.y0}); q = v.px({x:x, y:e.y1});
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+    }
+    for (y = Math.ceil(e.y0 * 2) / 2; y <= e.y1; y += 0.5){
+      p = v.px({x:e.x0, y:y}); q = v.px({x:e.x1, y:y});
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+    }
+  }
+  function legend(v, items){
+    items.forEach(function(it, i){
+      var y = 18 + i * 18;
+      v.ctx.fillStyle = it.color; v.ctx.fillRect(12, y - 5, 10, 10);
+      textPx(v, it.text, 28, y, it.dim ? it.dimColor : it.color);
+    });
+  }
+
+  /* ---------- 드래그 ---------- */
+  function enableDrag(v, handles, onMove){
+    var active = null;
+    function pos(e){ var r = v.canvas.getBoundingClientRect(); return {x:e.clientX - r.left, y:e.clientY - r.top}; }
+    function pick(q){
+      var best = null, bd = 1e9;
+      handles.forEach(function(h){
+        var hp = v.px(h.get()), d = Math.hypot(hp.x - q.x, hp.y - q.y);
+        if (d < bd){ bd = d; best = h; }
+      });
+      var lim = best ? Math.max(26, best.grab ? best.grab() * v.s : 0) : 0;
+      return best && bd <= lim ? best : null;
+    }
+    v.canvas.addEventListener('pointerdown', function(e){
+      var h = pick(pos(e));
+      if (!h) return;
+      active = h; v.canvas.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    v.canvas.addEventListener('pointermove', function(e){
+      if (!active) return;
+      var q = pos(e), w = v.wd(q.x, q.y), ex = v.ext;
+      w.x = Math.max(ex.x0 + 0.05, Math.min(ex.x1 - 0.05, w.x));
+      w.y = Math.max(ex.y0 + 0.05, Math.min(ex.y1 - 0.05, w.y));
+      active.set(w); onMove();
+    });
+    function end(){ active = null; }
+    v.canvas.addEventListener('pointerup', end);
+    v.canvas.addEventListener('pointercancel', end);
+  }
+  function setSeg(group, attr, value, cb){
+    var btns = group.querySelectorAll('button');
+    btns.forEach(function(b){
+      b.addEventListener('click', function(){
+        btns.forEach(function(o){ o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+        cb(b.getAttribute(attr));
+      });
+    });
+  }
+  function setState(el, on, label){ el.textContent = label; el.className = 'state' + (on ? ' on' : ''); }
+
+  /* ================= 1. 구 안쪽 공 ================= */
+  var A = {mode:'both', n:12, p:{x:0.12, y:0.05}, r:0.18};
+  function evalA(){
+    var p = A.p, r = A.r, R = 1, d = Math.hypot(p.x, p.y);
+    var s = {overlap:d < R + r, depth:R + r - d, gap:d - R - r};
+    if (s.overlap){
+      var u = d > 1e-6 ? {x:p.x / d, y:p.y / d} : {x:0, y:1};
+      s.target = {x:u.x * (R + r), y:u.y * (R + r)};
+      s.push = dist(p, s.target);
+    }
+    var pv = polyVerts(A.n), nr = nearestOnPoly(p, pv);
+    var c = {overlap:nr.d < r, d:nr.d, pt:nr.pt, inside:pointInPoly(p, pv), gap:nr.d - r};
+    return {s:s, c:c};
+  }
+  var vA = makeView('cvA', {x0:-2.2, x1:2.2, y0:-1.35, y1:1.35}, function(v){
+    var c = col(), showS = A.mode !== 'complex', showC = A.mode !== 'simple', res = evalA(), pv = polyVerts(A.n);
+    grid(v, c);
+    if (showS) circ(v, {x:0, y:0}, 1, {fill:c.simple, fa:0.16, stroke:c.simple, lw:2});
+    if (showC){
+      poly(v, pv, {stroke:c.complex, lw:2.5});
+      pv.forEach(function(p){ dot(v, p, 3, c.complex); });
+    }
+    if (A.mode === 'complex'){
+      var m = v.px({x:0, y:-0.55});
+      textPx(v, '속이 빈 껍데기', m.x, m.y, c.muted, {align:'center'});
+    }
+    if (showS && res.s.overlap){
+      circ(v, res.s.target, A.r, {stroke:c.simple, lw:1.5, dash:[5, 4]});
+      arrow(v, A.p, res.s.target, c.simple, 2);
+    }
+    if (showC && res.c.overlap){
+      line(v, A.p, res.c.pt, c.hit, 1.5);
+      dot(v, res.c.pt, 5, c.hit, true);
+    }
+    circ(v, A.p, A.r, {fill:c.probe, fa:0.28, stroke:c.probe, lw:2});
+    dot(v, A.p, 3, c.probe);
+    legend(v, [
+      {color:c.simple, text:'Simple: 구 (내부 꽉 참)', dim:!showS, dimColor:c.muted},
+      {color:c.complex, text:'Complex: 단면 변 ' + A.n + '개 (껍데기)', dim:!showC, dimColor:c.muted}
+    ]);
+    textPx(v, '격자 1칸 = 50 cm', v.w - 12, v.h - 14, c.muted, {align:'right'});
+  });
+  function readoutA(){
+    var r = evalA();
+    $('roAS').classList.toggle('off', A.mode === 'complex');
+    $('roAC').classList.toggle('off', A.mode === 'simple');
+    setState($('stAS'), r.s.overlap, r.s.overlap ? '겹침' : '없음');
+    $('txAS').textContent = r.s.overlap
+      ? '겹침 감지. 구 안쪽으로 ' + cm(r.s.depth) + ' cm 파고들었고, 물리 엔진이 ' + cm(r.s.push) + ' cm 밖으로 밀어냅니다. 점선 공이 밀려난 위치입니다.'
+      : '겹침 없음. 구 표면까지 ' + cm(r.s.gap) + ' cm 떨어져 있습니다.';
+    setState($('stAC'), r.c.overlap, r.c.overlap ? '접촉' : '없음');
+    $('txAC').textContent = r.c.overlap
+      ? '삼각형 표면과 접촉. 공 중심에서 표면까지 ' + cm(r.c.d) + ' cm 입니다.'
+      : (r.c.inside
+        ? '접촉 없음. 공이 껍데기 안쪽에 있지만 닿는 삼각형이 없어서 감지되지 않습니다. 가장 가까운 면까지 ' + cm(r.c.gap) + ' cm 남았습니다.'
+        : '접촉 없음. 표면까지 ' + cm(r.c.gap) + ' cm 떨어져 있습니다.');
+  }
+  function renderA(){ vA.draw(); readoutA(); }
+  enableDrag(vA, [{get:function(){ return A.p; }, set:function(w){ A.p = w; }, grab:function(){ return A.r; }}], renderA);
+  setSeg(document.querySelector('#a .seg'), 'data-mode', null, function(m){ A.mode = m; renderA(); });
+  $('nA').addEventListener('input', function(e){ A.n = +e.target.value; $('nAo').textContent = A.n; renderA(); });
+
+  /* ================= 2. 라인 트레이스 ================= */
+  var B = {n:10, complex:false, a:{x:-1.95, y:-0.6}, b:{x:1.95, y:0.4}};
+  function evalB(){
+    var pv = polyVerts(B.n);
+    return {s:segCircle(B.a, B.b, 1), c:segPoly(B.a, B.b, pv), aInsidePoly:pointInPoly(B.a, pv)};
+  }
+  var vB = makeView('cvB', {x0:-2.2, x1:2.2, y0:-1.35, y1:1.35}, function(v){
+    var c = col(), ctx = v.ctx, r = evalB(), pv = polyVerts(B.n), tc = B.complex;
+    grid(v, c);
+    ctx.globalAlpha = tc ? 0.4 : 1;
+    circ(v, {x:0, y:0}, 1, {fill:c.simple, fa:0.1, stroke:c.simple, lw:2});
+    ctx.globalAlpha = tc ? 1 : 0.4;
+    poly(v, pv, {stroke:c.complex, lw:2.5});
+    ctx.globalAlpha = 1;
+    arrow(v, B.a, B.b, c.muted, 2);
+    function marker(h, color, active, nrm){
+      if (!h) return;
+      if (active){
+        dot(v, h.pt, 5, color, true);
+        if (nrm) arrow(v, h.pt, {x:h.pt.x + nrm.x * 0.3, y:h.pt.y + nrm.y * 0.3}, color, 2);
+      } else {
+        ctx.globalAlpha = 0.55; circ(v, h.pt, 0.05, {stroke:color, lw:2}); ctx.globalAlpha = 1;
+      }
+    }
+    var sn = r.s && !r.s.startInside ? {x:r.s.pt.x, y:r.s.pt.y} : null;
+    marker(r.s, c.simple, !tc, sn);
+    marker(r.c, c.complex, tc, r.c ? r.c.n : null);
+    dot(v, B.a, 7, c.fg); dot(v, B.b, 7, c.fg);
+    var pa = v.px(B.a), pb = v.px(B.b);
+    textPx(v, 'Start', pa.x, pa.y - 18, c.fg, {align:'center', weight:500});
+    textPx(v, 'End', pb.x, pb.y - 18, c.fg, {align:'center', weight:500});
+    legend(v, [
+      {color:c.simple, text:'Simple: 구 (bTraceComplex = false 일 때)', dim:tc, dimColor:c.muted},
+      {color:c.complex, text:'Complex: 삼각형 메시 (true 일 때)', dim:!tc, dimColor:c.muted}
+    ]);
+  });
+  function readoutB(){
+    var r = evalB(), len = dist(B.a, B.b);
+    $('roBS').classList.toggle('off', B.complex);
+    $('roBC').classList.toggle('off', !B.complex);
+    if (!r.s){
+      setState($('stBS'), false, '없음'); $('txBS').textContent = '히트 없음. 선이 구에 닿지 않습니다.';
+    } else if (r.s.startInside){
+      setState($('stBS'), true, 'Time 0');
+      $('txBS').textContent = 'Start가 이미 볼륨 안쪽입니다. 시작 위치에서 바로 히트하고 bStartPenetrating 으로 보고됩니다.';
+    } else {
+      setState($('stBS'), true, '히트');
+      var ux = r.s.pt.x, uy = r.s.pt.y;
+      $('txBS').textContent = 'Start에서 ' + cm(r.s.t * len) + ' cm 지점에서 히트. 노멀은 구 중심에서 바깥쪽 (' + ux.toFixed(2) + ', ' + uy.toFixed(2) + ') 방향입니다.';
+    }
+    if (!r.c){
+      setState($('stBC'), false, '없음'); $('txBC').textContent = '히트 없음. 선이 삼각형 면과 만나지 않습니다.';
+    } else {
+      setState($('stBC'), true, '히트');
+      $('txBC').textContent = 'Start에서 ' + cm(r.c.t * len) + ' cm 지점, 삼각형 면 #' + r.c.i + '에서 히트.' +
+        (r.aInsidePoly ? ' Start가 껍데기 안쪽이라 나가는 길의 첫 면을 표시합니다. 뒷면이 실제로 맞는지는 엔진 설정에 따라 다릅니다.' : '');
+    }
+    var msg = 'bTraceComplex = ' + B.complex + ' 이므로 반환되는 결과는 ' + (B.complex ? 'Complex' : 'Simple') + ' 쪽입니다.';
+    if (r.s && r.c && !r.s.startInside) msg += ' 두 히트 지점은 ' + cm(dist(r.s.pt, r.c.pt)) + ' cm 차이가 납니다.';
+    $('txBX').textContent = msg;
+  }
+  function renderB(){ vB.draw(); readoutB(); }
+  enableDrag(vB, [
+    {get:function(){ return B.a; }, set:function(w){ B.a = w; }},
+    {get:function(){ return B.b; }, set:function(w){ B.b = w; }}
+  ], renderB);
+  setSeg(document.querySelector('#b .seg'), 'data-tr', null, function(m){ B.complex = m === '1'; renderB(); });
+  $('nB').addEventListener('input', function(e){ B.n = +e.target.value; $('nBo').textContent = B.n; renderB(); });
+
+  /* ================= 3. 오목한 컵 ================= */
+  var CP = {mode:'complex', p:{x:0.5, y:0.62}, r:0.1};
+  var U = [[0,0],[1,0],[1,1],[0.75,1],[0.75,0.3],[0.25,0.3],[0.25,1],[0,1]].map(function(a){ return {x:a[0], y:a[1]}; });
+  function rect(x0, y0, x1, y1){ return [{x:x0, y:y0}, {x:x1, y:y0}, {x:x1, y:y1}, {x:x0, y:y1}]; }
+  var HULL = rect(0, 0, 1, 1);
+  var MULTI = [rect(0, 0, 0.25, 1), rect(0.75, 0, 1, 1), rect(0, 0, 1, 0.3)];
+  function evalC(){
+    var p = CP.p, r = CP.r;
+    if (CP.mode === 'complex'){
+      var nr = nearestOnPoly(p, U);
+      return {overlap:nr.d < r, wall:pointInPoly(p, U) && nr.d >= r, pt:nr.pt};
+    }
+    if (CP.mode === 'hull') return {overlap:circleConvex(p, r, HULL)};
+    return {overlap:MULTI.some(function(m){ return circleConvex(p, r, m); })};
+  }
+  var vC = makeView('cvC', {x0:-0.35, x1:1.35, y0:-0.2, y1:1.25}, function(v){
+    var c = col(), res = evalC();
+    grid(v, c);
+    if (CP.mode === 'complex'){
+      poly(v, U, {stroke:c.complex, lw:2.5});
+      U.forEach(function(p){ dot(v, p, 3, c.complex); });
+      var m = v.px({x:0.5, y:0.12});
+      textPx(v, '벽은 얇은 껍데기', m.x, m.y, c.muted, {align:'center'});
+    } else {
+      poly(v, U, {stroke:c.muted, lw:1.5, dash:[5, 4]});
+      (CP.mode === 'hull' ? [HULL] : MULTI).forEach(function(pg){
+        poly(v, pg, {fill:c.simple, fa:0.16, stroke:c.simple, lw:2});
+      });
+    }
+    var pc = res.overlap ? c.hit : c.probe;
+    circ(v, CP.p, CP.r, {fill:pc, fa:0.3, stroke:pc, lw:2});
+    dot(v, CP.p, 3, pc);
+    if (res.overlap && res.pt) dot(v, res.pt, 5, c.hit, true);
+    legend(v, [{color:CP.mode === 'complex' ? c.complex : c.simple,
+      text:CP.mode === 'complex' ? 'Complex: 컵 표면 삼각형' : (CP.mode === 'hull' ? 'Simple: Convex 1개' : 'Simple: Convex 3개')}]);
+  });
+  function readoutC(){
+    var r = evalC(), mode = CP.mode;
+    $('swC').className = 'sw ' + (mode === 'complex' ? 'complex' : 'simple');
+    $('ttC').textContent = mode === 'complex' ? 'Complex' : (mode === 'hull' ? 'Simple, Convex 1개' : 'Simple, Convex 3개');
+    setState($('stC'), r.overlap, r.overlap ? '접촉' : '없음');
+    var t;
+    if (mode === 'complex'){
+      t = r.overlap ? '컵 표면 삼각형에 닿았습니다.'
+        : (r.wall ? '접촉 없음. 공이 벽 두께 안쪽으로 들어왔지만 표면에 닿지 않아서 감지되지 않습니다. 껍데기라서 생기는 일입니다.'
+                  : '접촉 없음. 컵 안쪽의 빈 공간이 그대로 인식됩니다.');
+    } else if (mode === 'hull'){
+      t = r.overlap ? 'Convex에 닿았습니다. 컵 안쪽이 윗면까지 채워진 상자로 취급되어 공이 컵 안으로 들어갈 수 없습니다.'
+                    : '접촉 없음. 상자 바깥입니다. 컵 안쪽으로 끌어 보면 막히는 것을 볼 수 있습니다.';
+    } else {
+      t = r.overlap ? '분해된 Convex 3개(왼벽, 오른벽, 바닥) 중 하나에 닿았습니다.'
+                    : '접촉 없음. 안쪽 빈 공간이 살아 있어서 공이 컵 안으로 들어갑니다.';
+    }
+    $('txC').textContent = t;
+  }
+  function renderC(){ vC.draw(); readoutC(); }
+  enableDrag(vC, [{get:function(){ return CP.p; }, set:function(w){ CP.p = w; }, grab:function(){ return CP.r; }}], renderC);
+  setSeg(document.querySelector('#c .seg'), 'data-cm', null, function(m){ CP.mode = m; renderC(); });
+
+  readoutA(); readoutB(); readoutC();
+})();
+</script>
+
+</body>
+</html>
