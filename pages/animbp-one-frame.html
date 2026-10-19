@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AnimBP는 한 프레임에 무엇을 하나</title>
+<meta name="note-title" content="AnimBP는 한 프레임에 무엇을 하나">
+<meta name="note-summary" content="Update는 게임 스레드와 워커 스레드로 갈린다. 어느 쪽에서 도는지를 알면 스레드 세이프 규칙이 암기가 아니게 된다.">
+<meta name="note-tags" content="Animation, AnimBP, 멀티스레드">
+<meta name="note-order" content="10">
+<meta name="note-category" content="애니메이션">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+/* 이 페이지 전용 */
+.stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);overflow-x:auto;margin:0 0 12px}
+.stage canvas{display:block;width:100%;min-width:680px}
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+
+.seg{display:inline-flex;gap:0;margin:0 0 14px;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.seg button{
+  appearance:none;border:0;background:var(--surface);color:var(--text-dim);
+  font:inherit;font-size:.85rem;padding:8px 14px;cursor:pointer;
+}
+.seg button + button{border-left:1px solid var(--line)}
+.seg button:hover{background:var(--surface-2)}
+.seg button[aria-pressed="true"]{background:var(--accent-dim);color:var(--accent);font-weight:600}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+.stepdesc{
+  margin:0 0 18px;padding:14px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius);
+}
+.stepdesc .sd-title{
+  margin:0 0 10px;font-family:ui-monospace,"Cascadia Mono","Consolas",monospace;
+  font-size:.95rem;font-weight:700;color:var(--accent);
+}
+.stepdesc dl{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;margin:0}
+.stepdesc dt{font-size:.78rem;color:var(--text-dim);padding-top:2px;white-space:nowrap}
+.stepdesc dd{margin:0;font-size:.9rem;line-height:1.55}
+.stepdesc dt.warn{color:var(--warn)}
+.stepdesc dd.warn{color:var(--warn)}
+
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0;min-width:520px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>AnimBP는 한 프레임에 무엇을 하나</h1>
+<p>Update는 게임 스레드와 워커 스레드로 갈린다. 어느 쪽에서 도는지를 알면 스레드 세이프 규칙이 암기가 아니게 된다.</p>
+</header>
+
+<article>
+
+<p>AnimBP 를 열면 그래프가 두 개다. <b>이벤트 그래프</b>는 값을 계산하고, <b>애님 그래프</b>는 포즈를 계산한다. 둘은 <b>같은 프레임 안에서 다른 시점에, 때로는 다른 스레드에서</b> 돈다. 이 순서를 모르면 "왜 여기선 되고 저기선 안 되나"가 전부 외울 거리가 된다.</p>
+
+<h2>1. 한 프레임의 순서</h2>
+
+<p>그림의 박스를 누르면 그 단계가 무슨 일을 하는지 아래에 나온다. 토글로 병렬이 켜진 경우와 꺼진 경우를 오갈 수 있다. 위 레인이 게임 스레드, 아래 레인이 워커 스레드다.</p>
+
+<div class="seg" role="group" aria-label="병렬 업데이트 상태">
+  <button type="button" data-par="1" aria-pressed="true">병렬 켜짐</button>
+  <button type="button" data-par="0" aria-pressed="false">병렬 꺼짐</button>
+</div>
+
+<div class="stage"><canvas id="cvFrame" aria-label="AnimBP 한 프레임의 타임라인. 게임 스레드와 워커 스레드 두 레인에 여덟 단계가 순서대로 놓인다. 박스를 클릭하면 설명이 바뀐다."></canvas></div>
+
+<div class="readout">
+  <div class="cell"><span class="k">선택한 단계</span><span class="v" id="rStep"></span></div>
+  <div class="cell"><span class="k">도는 스레드</span><span class="v" id="rThread"></span></div>
+</div>
+
+<div class="stepdesc" aria-live="polite">
+  <p class="sd-title" id="sdTitle"></p>
+  <dl>
+    <dt>스레드</dt><dd id="sdThread"></dd>
+    <dt>여기서 하는 일</dt><dd id="sdWhat"></dd>
+    <dt id="sdWarnK" class="warn" hidden>주의</dt><dd id="sdWarn" class="warn" hidden></dd>
+  </dl>
+</div>
+
+<p class="note">레인 사이를 잇는 비스듬한 선은 스레드가 바뀌는 지점이다. 병렬을 끄면 4~7번이 전부 게임 스레드 레인으로 올라가고 워커 레인은 비게 된다. 좁은 화면에서는 그림을 옆으로 밀어서 볼 수 있다.</p>
+
+<h2>2. 세 개의 Update 는 무엇이 다른가</h2>
+
+<p>이름이 비슷한 Update 가 셋이다. 어느 스레드에서 도는지가 액터 접근 가능 여부를 정한다.</p>
+
+<table>
+<thead><tr><th>노드 / 함수</th><th>스레드</th><th>액터·컴포넌트 직접 접근</th><th>쓰임</th></tr></thead>
+<tbody>
+<tr><td><code>Event Blueprint Update Animation</code></td><td>게임</td><td>가능</td><td>간단한 값 읽기. 단 병렬화가 막히는 원인이 되기도 한다</td></tr>
+<tr><td><code>Blueprint Thread Safe Update Animation</code></td><td>워커</td><td><b>금지</b></td><td>무거운 계산을 여기로 옮긴다</td></tr>
+<tr><td>애님 그래프 Update</td><td>워커</td><td>금지</td><td>전이 판정, 시간 전진</td></tr>
+</tbody>
+</table>
+
+<p>워커 스레드 단계에서 액터나 컴포넌트를 직접 읽으면 <b>게임 스레드가 같은 값을 쓰고 있을 수 있다.</b> 같은 데이터를 한쪽이 읽는 동안 다른 쪽이 고치면 결과가 무엇이 될지 정해지지 않는다. 그래서 금지다.</p>
+
+<p>그 대신 <b>게임 스레드 단계에서 필요한 값을 미리 변수에 복사해 두고</b>, 워커 단계에서는 그 변수만 쓴다. 엔진이 이 복사를 자동으로 해 주는 장치가 <b>Property Access</b> 다.</p>
+
+<p>엔진 헤더의 <code>NativeUpdateAnimation</code> 주석도 같은 말을 한다. 이 단계에서는 <b>값을 모으기만</b> 하고, 무거운 일은 스레드 세이프 쪽에서 하라는 취지다.</p>
+
+<h2>3. 병렬이 안 될 때</h2>
+
+<p>다음 중 하나라도 해당하면 병렬로 넘어가지 않는다. <code>NeedsImmediateUpdate()</code> 가 true 를 돌려주고, 그 프레임은 전부 게임 스레드에서 즉시 처리된다.</p>
+
+<ul>
+<li>엔진 설정 <code>bAllowMultiThreadedAnimationUpdate</code> 가 꺼져 있다</li>
+<li>이 AnimBP 의 <code>bUseMultiThreadedAnimationUpdate</code> 가 꺼져 있다</li>
+<li><code>DeltaSeconds</code> 가 0 이다 (일시정지 등)</li>
+<li>콘솔 변수 <code>a.ParallelAnimUpdate</code> 또는 <code>a.ParallelAnimEvaluation</code> 이 0 이다</li>
+<li>루트 모션 모드가 <code>RootMotionFromEverything</code> 이고 유효한 루트 모션이 필요하다</li>
+<li><b>에디터에서 이 AnimBP 를 디버깅 중이거나 브레이크포인트가 걸려 있다</b></li>
+</ul>
+
+<p><code>a.ParallelAnimEvaluation</code> 의 기본값은 <b>1</b> 이다. 0 이면 평가를 전부 게임 스레드에서 한다. <code>a.ParallelAnimUpdate</code> 는 업데이트 쪽에서 같은 역할을 한다.</p>
+
+<p>특히 <b>에디터에서 AnimBP 를 디버깅하면 자동으로 게임 스레드로 내려온다.</b> 그래서 "에디터에서는 멀쩡한데 빌드에서만 문제가 생긴다"가 가능하다. 반대로 에디터에서만 느린 것도 설명이 된다. 이것이 <b>스레드 세이프 규칙을 어겨도 에디터에서는 한동안 들키지 않는 이유</b>다. 디버깅 대상은 게임 스레드에서 돌려야 워치와 브레이크포인트가 동작하기 때문이다.</p>
+
+<h2>4. Evaluate 는 따로다</h2>
+
+<p>Update 는 <b>"어떤 애니메이션을 얼마나 틀지"</b> 를 정하고, Evaluate 는 <b>"그래서 뼈가 어디에 놓이는지"</b> 를 계산한다.</p>
+
+<p>둘은 다른 단계다. Update 에서 정한 값이 그 프레임의 Evaluate 에 쓰인다.</p>
+
+<p><code>Event Blueprint Post Evaluate Animation</code> 은 포즈가 다 나온 뒤 게임 스레드에서 돈다. 계산된 뼈 위치를 읽어야 할 때 쓰는 자리다.</p>
+
+<h2>5. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>단계</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>NativeUpdateAnimation</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>792</td></tr>
+<tr><td><code>BlueprintUpdateAnimation</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>797</td></tr>
+<tr><td><code>NeedsImmediateUpdate</code></td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>1020</td></tr>
+<tr><td><code>ParallelEvaluateAnimation</code></td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>1069</td></tr>
+<tr><td><code>PostEvaluateAnimation</code></td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>1108</td></tr>
+<tr><td><code>NativeThreadSafeUpdateAnimation</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstanceProxy.cpp</code></td><td>1350</td></tr>
+<tr><td><code>BlueprintThreadSafeUpdateAnimation</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstanceProxy.cpp</code></td><td>1355</td></tr>
+<tr><td>각 훅 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimInstance.h</code></td><td>&mdash;</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 — 위 표의 파일과 줄 번호.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 한 프레임의 호출 순서와 스레드만 다뤘다. 몽타주·노티파이·동기화 그룹 같은 단계는 다루지 않았다.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var cssv = function(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+
+  // 단계 8개 고정. lane 은 병렬이 켜졌을 때의 레인이다.
+  var STEPS = [
+    {
+      name: 'PreUpdateAnimation', lane: 'game',
+      lines: ['PreUpdate', 'Animation'],
+      what: 'Update 묶음의 첫 단계다.',
+      warn: ''
+    },
+    {
+      name: 'NativeUpdateAnimation', lane: 'game',
+      lines: ['NativeUpdate', 'Animation'],
+      what: 'C++ 전용 훅이다. 헤더 주석은 이 단계에서 값을 모으기만 하고 무거운 일은 스레드 세이프 쪽에서 하라고 말한다.',
+      warn: ''
+    },
+    {
+      name: 'Event Blueprint Update Animation', lane: 'game',
+      lines: ['Event', 'Blueprint', 'Update', 'Animation'],
+      what: 'BP 노드 Event Blueprint Update Animation 이 실행된다. 값을 읽는 간단한 작업을 둔다.',
+      warn: '액터·컴포넌트에 접근할 수 있다. 대신 병렬화가 막히는 원인이 되기도 한다.'
+    },
+    {
+      name: 'NativeThreadSafeUpdateAnimation', lane: 'worker',
+      lines: ['Native', 'ThreadSafe', 'Update', 'Animation'],
+      what: 'C++ 전용 스레드 세이프 훅이다. 게임 스레드에서 미리 복사해 둔 값만 쓴다.',
+      warn: '액터·컴포넌트를 직접 읽으면 안 된다.'
+    },
+    {
+      name: 'Blueprint Thread Safe Update Animation', lane: 'worker',
+      lines: ['Blueprint', 'Thread Safe', 'Update', 'Animation'],
+      what: 'BP 노드 Blueprint Thread Safe Update Animation 이 실행된다. 무거운 계산을 옮겨 두는 자리다.',
+      warn: '액터·컴포넌트 직접 접근 금지. 필요한 값은 게임 스레드 단계에서 변수로 복사해 둬야 한다.'
+    },
+    {
+      name: '애님 그래프 Update', lane: 'worker',
+      lines: ['애님 그래프', 'Update'],
+      what: '스테이트 머신의 전이를 판정하고, 각 노드의 시간을 전진시킨다.',
+      warn: '액터·컴포넌트 직접 접근 금지.'
+    },
+    {
+      name: 'Evaluate (포즈 계산)', lane: 'worker',
+      lines: ['Evaluate', '(포즈 계산)'],
+      what: '실제 포즈를 계산한다. ParallelEvaluateAnimation 이 맡는다.',
+      warn: ''
+    },
+    {
+      name: 'Event Blueprint Post Evaluate Animation', lane: 'game',
+      lines: ['Post Evaluate', 'Animation'],
+      what: '포즈가 다 나온 뒤 게임 스레드에서 실행된다. 계산된 뼈 위치를 읽어야 할 때 쓰는 자리다.',
+      warn: ''
+    }
+  ];
+
+  var state = { selected: 4, parallel: true };
+
+  function laneOf(i){
+    if (state.parallel && STEPS[i].lane === 'worker') return 'worker';
+    return 'game';
+  }
+
+  function threadText(i){
+    return laneOf(i) === 'worker' ? '워커 스레드' : '게임 스레드';
+  }
+
+  function label(ctx, s, x, y, color, align, size){
+    ctx.font = (size || 11) + 'px ui-monospace, Consolas, monospace';
+    ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = color; ctx.fillText(s, x, y);
+  }
+
+  function makeView(id, draw){
+    var cv = $(id);
+    var v = { cv: cv, ctx: cv.getContext('2d'), w: 0, h: 0, boxes: [] };
+    v.draw = function(){
+      // 크기가 아직 안 잡혔으면 그리지 않는다. 좌표가 음수가 되는 것을 막는다.
+      if (!(v.w > 0) || !(v.h > 0)) return;
+      v.ctx.clearRect(0, 0, v.w, v.h);
+      draw(v);
+    };
+    v.resize = function(){
+      var w = cv.clientWidth;
+      if (!(w > 0)) return;
+      v.w = w;
+      v.h = Math.max(215, Math.min(268, Math.round(w * 0.30)));
+      var dpr = window.devicePixelRatio || 1;
+      cv.style.height = v.h + 'px';
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(v.h * dpr);
+      v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      v.draw();
+    };
+    var last = 0;
+    new ResizeObserver(function(){
+      // 폭이 이전과 같으면 아무것도 하지 않는다.
+      if (cv.clientWidth !== last){ last = cv.clientWidth; v.resize(); }
+    }).observe(cv);
+    return v;
+  }
+
+  var view = makeView('cvFrame', function(v){
+    var ctx = v.ctx;
+    var w = v.w, h = v.h;
+    var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'),
+        warn = cssv('--warn'), sf = cssv('--surface'), sf2 = cssv('--surface-2'), text = cssv('--text');
+
+    var padL = w >= 760 ? 96 : 82, padR = 14, padT = 40, padB = 36, gapLane = 28;
+    var plotW = w - padL - padR;
+    if (!(plotW > 0)) return;
+    var laneH = (h - padT - padB - gapLane) / 2;
+    if (!(laneH > 0)) return;
+
+    var gameTop = padT;
+    var workerTop = padT + laneH + gapLane;
+    var gameMid = gameTop + laneH / 2;
+    var workerMid = workerTop + laneH / 2;
+
+    var gap = w >= 820 ? 8 : 5;
+    var boxW = (plotW - gap * 7) / 8;
+    if (!(boxW > 0)) return;
+    var boxH = laneH - 6;
+    if (!(boxH > 0)) return;
+
+    var i, k;
+
+    // 레인 바탕
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = sf2;
+    ctx.fillRect(padL, gameTop, plotW, laneH);
+    ctx.globalAlpha = state.parallel ? 0.55 : 0.28;
+    ctx.fillRect(padL, workerTop, plotW, laneH);
+    ctx.globalAlpha = 1;
+
+    // 레인 이름
+    label(ctx, '게임 스레드', padL - 10, gameMid, text, 'right', 11);
+    if (state.parallel){
+      label(ctx, '워커 스레드', padL - 10, workerMid, text, 'right', 11);
+    } else {
+      label(ctx, '워커 스레드', padL - 10, workerMid - 7, dim, 'right', 10);
+      label(ctx, '(사용 안 함)', padL - 10, workerMid + 8, warn, 'right', 9);
+    }
+
+    // 박스 위치. 8개 고정이라 i < 8 상수 경계로만 돈다.
+    v.boxes = [];
+    for (i = 0; i < 8; i++){
+      var top = laneOf(i) === 'game' ? gameTop : workerTop;
+      v.boxes.push({
+        x: padL + i * (boxW + gap),
+        y: top + (laneH - boxH) / 2,
+        w: boxW,
+        h: boxH,
+        i: i
+      });
+    }
+
+    // 레인이 바뀌는 지점의 연결선. 박스 뒤에 긋는다.
+    if (state.parallel){
+      ctx.strokeStyle = line; ctx.lineWidth = 1; ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(v.boxes[2].x + v.boxes[2].w, gameMid);
+      ctx.lineTo(v.boxes[3].x, workerMid);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(v.boxes[6].x + v.boxes[6].w, workerMid);
+      ctx.lineTo(v.boxes[7].x, gameMid);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // 박스와 단계 이름
+    for (i = 0; i < 8; i++){
+      var b = v.boxes[i];
+      var sel = (i === state.selected);
+      var bx = Math.round(b.x) + 0.5, by = Math.round(b.y) + 0.5;
+      var bw = Math.round(b.w), bh = Math.round(b.h);
+
+      ctx.beginPath();
+      ctx.rect(bx, by, bw, bh);
+      ctx.fillStyle = sel ? accent : sf2;
+      ctx.fill();
+      ctx.strokeStyle = sel ? accent : line;
+      ctx.lineWidth = sel ? 3 : 1;
+      ctx.stroke();
+
+      var lines = STEPS[i].lines;
+      var fs = bw >= 120 ? 11 : bw >= 96 ? 10 : bw >= 80 ? 9.5 : 8.5;
+      var inner = bw - 8;
+      if (!(inner > 0)) continue;
+
+      ctx.font = fs + 'px ui-monospace, Consolas, monospace';
+      var mw = 0;
+      for (k = 0; k < lines.length; k++){
+        var tw = ctx.measureText(lines[k]).width;
+        if (tw > mw) mw = tw;
+      }
+      if (mw > inner && fs > 8){
+        fs = 8;
+        ctx.font = fs + 'px ui-monospace, Consolas, monospace';
+      }
+
+      var lh = Math.round(fs * 1.22);
+      var startY = b.y + b.h / 2 - ((lines.length - 1) * lh) / 2;
+      ctx.fillStyle = sel ? sf : text;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (k = 0; k < lines.length; k++){
+        // maxWidth 로 마지막 안전장치를 둔다. 박스 밖으로 새지 않게 한다.
+        ctx.fillText(lines[k], b.x + b.w / 2, startY + k * lh, inner);
+      }
+    }
+
+    // 시간 축
+    var ay = h - 14;
+    ctx.strokeStyle = line; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, ay);
+    ctx.lineTo(padL + plotW, ay);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(padL + plotW, ay);
+    ctx.lineTo(padL + plotW - 6, ay - 4);
+    ctx.lineTo(padL + plotW - 6, ay + 4);
+    ctx.closePath();
+    ctx.fillStyle = line;
+    ctx.fill();
+    label(ctx, '프레임 시작', padL, ay + 8, dim, 'left', 9);
+    label(ctx, '시간', padL + plotW - 10, ay + 8, dim, 'right', 9);
+  });
+
+  function refresh(){
+    var i = state.selected;
+    var st = STEPS[i];
+    var th = threadText(i);
+
+    $('sdTitle').textContent = (i + 1) + '. ' + st.name;
+    $('sdThread').textContent = th + (state.parallel ? '' : ' (병렬 꺼짐: 전부 게임)');
+    $('sdWhat').textContent = st.what;
+
+    var warnText = st.warn;
+    if (!state.parallel && st.lane === 'worker'){
+      warnText = (warnText ? warnText + ' ' : '') + '병렬이 꺼져 이 프레임에서는 게임 스레드에서 실행된다.';
+    }
+    if (warnText){
+      $('sdWarnK').hidden = false;
+      $('sdWarn').hidden = false;
+      $('sdWarn').textContent = warnText;
+    } else {
+      $('sdWarnK').hidden = true;
+      $('sdWarn').hidden = true;
+      $('sdWarn').textContent = '';
+    }
+
+    $('rStep').textContent = (i + 1) + ' · ' + st.name;
+    $('rThread').textContent = th;
+
+    var btns = document.querySelectorAll('.seg button');
+    for (var k = 0; k < btns.length; k++){
+      var on = (btns[k].getAttribute('data-par') === '1') === state.parallel;
+      btns[k].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+
+    view.draw();
+  }
+
+  // 캔버스 클릭. 어느 박스에도 안 맞으면 선택을 바꾸지 않는다.
+  view.cv.addEventListener('click', function(ev){
+    var rect = view.cv.getBoundingClientRect();
+    if (!(rect.width > 0) || !(rect.height > 0)) return;
+    var x = (ev.clientX - rect.left) * (view.w / rect.width);
+    var y = (ev.clientY - rect.top) * (view.h / rect.height);
+    for (var i = 0; i < 8; i++){
+      var b = view.boxes[i];
+      if (!b) continue;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h){
+        if (state.selected !== i){ state.selected = i; refresh(); }
+        return;
+      }
+    }
+  });
+
+  var btns = document.querySelectorAll('.seg button');
+  for (var n = 0; n < btns.length; n++){
+    btns[n].addEventListener('click', function(){
+      state.parallel = (this.getAttribute('data-par') === '1');
+      refresh();
+    });
+  }
+
+  refresh();
+})();
+</script>
+
+</body>
+</html>
