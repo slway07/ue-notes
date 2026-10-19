@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>NavMesh 타일과 레이어</title>
 <meta name="note-title" content="NavMesh 타일과 레이어">
-<meta name="note-summary" content="타일을 반으로 줄이면 예산은 4배가 된다. 엔진의 실제 계산식으로 직접 확인한다.">
+<meta name="note-summary" content="타일은 바닥을 XY로만 자른다. 높이는 레이어가 맡는다. 둘을 헷갈리면 예산 계산이 어긋난다.">
 <meta name="note-tags" content="NavMesh, Recast, 내비게이션">
 <meta name="note-order" content="20">
 <meta name="note-category" content="AI와 길찾기">
@@ -48,16 +48,25 @@ dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
 
 <header class="site-head">
 <h1>NavMesh 타일과 레이어</h1>
-<p>타일을 반으로 줄이면 예산은 4배가 된다. 엔진이 실제로 쓰는 계산식을 그대로 옮겨 놓았으니, 숫자를 직접 움직여 확인하면 된다.</p>
+<p>이 페이지는 이미 만들어진 걷기면을 <b>어떻게 나눠 저장하는가</b>의 이야기다. 걷기면이 어떻게 생기는지는 앞 페이지 <a href="navmesh-how-it-is-built.html">NavMesh는 어떻게 만들어지나</a>에 있다. 숫자는 엔진 계산식을 그대로 옮긴 것이니, 슬라이더를 움직여 직접 확인하면 된다.</p>
+<p><b>핵심 한 줄: 타일은 위에서 내려다본 격자다. 높이는 타일이 아니라 레이어가 맡는다.</b></p>
 </header>
 
 <article>
 
-<h2>1. 타일은 바닥을 격자로 자른 것이다</h2>
+<h2>1. 왜 통째로 굽지 않나</h2>
 
-<p>Recast 는 월드 전체를 한 번에 굽지 않는다. 바닥을 <code>TileSizeUU</code> 크기의 정사각형으로 자르고, 그 칸 하나하나를 따로 굽는다. 한 칸이 타일이다. 지형을 고치면 그 칸만 다시 구우면 되기 때문에 이렇게 되어 있다.</p>
+<p>맵 전체의 걷기면을 한 덩어리로 만들었다고 해 보자. 구석에 상자 하나를 옮겨도 그 덩어리 전체를 다시 계산해야 한다. 큰 맵에서는 그 계산이 몇 분씩 걸린다.</p>
 
-<p>격자가 몇 칸이 되는지는 월드 크기를 타일 크기로 나눈 값이다. 다만 엔진의 나눗셈에는 눈여겨볼 데가 두 군데 있다 — <b>정수 나눗셈</b>이고, 끝에 <b>1을 더한다</b>.</p>
+<p>그래서 바닥을 일정한 크기로 잘라 두고, 바뀐 조각만 다시 굽는다. 그 조각 하나가 <b>타일</b>이다. 타일 크기는 <code>TileSizeUU</code> 로 정한다.</p>
+
+<p>이 방식이 필수인 게임이 있다. 런타임에 지형이 바뀌는 게임이다. 문이 열리고, 건물이 부서지고, 레벨이 스트리밍으로 들어온다. 이런 게임은 바뀐 곳만 다시 구워야 감당이 된다.</p>
+
+<p>대가도 있다. 조각이 많아지면 관리할 것이 늘고, 조각 경계를 이어 붙이는 처리도 추가된다. 그러니 타일을 무작정 작게 할 수는 없다.</p>
+
+<h2>2. 위에서 내려다보면 격자다</h2>
+
+<p>타일은 바닥을 위에서 내려다보고 자른 격자의 한 칸이다. 격자가 몇 칸이 되는지는 월드 크기를 타일 크기로 나눈 값이다. 다만 엔진의 나눗셈에는 눈여겨볼 데가 두 군데 있다 — <b>정수 나눗셈</b>이고, 끝에 <b>1을 더한다</b>.</p>
 
 <div class="controls">
   <div class="ctl">
@@ -71,6 +80,8 @@ dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
     <div class="hint">기본값 1000. 하한 보정과 셀 크기 정수배 보정을 거치므로 입력값이 그대로 쓰이는 일은 드물다.</div>
   </div>
 </div>
+
+<p class="note">이 그림은 하늘에서 수직으로 내려다본 것이고, <b>높이 정보가 전혀 없다.</b> 언덕이든 평지든 위에서 보면 같은 칸이다.</p>
 
 <div class="stage"><canvas id="cvGrid" aria-label="위에서 내려다본 타일 격자"></canvas></div>
 
@@ -90,23 +101,48 @@ dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
 <code>Engine/Source/Runtime/NavigationSystem/Private/NavMesh/RecastNavMeshGenerator.cpp</code> 의 <code>CalculateMaxTilesCount</code></p>
 </blockquote>
 
-<h2>2. 한 칸이 타일 한 장이 아니다</h2>
+<h2>3. 같은 칸인데 겹이 여럿일 수 있다</h2>
 
-<p>여기가 핵심이다. 격자의 한 칸은 <b>바닥 평면의 한 구역</b>일 뿐이고, 그 구역에 걸어다닐 수 있는 면이 몇 겹이냐는 별개다. 다리 아래로도 지나가고 다리 위로도 지나간다면, 그 칸에는 걸을 수 있는 면이 두 겹 있다. Recast 는 이것을 <b>레이어</b>로 나눠 저장하고, <b>레이어 하나가 타일 한 장</b>을 차지한다.</p>
+<p>위에서 보면 격자 한 칸은 한 자리다. 그런데 그 자리 위에 걸어 다닐 수 있는 면이 여러 겹일 수 있다. 다리 아래로도 지나가고 다리 위로도 지나간다면, 그 자리에는 걸을 수 있는 면이 두 겹 있다. 위에서 보면 두 겹이 포개져서 한 칸이다. 타일 좌표가 같다.</p>
+
+<p>이 겹 하나하나를 <b>레이어</b>라고 부른다. Recast 는 레이어를 따로 나눠 저장하고, <b>레이어 하나가 타일 한 장</b>을 차지한다. 아래 그림에서 직접 확인해 보자.</p>
 
 <div class="controls">
   <div class="ctl">
-    <label for="decks">가운데 칸에 쌓인 층 <span class="val" id="decksV"></span></label>
-    <input id="decks" type="range" min="1" max="5" step="1" value="2">
-    <div class="hint">바닥 위에 육교·구름다리·건물 바닥이 몇 겹 지나가는지.</div>
+    <label for="decks">층 수 <span class="val" id="decksV"></span></label>
+    <input id="decks" type="range" min="1" max="4" step="1" value="2">
+    <div class="hint">다리를 몇 겹 쌓을지. 1이면 다리 없음(바닥만), 2면 다리 1개, 3이면 2개, 4면 3개.</div>
   </div>
 </div>
 
-<div class="stage"><canvas id="cvSide" aria-label="다리가 걸친 지형의 단면과 레이어"></canvas></div>
+<p class="note">그림은 위아래 두 칸이다. <b>위 칸</b>은 하늘에서 본 격자다. 다리는 y = 2 줄의 x = 1, 2, 3 칸을 가로지른다. <b>아래 칸</b>은 위 칸에서 고른 줄을 옆에서 자른 단면이다. 위 칸의 아무 칸이나 누르면 선택이 바뀐다. 처음에는 가운데 칸 (2, 2) 가 선택돼 있다.</p>
 
-<p class="note">왼쪽·오른쪽 칸은 바닥 하나뿐이라 레이어 1장이다. 가운데 칸만 여러 장이 된다. 같은 넓이의 격자라도 맵의 생김새에 따라 실제 타일 수가 몇 배씩 달라지는 이유가 이것이다.</p>
+<div class="stage"><canvas id="cvLayer" aria-label="위에서 본 격자와 선택한 줄의 단면. 칸을 누르면 선택이 바뀐다"></canvas></div>
 
-<h2>3. 그래서 예산이 얼마나 필요한가</h2>
+<div class="readout">
+  <div class="cell"><span class="k">선택한 칸</span><span class="v" id="rPick"></span></div>
+  <div class="cell"><span class="k">이 칸의 레이어</span><span class="v" id="rPickLayers"></span></div>
+  <div class="cell"><span class="k">타일 장수</span><span class="v" id="rPickTiles"></span></div>
+</div>
+
+<p>위에서 보면 다리 위와 다리 아래가 겹쳐서 한 칸이다. 타일 좌표가 같다. 그런데 걸어 다닐 수 있는 면은 두 겹이고, 이 겹을 <b>레이어</b>라고 부른다. 레이어는 0번부터 센다. 바닥이 0번, 다리가 1번이다. 그림의 선택 칸 아래에 있는 점 하나하나가 그 칸이 지나는 레이어다.</p>
+
+<p>레이어 하나가 타일 한 장을 차지한다. 그래서 격자가 25칸이어도 실제 타일은 25장보다 많을 수 있다. 그림에서 다리가 걸린 세 칸은 층 수만큼 장을 차지하고, 나머지 칸은 한 장씩이다. 층 수를 1로 두면 다리가 사라지고 25칸이 전부 한 장씩이 된다.</p>
+
+<p>그래서 "영역을 작게 잡으면 타일이 적어진다"는 짐작은 틀린다. 격자 칸 수는 넓이로 정해지지만, 타일 장수는 칸마다 겹이 몇 개인지로 정해진다. 칸 수가 같아도 겹이 많은 칸이 있으면 장수는 얼마든지 달라진다.</p>
+
+<h2>4. 엔진 로그는 둘을 나눠 찍는다</h2>
+
+<p>타일을 추가하지 못하면 엔진은 로그를 남긴다. 그 로그에서 자리를 적을 때는 <code>(x,y:layer)</code> 형태를 쓴다. 앞의 두 숫자가 타일 좌표이고, 콜론 뒤가 레이어다. 아래는 형식만 보여 주는 예시다.</p>
+
+<pre><code>(0,0:0)   ← 타일 좌표 (0,0) 의 0번 레이어. 바닥이다.
+(0,0:1)   ← 타일 좌표 (0,0) 의 1번 레이어. 같은 자리 위에 있는 다리다.</code></pre>
+
+<p>두 줄은 같은 타일 좌표 <code>(0,0)</code> 을 가리킨다. 앞의 두 숫자가 같고 콜론 뒤만 다르다. 이 표기를 알면 로그만 보고도 "같은 자리인데 겹이 여러 장이구나"를 바로 읽을 수 있다.</p>
+
+<h2>5. 그래서 예산이 얼마나 필요한가</h2>
+
+<p>앞 절에서 본 "칸 하나에 겹이 여럿"을 엔진은 맵 전체를 세어 보지 않는다. 대신 평균값 하나로 퉁친다. 그게 <code>AverageLayersPerTile</code> 이다.</p>
 
 <p>엔진은 격자 칸 수에 <code>AverageLayersPerTile</code> 을 곱해서 타일을 몇 장 담을지 미리 잡아 둔다. 맵을 다 뒤져 세는 것이 아니라 <b>평균값을 믿고 곱하는</b> 방식이다. 그래서 이 값이 실제보다 낮으면 빌드 도중에 자리가 모자라고, 높으면 쓰지도 않을 자리를 잡아 둔다.</p>
 
@@ -149,7 +185,7 @@ dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
 
 <p>그렇다고 타일을 무작정 키울 수도 없다. 타일이 크면 지형을 조금만 고쳐도 다시 구워야 할 범위가 넓어지고, 한 타일을 굽는 데 드는 시간과 메모리도 같이 커진다. 런타임에 조금씩 다시 굽는 맵일수록 타일은 작아야 하고, 작으면 예산이 터진다. 이 둘 사이에서 고르는 일이다.</p>
 
-<h2>4. 한계에 걸리면 무슨 일이 생기나</h2>
+<h2>6. 한계에 걸리면 무슨 일이 생기나</h2>
 
 <p>두 가지 다른 한계가 있고, 증상이 다르다.</p>
 
@@ -167,7 +203,7 @@ dl.defs dd{margin:2px 0 0;color:var(--text-dim);font-size:.9rem}
 Increase AverageLayersPerTile or, if using FixedTilePoolSize,
 increase the TilePoolSize or use bigger tiles.</code></pre>
 
-<h2>5. 기본값과 출처</h2>
+<h2>7. 기본값과 출처</h2>
 
 <table>
 <thead><tr><th>값</th><th>기본</th><th>어디에</th></tr></thead>
@@ -182,7 +218,7 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
 
 <p class="note"><code>CellSize</code> 는 해상도마다 따로 있다. 클래스 헤더의 구조체 초기값은 25 지만 <code>BaseEngine.ini</code> 가 <code>NavMeshResolutionParams</code> 로 <code>Low=38, Default=19, High=19</code> 를 덮어쓴다. 여기서 쓰는 값은 Default 의 19 다.</p>
 
-<p class="note">타일 크기에는 하한이 있다. <code>max(300, CellSize &times; 16, AgentRadius &times; 4)</code> 보다 작게는 못 내려간다. 기본값으로 계산하면 304 이므로, 300 을 넣어도 304 로 올라간다. 또 실제 타일 크기는 셀 크기의 정수배로 잘린다 — <code>trunc(TileSizeUU / CellSize) &times; CellSize</code>. <b>기본값 1000 도 그대로 쓰이지 않는다</b> — 1000 / 19 = 52.6 이므로 52 &times; 19 = <b>988</b> 이 실제 타일 크기다. 1번 그림에서 슬라이더를 움직여 보면 값이 19 단위로만 움직인다.</p>
+<p class="note">타일 크기에는 하한이 있다. <code>max(300, CellSize &times; 16, AgentRadius &times; 4)</code> 보다 작게는 못 내려간다. 기본값으로 계산하면 304 이므로, 300 을 넣어도 304 로 올라간다. 또 실제 타일 크기는 셀 크기의 정수배로 잘린다 — <code>trunc(TileSizeUU / CellSize) &times; CellSize</code>. <b>기본값 1000 도 그대로 쓰이지 않는다</b> — 1000 / 19 = 52.6 이므로 52 &times; 19 = <b>988</b> 이 실제 타일 크기다. 2번 그림에서 슬라이더를 움직여 보면 값이 19 단위로만 움직인다.</p>
 
 </article>
 
@@ -204,7 +240,8 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
   var AGENT_RADIUS = 34;
   var TILE_NUMBER_HARD_LIMIT = 1 << 20;
 
-  var S = { worldT:50, tile:1000, layers:3, decks:2, pool:1024, poolMode:'auto' };
+  // decks: 다리 층 수 / sx, sy: 3번 그림에서 선택한 칸
+  var S = { worldT:50, tile:1000, layers:3, decks:2, pool:1024, poolMode:'auto', sx:2, sy:2 };
 
   // 슬라이더 위치(0~100)를 영역 한 변으로 바꾼다. 50 m ~ 20 km 로그 눈금.
   // 한계(2^20 장)에 닿으려면 오픈월드급 크기가 필요해서 선형 눈금으로는 다룰 수 없다.
@@ -284,12 +321,12 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
     ctx.fillStyle = color; ctx.fillText(s, x, y);
   }
 
-  /* ---------- 1. 위에서 본 격자 ---------- */
+  /* ---------- 2. 위에서 본 격자 ---------- */
   var vGrid = makeView('cvGrid', 0.62, function(v){
     var ctx = v.ctx, g = gridCells();
     var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'), sf2 = cssv('--surface-2');
 
-    var pad = 26, side = Math.min(v.w - pad * 2, v.h - pad * 2);
+    var pad = 34, side = Math.min(v.w - pad * 2, v.h - pad * 2);
     if (side <= 0) return;
     var x0 = (v.w - side) / 2, y0 = (v.h - side) / 2;
 
@@ -322,57 +359,147 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
     label(ctx, '타일 1장 = ' + fmt(g.tile) + ' uu', x0, y0 - 12, accent);
     label(ctx, g.axis + ' x ' + g.axis + ' = ' + fmt(g.cells) + ' 칸', x0 + side, y0 - 12, dim, 'right');
     label(ctx, '영역 한 변 ' + fmt(worldMeters()) + ' m (' + fmt(worldUU()) + ' uu)', x0 + side / 2, y0 + side + 14, dim, 'center');
+    // 축 이름: 가로축은 오른쪽 끝, 세로축은 왼쪽 가운데. 둘 다 uu 단위다.
+    label(ctx, 'uu→', x0 + side + 6, y0 + side, dim, 'left', 10);
+    label(ctx, '↓uu', x0 - 6, y0 + side / 2, dim, 'right', 10);
     if (skip > 1) label(ctx, '격자선은 ' + skip + '칸마다 그림', x0 + side / 2, y0 + side / 2, dim, 'center', 10);
   });
 
-  /* ---------- 2. 다리 단면 ---------- */
-  var vSide = makeView('cvSide', 0.5, function(v){
+  /* ---------- 3. 같은 칸, 겹이 여럿 (위: 위에서 본 격자, 아래: 선택한 줄의 단면) ---------- */
+  // 다리는 y = 2 줄의 x = 1..3 칸을 가로지른다. 이 값은 그림과 판독이 함께 쓴다.
+  var BRIDGE_ROW = 2, BRIDGE_X0 = 1, BRIDGE_X1 = 3;
+
+  // 칸 (x, y) 의 레이어 수. 다리 칸은 층 수만큼, 나머지는 바닥 한 장이다.
+  function cellLayers(x, y){
+    return (y === BRIDGE_ROW && x >= BRIDGE_X0 && x <= BRIDGE_X1) ? S.decks : 1;
+  }
+  function clampIdx(i){ return Math.max(0, Math.min(4, i)); }
+
+  // 그리기와 클릭 판정이 같은 배치를 써야 하므로 한 곳에서 계산한다.
+  function layerLayout(w, h){
+    var topH = Math.floor(h * 0.5), gy0 = 40;
+    var cs = Math.min((w - 68) / 5, (topH - 62) / 5);
+    if (!(cs > 4)) cs = 4;
+    var gx0 = Math.round((w - cs * 5) / 2);
+    var groundY = h - 46, sideTop = topH + 26;
+    return { topH:topH, cs:cs, gx0:gx0, gy0:gy0, groundY:groundY, sideTop:sideTop,
+             unit:(groundY - sideTop - 16) / 4 };
+  }
+
+  var vLayer = makeView('cvLayer', 0.9, function(v){
     var ctx = v.ctx;
+    if (!(v.w > 0) || !(v.h > 0)) return;
     var accent = cssv('--accent'), line = cssv('--line'), dim = cssv('--text-dim'),
         warn = cssv('--warn'), sf2 = cssv('--surface-2'), text = cssv('--text');
 
-    var pad = 30, w = v.w - pad * 2, h = v.h - pad * 2;
-    if (w <= 0 || h <= 0) return;
-    var cols = 3, cw = w / cols;
-    var groundY = pad + h * 0.86;
+    var L = layerLayout(v.w, v.h), cs = L.cs, gx0 = L.gx0, gy0 = L.gy0;
+    var sx = S.sx, sy = S.sy, n = cellLayers(sx, sy);
+    function colX(i){ return gx0 + i * cs; }
+    function rowY(j){ return gy0 + j * cs; }
 
-    // 타일 칸 경계 (세로 점선)
-    ctx.setLineDash([4, 4]); ctx.strokeStyle = line; ctx.lineWidth = 1;
-    for (var i = 0; i <= cols; i++){
-      var x = Math.round(pad + i * cw) + 0.5;
-      ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, groundY + 16); ctx.stroke();
+    /* -- 위: 위에서 본 5 x 5 격자 -- */
+    label(ctx, '위에서 본 격자 (하늘에서 내려다본 모습)', 8, 12, dim, 'left', 10);
+    label(ctx, 'y↓', gx0 - 6, gy0 - 12, dim, 'right', 10);
+
+    // 다리 칸 (옅은 색)
+    ctx.fillStyle = warn; ctx.globalAlpha = 0.18;
+    for (var bi = BRIDGE_X0; bi <= BRIDGE_X1; bi++){
+      ctx.fillRect(colX(bi), rowY(BRIDGE_ROW), cs, cs);
     }
-    ctx.setLineDash([]);
-
-    // 바닥
-    ctx.fillStyle = sf2;
-    ctx.fillRect(pad, groundY, w, 14);
-    ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.moveTo(pad, groundY); ctx.lineTo(pad + w, groundY); ctx.stroke();
-
-    // 가운데 칸 위로 쌓이는 층
-    var mid = pad + cw, gap = (groundY - pad - 24) / Math.max(1, S.decks);
-    for (var d = 1; d <= S.decks - 1; d++){
-      var y = groundY - gap * d;
-      ctx.fillStyle = sf2; ctx.fillRect(mid - cw * 0.12, y, cw * 1.24, 11);
-      ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.moveTo(mid - cw * 0.12, y); ctx.lineTo(mid + cw * 1.12, y); ctx.stroke();
-      label(ctx, '레이어 ' + (d + 1), mid + cw / 2, y - 11, dim, 'center');
-    }
-    label(ctx, '레이어 1', pad + w - 6, groundY - 11, dim, 'right');
-
-    // 가운데 칸 강조
-    ctx.fillStyle = warn; ctx.globalAlpha = 0.12;
-    ctx.fillRect(mid, pad, cw, groundY + 14 - pad);
     ctx.globalAlpha = 1;
 
-    var labels = ['1장', S.decks + '장', '1장'];
-    for (var c = 0; c < cols; c++){
-      var cx = pad + cw * c + cw / 2;
-      label(ctx, '격자 1칸', cx, groundY + 30, dim, 'center', 10);
-      label(ctx, '타일 ' + labels[c], cx, groundY + 46, c === 1 ? warn : text, 'center', 12);
+    // 선택한 칸
+    ctx.fillStyle = accent; ctx.globalAlpha = 0.45;
+    ctx.fillRect(colX(sx), rowY(sy), cs, cs);
+    ctx.globalAlpha = 1;
+
+    // 격자선
+    ctx.strokeStyle = line; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var k = 0; k <= 5; k++){
+      var gxk = Math.round(colX(k)) + 0.5, gyk = Math.round(rowY(k)) + 0.5;
+      ctx.moveTo(gxk, gy0); ctx.lineTo(gxk, gy0 + 5 * cs);
+      ctx.moveTo(gx0, gyk); ctx.lineTo(gx0 + 5 * cs, gyk);
     }
-    label(ctx, '격자 3칸 → 타일 ' + (2 + S.decks) + '장', pad + w / 2, pad + 6, accent, 'center', 12);
+    ctx.stroke();
+
+    // 다리 막대 (y = 2 줄, x = 1..3 을 가로지른다)
+    ctx.fillStyle = text; ctx.globalAlpha = 0.8;
+    ctx.fillRect(colX(BRIDGE_X0) + cs * 0.12, rowY(BRIDGE_ROW) + cs * 0.37,
+                 (BRIDGE_X1 - BRIDGE_X0 + 1) * cs - cs * 0.24, cs * 0.26);
+    ctx.globalAlpha = 1;
+
+    // 선택 칸 테두리
+    ctx.strokeStyle = accent; ctx.lineWidth = 2;
+    ctx.strokeRect(colX(sx) + 1, rowY(sy) + 1, cs - 2, cs - 2);
+
+    // 격자 좌표: 가로 x = 0~4 (왼→오), 세로 y = 0~4 (위→아래)
+    for (var m = 0; m < 5; m++){
+      label(ctx, String(m), gx0 - 6, rowY(m) + cs / 2, dim, 'right', 10);
+      label(ctx, String(m), colX(m) + cs / 2, gy0 + 5 * cs + 12, dim, 'center', 10);
+    }
+    label(ctx, 'x→', gx0 + 5 * cs + 8, gy0 + 5 * cs + 12, dim, 'left', 10);
+
+    // 두 칸을 가르는 점선
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(8, L.topH); ctx.lineTo(v.w - 8, L.topH); ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* -- 아래: 선택한 줄(sy)을 옆에서 자른 단면 -- */
+    var groundY = L.groundY, sideTop = L.sideTop, unit = L.unit;
+    label(ctx, 'y = ' + sy + ' 줄의 단면', 8, L.topH + 14, accent, 'left', 11);
+
+    // 선택 칸의 기둥 (위 칸과 같은 강조색)
+    ctx.fillStyle = accent; ctx.globalAlpha = 0.14;
+    ctx.fillRect(colX(sx), sideTop, cs, groundY + 12 - sideTop);
+    ctx.globalAlpha = 1;
+
+    // 바닥: 전체에 깔려 있다 (레이어 0)
+    ctx.fillStyle = sf2; ctx.fillRect(gx0, groundY, 5 * cs, 12);
+    ctx.strokeStyle = accent; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(gx0, groundY); ctx.lineTo(gx0 + 5 * cs, groundY); ctx.stroke();
+    label(ctx, '레이어 0 (바닥)', gx0 + 5 * cs + 6, groundY + 6, dim, 'left', 10);
+
+    // 다리: 바닥 위에 떠 있다 (레이어 1, 2, ...). y = 2 줄에만 있다.
+    if (sy === BRIDGE_ROW){
+      for (var d = 1; d <= S.decks - 1; d++){
+        var by = groundY - unit * d - 8;
+        var bx = colX(BRIDGE_X0) + 2, bw = (BRIDGE_X1 - BRIDGE_X0 + 1) * cs - 4;
+        ctx.fillStyle = sf2; ctx.fillRect(bx, by, bw, 8);
+        ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, 8);
+        label(ctx, '레이어 ' + d, gx0 + 5 * cs + 6, by + 4, dim, 'left', 10);
+      }
+    } else {
+      label(ctx, '이 줄에는 다리가 없다. 바닥 한 겹뿐이다.', v.w / 2, (sideTop + groundY) / 2, dim, 'center', 11);
+    }
+
+    // 선택 칸의 기둥이 바닥과 다리를 지나는 자리마다 점을 찍는다. 점 개수가 레이어 수다.
+    ctx.fillStyle = accent;
+    for (var q = 0; q < n; q++){
+      var my = (q === 0) ? groundY + 6 : groundY - unit * q - 4;
+      ctx.beginPath(); ctx.arc(colX(sx) + cs / 2, my, 4, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // 단면의 x 칸 번호와 선택 요약
+    for (var c = 0; c < 5; c++){
+      label(ctx, 'x=' + c, colX(c) + cs / 2, groundY + 20, dim, 'center', 10);
+    }
+    label(ctx, '선택 (' + sx + ', ' + sy + ') → ' + n + '장', v.w / 2, groundY + 36, accent, 'center', 12);
+  });
+
+  // 위 칸을 누르면 그 칸이 선택된다. 클릭 좌표를 격자 칸으로 바꾸고 0~4 로 clamp 한다.
+  vLayer.cv.style.cursor = 'pointer';
+  vLayer.cv.addEventListener('click', function(e){
+    if (!(vLayer.w > 0) || !(vLayer.h > 0)) return;
+    var r = vLayer.cv.getBoundingClientRect();
+    if (!(r.width > 0) || !(r.height > 0)) return;
+    var L = layerLayout(vLayer.w, vLayer.h);
+    var px = (e.clientX - r.left) * (vLayer.w / r.width);
+    var py = (e.clientY - r.top) * (vLayer.h / r.height);
+    if (py < 0 || py >= L.topH) return;   // 위 칸 영역 밖의 클릭은 무시
+    S.sx = clampIdx(Math.floor((px - L.gx0) / L.cs));
+    S.sy = clampIdx(Math.floor((py - L.gy0) / L.cs));
+    render();
   });
 
   /* ---------- 판독 ---------- */
@@ -391,6 +518,11 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
     $('rEff').textContent = fmt(g.tile);
     $('rNeed').textContent = fmt(b.need);
     $('rLimit').textContent = fmt(b.limit);
+
+    var pickN = cellLayers(S.sx, S.sy);
+    $('rPick').textContent = '(' + S.sx + ', ' + S.sy + ')';
+    $('rPickLayers').textContent = pickN + '장';
+    $('rPickTiles').textContent = pickN + '장';
 
     var snapped = effTileSize(), msg;
     if (snapped !== S.tile){
@@ -428,7 +560,7 @@ increase the TilePoolSize or use bigger tiles.</code></pre>
         '타일 번호에 쓰는 비트는 ' + b.bits + '비트.';
     }
 
-    vGrid.draw(); vSide.draw();
+    vGrid.draw(); vLayer.draw();
   }
 
   /* ---------- 입력 ---------- */
