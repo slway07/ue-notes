@@ -88,6 +88,20 @@
 
 <p class="note">레인 사이를 잇는 비스듬한 선은 스레드가 바뀌는 지점이다. 병렬을 끄면 4~7번이 전부 게임 스레드 레인으로 올라가고 워커 레인은 비게 된다. 좁은 화면에서는 같은 내용이 세로로 바뀌어, 시간이 위에서 아래로 흐르고 좌우 두 칸이 스레드가 된다.</p>
 
+<h3>그림의 "워커 스레드" 한 줄은 스레드 한 개가 아니다</h3>
+
+<p>워커 스레드는 여러 개다. Windows 에서는 하이퍼스레딩이 있으면 <code>논리 프로세서 수 - 2</code>, 없으면 <code>물리 코어 수 - 1</code> 개를 띄우고, 최소 2 개는 보장한다. 4 개로 묶는 상한은 데디케이티드 서버에만 걸린다.</p>
+
+<p>그런데 더 중요한 것은 <b>작업을 쪼개는 단위</b>다. 병렬 애니메이션 작업 하나(<code>FParallelAnimationEvaluationTask</code>)가 들고 있는 것은 <b>스켈레탈 메시 컴포넌트 한 개</b>이고, 그 작업을 던지는 쪽도 컴포넌트 자신의 틱에서 <b>한 번</b> 던진다. 즉 <b>캐릭터 한 마리 = 작업 한 개 = 워커 한 개</b>이고, 그 캐릭터의 계산은 시작부터 끝까지 같은 워커에서 돈다.</p>
+
+<p>그래서 <b>병렬은 캐릭터 사이에서 생기고, 캐릭터 안에서는 생기지 않는다.</b> 애님 그래프의 노드들이 서로 다른 코어로 나뉘어 도는 것이 아니라, 한 작업 안에서 순차로 돈다.</p>
+
+<ul>
+<li>캐릭터 한 마리의 AnimBP 가 무거우면 <b>코어를 늘려도 그 한 마리는 빨라지지 않는다.</b> LOD, 업데이트 빈도 조절(Update Rate Optimization), 노드 수 줄이기로 풀어야 한다</li>
+<li>캐릭터 수가 많을 때는 코어를 늘린 만큼 이득이 있다. 동시에 처리되는 <b>캐릭터 수</b>가 늘기 때문이다</li>
+<li>위 그림의 아래 레인은 "스레드 한 개"가 아니라 <b>"이 캐릭터 한 마리의 작업이 올라가는 자리"</b> 로 읽어야 한다</li>
+</ul>
+
 <h2>2. 세 개의 Update 는 무엇이 다른가</h2>
 
 <p>이름이 비슷한 Update 가 셋이다. 어느 스레드에서 도는지가 액터 접근 가능 여부를 정한다.</p>
@@ -146,6 +160,9 @@
 <tr><td><code>NativeThreadSafeUpdateAnimation</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstanceProxy.cpp</code></td><td>1350</td></tr>
 <tr><td><code>BlueprintThreadSafeUpdateAnimation</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstanceProxy.cpp</code></td><td>1355</td></tr>
 <tr><td>각 훅 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimInstance.h</code></td><td>&mdash;</td></tr>
+<tr><td><code>FParallelAnimationEvaluationTask</code> 정의</td><td><code>Engine/Source/Runtime/Engine/Private/Components/SkeletalMeshComponent.cpp</code></td><td>332</td></tr>
+<tr><td>병렬 작업 디스패치</td><td><code>Engine/Source/Runtime/Engine/Private/Components/SkeletalMeshComponent.cpp</code></td><td>3086</td></tr>
+<tr><td>워커 스레드 개수 산출</td><td><code>Engine/Source/Runtime/Core/Private/Windows/WindowsPlatformMisc.cpp</code></td><td>2719</td></tr>
 </tbody>
 </table>
 </div>
