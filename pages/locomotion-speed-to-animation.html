@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Locomotion — 속도가 어떻게 애니메이션이 되나</title>
+<meta name="note-title" content="Locomotion — 속도가 어떻게 애니메이션이 되나">
+<meta name="note-summary" content="캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed와 Direction 둘뿐이다.">
+<meta name="note-tags" content="Animation, Locomotion, CharacterMovement">
+<meta name="note-order" content="20">
+<meta name="note-category" content="애니메이션">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+/* 이 페이지 전용 */
+.stage{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);margin:0 0 12px}
+.stage canvas{display:block;width:100%;touch-action:none;cursor:crosshair}
+.stage canvas:active{cursor:grabbing}
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0;min-width:520px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Locomotion — 속도가 어떻게 애니메이션이 되나</h1>
+<p>캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed와 Direction 둘뿐이다.</p>
+</header>
+
+<article>
+
+<p>캐릭터가 앞으로 나아가는 일과 다리가 움직이는 일은 서로 다른 시스템이 맡는다. 이동은 캡슐의 위치를 바꾸고, 애니메이션은 뼈를 돌린다. 그 사이를 잇는 값은 <b>Speed</b> 와 <b>Direction</b> 두 개뿐이고, AnimBP 가 매 프레임 이 둘을 계산해 BlendSpace 의 좌표로 넘긴다.</p>
+
+<h2>1. 캐릭터 이동과 애니메이션은 별개다</h2>
+
+<p>이동은 <code>UCharacterMovementComponent</code> 가 캡슐을 옮기는 일이다. 이 컴포넌트가 캡슐의 위치와 <code>Velocity</code> 를 정한다.</p>
+
+<p>애니메이션은 뼈를 움직이는 일이다. 애님 그래프는 어느 뼈를 얼마나 돌릴지 계산할 뿐, 캡슐이 어디로 갔는지는 모른다. <b>두 시스템은 서로를 모른다.</b></p>
+
+<p>그래서 AnimBP 가 중간에서 값을 옮긴다. 이동 컴포넌트가 남긴 <code>Velocity</code> 를 읽어 <b>Speed</b>(수평 속도의 크기)와 <b>Direction</b>(캐릭터가 보는 쪽 기준의 각도)으로 줄이고, 이 둘을 BlendSpace 좌표로 쓴다. 이 페이지는 그 변환과, 변환된 값이 실제로 어떻게 쓰이는지만 다룬다.</p>
+
+<h2>2. 값의 흐름</h2>
+
+<p>그림은 위에서 본 평면이다. 캐릭터는 가운데에 있고 <b>위쪽을 본다</b>. 캔버스를 클릭하거나 끌면 그 지점이 속도 벡터가 된다. 중심에서 멀수록 Speed 가 크고, 가장자리가 600 이다.</p>
+
+<div class="stage"><canvas id="cvSpeed" aria-label="위에서 본 속도 벡터 평면. 가운데 캐릭터가 위쪽을 보고 있고, 클릭하거나 끄는 지점까지 속도 화살표가 그려진다. 오른쪽으로 가면 Direction 이 +, 왼쪽으로 가면 -."></canvas></div>
+
+<div class="readout">
+  <div class="cell"><span class="k">Speed 0~600</span><span class="v" id="rSpeed">426</span></div>
+  <div class="cell"><span class="k">Direction -180~180</span><span class="v" id="rDir">+39°</span></div>
+  <div class="cell"><span class="k">BlendSpace 좌표</span><span class="v" id="rBlend">(+39, 426)</span></div>
+</div>
+
+<p>오른쪽으로 가면 Direction 이 <b>+</b>, 왼쪽으로 가면 <b>−</b> 다. 정면이 0, 뒤가 ±180 이다. 그림의 <b>+</b> 와 <b>−</b> 표시가 그 규칙을 보여 준다.</p>
+
+<p>이 값이 BlendSpace 의 가로축(Direction)·세로축(Speed)으로 들어간다. 그림 오른쪽(좁은 화면에서는 아래)의 사각형은 두 값을 축에 놓아 본 것이다. 실제 샘플 배치와 삼각분할은 8절에서 다룬다.</p>
+
+<p class="note">캐릭터는 가운데에서 정면(위쪽)을 본다. 중심에서 가장자리까지가 Speed 0~600 이고, 가장자리를 넘겨 끌면 600 에서 멈춘다. 좁은 화면에서는 평면도가 위, BlendSpace 가 아래로 재배치된다.</p>
+
+<h3>Direction 의 부호는 어디서 정해지나</h3>
+
+<p>엔진에서 Direction 을 만드는 함수는 <code>UKismetAnimationLibrary::CalculateDirection</code> 이다. 입력은 <code>FVector Velocity</code> 와 <code>FRotator BaseRotation</code>, 출력은 도 단위 각도(-180~180)다.</p>
+
+<ul>
+<li>속도를 <code>GetSafeNormal2D</code> 로 수평화한다. <b>Z 는 무시된다</b></li>
+<li>전방축과 내적해 <code>FMath::Acos</code> 로 각을 구하고 도로 바꾼다</li>
+<li><b>우측축과의 내적이 음수면 부호를 뒤집는다</b>. 그래서 오른쪽은 +, 왼쪽은 − 다</li>
+<li>속도가 거의 0 이면 0 을 돌려준다</li>
+</ul>
+
+<p>구버전 <code>UAnimInstance::CalculateDirection</code> 은 deprecated 다.</p>
+
+<h2>3. 이동 값의 엔진 기본값</h2>
+
+<p>이동을 담당하는 <code>UCharacterMovementComponent</code> 생성자의 기본값이다. 생성자는 <code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code> 의 653줄에서 시작한다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>기본값</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>MaxWalkSpeed</code></td><td>600</td><td>694</td></tr>
+<tr><td><code>MaxAcceleration</code></td><td>2048</td><td>733</td></tr>
+<tr><td><code>BrakingDecelerationWalking</code></td><td><code>MaxAcceleration</code> 과 같은 값(2048)</td><td>736</td></tr>
+<tr><td><code>GroundFriction</code></td><td>8.0</td><td>678</td></tr>
+<tr><td><code>RotationRate</code></td><td><code>FRotator(0, 360, 0)</code> — Yaw 만 360</td><td>681</td></tr>
+<tr><td><code>bUseControllerDesiredRotation</code></td><td>false</td><td>786</td></tr>
+<tr><td><code>bOrientRotationToMovement</code></td><td>false (생성자에 대입 없음)</td><td>헤더 446</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code>. <code>bOrientRotationToMovement</code> 는 생성자에 대입이 없고, <code>Engine/Source/Runtime/Engine/Classes/GameFramework/CharacterMovementComponent.h:446</code> 에 초기값 없는 비트필드로 선언돼 있어 기본이 false 다. 켜는 쪽은 템플릿이나 블루프린트다.</p>
+
+<p>그림의 가장자리 600 은 <code>MaxWalkSpeed</code> 기본값과 같은 숫자다.</p>
+
+<h2>4. 캐릭터는 어느 쪽을 보는가</h2>
+
+<p>캐릭터의 몸이 어느 쪽을 향하느냐에 따라 Direction 의 쓰임이 달라진다. 회전 속도 값인 <code>RotationRate</code> 의 기본값은 <code>FRotator(0, 360, 0)</code> 로, Yaw 만 초당 360 도다. 방향을 정하는 스위치는 두 개다.</p>
+
+<h3><code>bOrientRotationToMovement</code> — 가는 쪽을 본다</h3>
+
+<p>이 값을 켜면 캐릭터가 <b>가는 쪽</b>을 본다. 몸이 진행 방향을 따라 돌기 때문에, 캐릭터 기준으로 잰 Direction 은 거의 항상 0 에 가깝게 유지된다. 앞으로만 가는 셈이다.</p>
+
+<h3><code>bUseControllerDesiredRotation</code> — 컨트롤러가 원하는 쪽을 본다</h3>
+
+<p>이 값을 켜면 캐릭터가 <b>컨트롤러가 원하는 쪽</b>을 본다. 몸은 그 방향을 유지한 채 옆이나 뒤로도 갈 수 있으므로 Direction 이 -180~180 을 오간다. 옆걸음과 뒷걸음이 여기서 생긴다.</p>
+
+<p>그래서 <b>스트레이프가 필요한 게임은 후자</b>를 쓰고, 이때는 Direction 축이 실제로 쓰이므로 <b>BlendSpace 도 2D</b> 가 필요해진다. 전자는 Direction 이 거의 0 이라 가로축이 거의 쓰이지 않는다.</p>
+
+<h2>5. 발이 미끄러지는 이유</h2>
+
+<p>원인은 하나다. <b>애니메이션이 전제한 이동량과 실제 이동량이 다르다.</b> 달리기 애니메이션은 한 사이클에 특정 거리만큼 나아가는 것을 전제하는데, 캡슐은 그와 다른 속도로 움직인다. 남는 차이만큼 발이 지면을 미끄러진다.</p>
+
+<p>엔진이 주는 해결 축은 세 개다.</p>
+
+<ol>
+<li><b>재생 속도 조절</b> — 애니메이션 재생률을 실제 속도에 맞춰 늘리고 줄인다. 가장 단순하지만 과하게 늘리면 동작이 부자연스러워진다.</li>
+<li><b>Distance Matching</b> — 이동 <b>거리</b>에 맞춰 애니메이션 시간을 전진시킨다. 함수는 <code>UAnimDistanceMatchingLibrary::AdvanceTimeByDistanceMatching</code> 이고, 선언은 <code>Engine/Plugins/Animation/AnimationLocomotionLibrary/Source/Runtime/Public/AnimDistanceMatchingLibrary.h:36</code>, 구현은 같은 플러그인의 <code>.../Private/AnimDistanceMatchingLibrary.cpp:155</code> 다. <b><code>PlayRateClamp</code> 기본값은 (0.75, 1.25)</b> 다. 재생률을 이 범위로 묶는다는 뜻이고, 나머지 오차는 다른 기법이 메꾼다.</li>
+<li><b>Stride Warping</b> — 보폭 자체를 늘리고 줄인다. 구조체는 <code>FAnimNode_StrideWarping</code> 이고, <code>Engine/Plugins/Animation/AnimationWarping/Source/Runtime/Public/BoneControllers/AnimNode_StrideWarping.h:36</code> 에 선언돼 있다. 플러그인 설명은 이 기능이 "Stride, Orientation, Slope Warping 을 포함한다"고 적고 있다.</li>
+</ol>
+
+<p><b>"foot sliding" 이라는 이름의 노드나 함수는 엔진에 없다.</b> 증상의 이름일 뿐이다. 그래서 이름으로 검색해도 안 나오고, 엔진이 주는 것은 위 2·3 같은 도구다.</p>
+
+<h2>6. 길이가 다른 애니메이션을 맞추기 (동기화 그룹)</h2>
+
+<p>걷기와 달리기는 한 사이클의 길이가 다르다. 그냥 섞으면 발이 어긋난다. 동기화 그룹은 애니메이션마다 <b>리더</b>와 <b>팔로워</b> 역할을 정해 이 문제를 푼다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>줄</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>CanBeLeader</code></td><td>567</td><td>블렌드 가중치가 이전 최고 리더보다 높으면 리더가 될 수 있다</td></tr>
+<tr><td><code>AlwaysFollower</code></td><td>570</td><td>항상 팔로워다. 전부 팔로워면 먼저 tick 된 쪽이 리더가 된다</td></tr>
+<tr><td><code>AlwaysLeader</code></td><td>573</td><td>항상 리더다. 여러 개면 마지막에 tick 된 쪽이 이긴다</td></tr>
+<tr><td><code>TransitionLeader</code></td><td>576</td><td>블렌드 인 동안은 그룹에서 빠지고, 블렌드가 끝나면 블렌드 아웃까지 리더다</td></tr>
+<tr><td><code>TransitionFollower</code></td><td>579</td><td>블렌드 인 동안 빠지고, 끝나면 팔로워다</td></tr>
+<tr><td><code>ExclusiveAlwaysLeader</code></td><td>582</td><td>항상 리더다. 리더로 tick 하지 못하면 동기화 없이 단독 재생한다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimationAsset.h</code>, enum <code>EAnimGroupRole</code> 은 562줄에서 시작한다.</p>
+
+<p>역할만 정한다고 위치가 저절로 맞는 것은 아니다. 리더와 팔로워 모두 <code>FMarkerTickRecord</code> 의 이전/다음 마커 쌍을 기준으로 자기 위치를 맞춘다. 마커 인덱스를 찾는 함수가 <code>UAnimSequenceBase::GetMarkerIndicesForPosition</code> 이고(선언 <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimSequenceBase.h:205</code>), 팔로워는 <code>AnimSequenceBase.cpp:602</code>, 리더는 <code>:621</code> 에서 이 함수를 호출한다.</p>
+
+<h2>7. 위치를 누가 정하는가 (루트 모션)</h2>
+
+<p>평소 이동은 캡슐이 옮기고, 공격·구르기 같은 동작은 애니메이션이 위치를 옮기는 편이 자연스럽다. 어느 쪽을 쓸지 정하는 값이 <code>ERootMotionMode</code> 다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>줄</th><th>주석의 뜻</th></tr></thead>
+<tbody>
+<tr><td><code>NoRootMotionExtraction</code></td><td>32</td><td>루트 모션을 애니메이션에 그대로 둔다</td></tr>
+<tr><td><code>IgnoreRootMotion</code></td><td>35</td><td>뽑아내되 적용하지 않는다</td></tr>
+<tr><td><code>RootMotionFromEverything</code></td><td>38</td><td>최종 포즈에 기여하는 <b>모든</b> 애니메이션에서 루트 모션을 가져온다. 네트워크 멀티플레이에는 적합하지 않다</td></tr>
+<tr><td><code>RootMotionFromMontagesOnly</code></td><td>41</td><td>몽타주에서만 가져온다. 네트워크 멀티플레이에 적합하다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimEnums.h</code>, enum <code>ERootMotionMode</code> 는 27줄에서 시작한다.</p>
+
+<p>기본값은 <code>RootMotionFromMontagesOnly</code> 다. <code>UAnimInstance</code> 생성자가 <code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp:202</code> 에서 이 값을 넣는다. 그래서 평소 이동은 캡슐이 옮기고, 공격·구르기 같은 몽타주만 루트 모션으로 움직이는 구성이 기본이다.</p>
+
+<h2>8. BlendSpace 가 샘플을 고르는 방식</h2>
+
+<p><code>UBlendSpace</code> 는 입력 좌표를 받아 재생할 샘플과 가중치를 고른다.</p>
+
+<ul>
+<li>축 배열은 <code>FBlendParameter BlendParameters[3]</code> 로 3칸이지만, <b>런타임 기본 경로는 1차원과 2차원만 처리한다.</b> 그 밖의 차원은 "Unhandled number of dimensions" 경고를 내고 빈 결과를 낸다</li>
+<li>기본 경로는 격자 보간이 아니다. <code>bInterpolateUsingGrid</code> 의 기본값은 false 이고, 실제로는 <b>삼각분할</b>이다</li>
+<li>2D 는 입력 좌표가 든 삼각형을 찾아 <code>FMath::GetBaryCentric2D</code> 로 세 꼭짓점의 가중치를 구한다</li>
+<li>1D 는 구간을 찾고, 구간 밖이면 가장 가까운 끝점에 가중치 1.0 을 준다</li>
+<li>가중치가 <code>ZERO_ANIMWEIGHT_THRESH</code> 를 넘는 샘플만 실제로 재생 목록에 들어간다</li>
+<li>입력 → 가중치의 진입점은 <code>UBlendSpace::GetSamplesFromBlendInput</code> 이다</li>
+</ul>
+
+<p>2D 에서는 입력 점을 품은 삼각형의 세 꼭짓점 가중치가 계산되고, 그중 문턱을 넘는 샘플만 그 프레임에 재생된다. 그림의 점을 움직여 보면 Direction 과 Speed 가 축 위에서 어디로 가는지 확인할 수 있다.</p>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>단계</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td>생성자 시작</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>653</td></tr>
+<tr><td><code>GroundFriction</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>678</td></tr>
+<tr><td><code>RotationRate</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>681</td></tr>
+<tr><td><code>MaxWalkSpeed</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>694</td></tr>
+<tr><td><code>MaxAcceleration</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>733</td></tr>
+<tr><td><code>BrakingDecelerationWalking</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>736</td></tr>
+<tr><td><code>bUseControllerDesiredRotation</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>786</td></tr>
+<tr><td><code>bOrientRotationToMovement</code> 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/CharacterMovementComponent.h</code></td><td>446</td></tr>
+<tr><td><code>CalculateDirection</code> 구현</td><td><code>Engine/Source/Runtime/AnimGraphRuntime/Private/KismetAnimationLibrary.cpp</code></td><td>276</td></tr>
+<tr><td>각도 계산 (<code>FMath::Acos</code>)</td><td><code>Engine/Source/Runtime/AnimGraphRuntime/Private/KismetAnimationLibrary.cpp</code></td><td>288</td></tr>
+<tr><td>부호 반전 (우측축 내적)</td><td><code>Engine/Source/Runtime/AnimGraphRuntime/Private/KismetAnimationLibrary.cpp</code></td><td>292~295</td></tr>
+<tr><td><code>AdvanceTimeByDistanceMatching</code> 선언</td><td><code>Engine/Plugins/Animation/AnimationLocomotionLibrary/Source/Runtime/Public/AnimDistanceMatchingLibrary.h</code></td><td>36</td></tr>
+<tr><td><code>AdvanceTimeByDistanceMatching</code> 구현</td><td><code>.../Private/AnimDistanceMatchingLibrary.cpp</code></td><td>155</td></tr>
+<tr><td><code>FAnimNode_StrideWarping</code> 선언</td><td><code>Engine/Plugins/Animation/AnimationWarping/Source/Runtime/Public/BoneControllers/AnimNode_StrideWarping.h</code></td><td>36</td></tr>
+<tr><td><code>EAnimGroupRole</code> enum</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimationAsset.h</code></td><td>562</td></tr>
+<tr><td>역할 값 6개</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimationAsset.h</code></td><td>567, 570, 573, 576, 579, 582</td></tr>
+<tr><td><code>GetMarkerIndicesForPosition</code> 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimSequenceBase.h</code></td><td>205</td></tr>
+<tr><td>팔로워의 마커 인덱스 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimSequenceBase.cpp</code></td><td>602</td></tr>
+<tr><td>리더의 마커 인덱스 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimSequenceBase.cpp</code></td><td>621</td></tr>
+<tr><td><code>ERootMotionMode</code> enum</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimEnums.h</code></td><td>27</td></tr>
+<tr><td>모드 값 4개</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimEnums.h</code></td><td>32, 35, 38, 41</td></tr>
+<tr><td>기본 루트 모션 모드 (<code>RootMotionFromMontagesOnly</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>202</td></tr>
+<tr><td><code>BlendParameters[3]</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/BlendSpace.h</code></td><td>926</td></tr>
+<tr><td><code>bInterpolateUsingGrid</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/BlendSpace.h</code></td><td>868</td></tr>
+<tr><td>차원 미처리 경고</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/BlendSpace.cpp</code></td><td>3177, 3190~3191</td></tr>
+<tr><td><code>FMath::GetBaryCentric2D</code> 호출</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/BlendSpace.cpp</code></td><td>3073</td></tr>
+<tr><td>입력 → 가중치 진입점 (<code>GetSamplesFromBlendInput</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/BlendSpace.cpp</code></td><td>1360</td></tr>
+<tr><td><code>ZERO_ANIMWEIGHT_THRESH</code> 필터</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/BlendSpace.cpp</code></td><td>1375</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 — 위 표의 파일과 줄 번호. 표의 <code>...</code> 는 바로 위 줄의 <code>Engine/Plugins/Animation/AnimationLocomotionLibrary/Source/Runtime</code> 을 줄인 것이다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 이동 값이 애니메이션으로 넘어가는 경로만 다뤘다. 스테이트 머신의 전이 규칙, 노티파이, IK 는 다루지 않았다.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var cssv = function(n){
+    return getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  };
+  var MONO = 'ui-monospace, "Cascadia Mono", "Consolas", monospace';
+  var MAX_SPEED = 600;
+  var TAU = Math.PI * 2;
+
+  // 화면 좌표 기준. x 는 오른쪽, y 는 아래. 캐릭터의 정면은 위쪽(-y)이다.
+  // nx, ny 는 반지름 R 을 1 로 본 단위 벡터다. 길이가 곧 Speed 비율이다.
+  var state = { nx: 0.45, ny: -0.55 };
+
+  function colors(){
+    return {
+      text: cssv('--text'),
+      dim: cssv('--text-dim'),
+      line: cssv('--line'),
+      accent: cssv('--accent'),
+      sf: cssv('--surface'),
+      sf2: cssv('--surface-2'),
+      warn: cssv('--warn')
+    };
+  }
+
+  function label(ctx, s, x, y, color, align, size, weight){
+    ctx.font = (weight ? weight + ' ' : '') + (size || 10) + 'px ' + MONO;
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = color;
+    ctx.fillText(s, x, y);
+  }
+
+  function speedValue(){
+    var l = Math.hypot(state.nx, state.ny);
+    if (!(l > 0)) return 0;
+    var s = Math.round(l * MAX_SPEED);
+    if (s < 0) return 0;
+    if (s > MAX_SPEED) return MAX_SPEED;
+    return s;
+  }
+
+  // 정면(위)이 0, 오른쪽이 +, 왼쪽이 -, 뒤가 ±180.
+  function dirValue(){
+    var l = Math.hypot(state.nx, state.ny);
+    if (!(l > 0.0001)) return 0;
+    var d = Math.atan2(state.nx, -state.ny) * 180 / Math.PI;
+    if (d > 180) d -= 360;
+    if (d < -180) d += 360;
+    return Math.round(d);
+  }
+
+  function fmtDir(d){ return (d > 0 ? '+' : '') + d; }
+
+  /* ---------- 위에서 본 속도 평면 ---------- */
+  function drawMap(v, area, C){
+    var ctx = v.ctx;
+    if (!(area.w > 0) || !(area.h > 0)) return null;
+
+    var cx = area.x + area.w / 2;
+    var cy = area.y + area.h / 2;
+    var R = Math.min(area.w, area.h) / 2 - 24;
+    if (!(R > 0)) return null;
+
+    var speed = speedValue();
+    var dir = dirValue();
+    var l = Math.hypot(state.nx, state.ny);
+
+    // 바탕 원
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, TAU);
+    ctx.globalAlpha = 0.55;
+    ctx.fillStyle = C.sf2;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = C.line;
+    ctx.stroke();
+
+    // 절반 속도 링
+    ctx.beginPath();
+    ctx.arc(cx, cy, R / 2, 0, TAU);
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = C.line;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 정면 축
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx, cy - R);
+    ctx.setLineDash([2, 5]);
+    ctx.strokeStyle = C.dim;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 8방향 눈금. 고정 배열과 그 길이만큼만 돈다.
+    var DEG = [0, 45, 90, 135, 180, 225, 270, 315];
+    var i, a, x1, y1, x2, y2;
+    ctx.strokeStyle = C.line;
+    for (i = 0; i < DEG.length; i++){
+      a = (DEG[i] - 90) * Math.PI / 180;
+      x1 = cx + Math.cos(a) * (R - 6);
+      y1 = cy + Math.sin(a) * (R - 6);
+      x2 = cx + Math.cos(a) * R;
+      y2 = cy + Math.sin(a) * R;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    // 방향 표시
+    label(ctx, '정면 0°', cx, cy - R - 11, C.dim, 'center', 9);
+    label(ctx, '뒤 ±180°', cx, cy + R + 11, C.dim, 'center', 9);
+    label(ctx, '+', cx + R - 11, cy - 10, C.accent, 'right', 15, '700');
+    label(ctx, '−', cx - R + 11, cy - 10, C.accent, 'left', 15, '700');
+
+    // 속도 벡터
+    var px = cx + state.nx * R;
+    var py = cy + state.ny * R;
+    if (speed > 0){
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(px, py);
+      ctx.strokeStyle = C.accent;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      var ang = Math.atan2(py - cy, px - cx);
+      var head = 9;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px - head * Math.cos(ang - 0.42), py - head * Math.sin(ang - 0.42));
+      ctx.lineTo(px - head * Math.cos(ang + 0.42), py - head * Math.sin(ang + 0.42));
+      ctx.closePath();
+      ctx.fillStyle = C.accent;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(px, py, 5, 0, TAU);
+      ctx.fillStyle = C.accent;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = C.sf;
+      ctx.stroke();
+    }
+
+    // 캐릭터. 가운데에서 위쪽을 본다.
+    ctx.beginPath();
+    ctx.arc(cx, cy, 11, 0, TAU);
+    ctx.fillStyle = C.sf;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = C.text;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 7);
+    ctx.lineTo(cx - 5, cy + 4);
+    ctx.lineTo(cx + 5, cy + 4);
+    ctx.closePath();
+    ctx.fillStyle = C.text;
+    ctx.fill();
+
+    // 숫자
+    label(ctx, 'Speed ' + speed, area.x + 2, area.y + 11, C.text, 'left', 10, '600');
+    label(ctx, 'Dir ' + fmtDir(dir) + '°', area.x + 2, area.y + 25, C.text, 'left', 10, '600');
+    label(ctx, l > 0.995 ? '가장자리 600 (최대)' : '가장자리 600',
+          cx - R + 12, cy + R - 12, l > 0.995 ? C.warn : C.dim, 'left', 8.5);
+
+    // 클릭 판정에 쓸 위치를 남긴다. 다음 그리기 전까지 유효하다.
+    v.map = { cx: cx, cy: cy, R: R, x0: area.x, y0: area.y, x1: area.x + area.w, y1: area.y + area.h };
+    return v.map;
+  }
+
+  /* ---------- BlendSpace 좌표판 ---------- */
+  function drawBlend(v, area, C){
+    var ctx = v.ctx;
+    if (!(area.w > 0) || !(area.h > 0)) return;
+
+    var padL = 34, padR = 12, padT = 38, padB = 24;
+    var w = area.w - padL - padR;
+    var h = area.h - padT - padB;
+    if (!(w > 0) || !(h > 0)) return;
+
+    var x0 = area.x + padL;
+    var y0 = area.y + padT;
+
+    ctx.globalAlpha = 0.4;
+    ctx.fillStyle = C.sf2;
+    ctx.fillRect(area.x, area.y, area.w, area.h);
+    ctx.globalAlpha = 1;
+
+    label(ctx, 'BlendSpace', area.x + 8, area.y + 11, C.text, 'left', 10, '700');
+    label(ctx, 'x: Direction · y: Speed', area.x + 8, area.y + 23, C.dim, 'left', 8.5);
+
+    // 축 상자와 0 축
+    ctx.strokeStyle = C.line;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(Math.round(x0) + 0.5, Math.round(y0) + 0.5, Math.round(w), Math.round(h));
+
+    ctx.beginPath();
+    ctx.moveTo(x0 + w / 2, y0);
+    ctx.lineTo(x0 + w / 2, y0 + h);
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = C.line;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var dir = dirValue();
+    var speed = speedValue();
+    var i, tx, ty;
+
+    // 가로 눈금: -180 ~ 180. 좁으면 3개만.
+    var XT = area.w >= 190 ? [-180, -90, 0, 90, 180] : [-180, 0, 180];
+    for (i = 0; i < XT.length; i++){
+      tx = x0 + (XT[i] + 180) / 360 * w;
+      label(ctx, String(XT[i]), tx, y0 + h + 9, C.dim, 'center', 8.5);
+    }
+
+    // 세로 눈금: 0 ~ 600
+    var YT = [0, 300, 600];
+    for (i = 0; i < YT.length; i++){
+      ty = y0 + h - (YT[i] / MAX_SPEED) * h;
+      label(ctx, String(YT[i]), x0 - 6, ty, C.dim, 'right', 8.5);
+    }
+
+    var px = x0 + (dir + 180) / 360 * w;
+    var py = y0 + h - (speed / MAX_SPEED) * h;
+
+    // 현재 값에서 축으로 내리는 안내선
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = C.line;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px, y0 + h);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(x0, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.arc(px, py, 4.5, 0, TAU);
+    ctx.fillStyle = C.accent;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = C.sf;
+    ctx.stroke();
+  }
+
+  // 좁은 화면에서는 평면도 위, BlendSpace 아래로 세로 배치한다.
+  function frameHeight(w){
+    if (!(w > 0)) return 0;
+    if (w < 560){
+      var mapSize = Math.min(w - 28, 320);
+      if (!(mapSize > 0)) return 0;
+      return 14 + mapSize + 12 + 158 + 14;
+    }
+    return Math.max(320, Math.min(380, Math.round(w * 0.50)));
+  }
+
+  function makeView(id, draw){
+    var cv = $(id);
+    var v = { cv: cv, ctx: cv.getContext('2d'), w: 0, h: 0, map: null };
+    v.draw = function(){
+      if (!(v.w > 0) || !(v.h > 0)) return;
+      v.map = null;
+      v.ctx.clearRect(0, 0, v.w, v.h);
+      draw(v);
+    };
+    v.resize = function(){
+      var w = cv.clientWidth;
+      if (!(w > 0)) return;
+      var h = frameHeight(w);
+      if (!(h > 0)) return;
+      v.w = w;
+      v.h = h;
+      var dpr = window.devicePixelRatio || 1;
+      if (!(dpr > 0)) dpr = 1;
+      cv.style.height = h + 'px';
+      cv.width = Math.round(w * dpr);
+      cv.height = Math.round(h * dpr);
+      v.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      v.draw();
+    };
+    var last = 0;
+    new ResizeObserver(function(){
+      // 폭이 바뀔 때만 다시 그린다. 높이 변경이 옵저버를 다시 깨워도 여기서 멈춘다.
+      if (cv.clientWidth !== last){ last = cv.clientWidth; v.resize(); }
+    }).observe(cv);
+    return v;
+  }
+
+  function drawWide(v, C){
+    var pad = 16, gap = 18;
+    var panelW = Math.max(168, Math.min(230, Math.round(v.w * 0.30)));
+    var availW = v.w - pad * 2 - gap - panelW;
+    var availH = v.h - pad * 2;
+    if (!(availW > 0) || !(availH > 0)) return;
+
+    var mapSize = Math.min(availW, availH);
+    if (!(mapSize > 0)) return;
+
+    var totalW = mapSize + gap + panelW;
+    if (!(totalW > 0)) return;
+
+    var startX = Math.max(pad, Math.round((v.w - totalW) / 2));
+    var mapY = pad + (availH - mapSize) / 2;
+
+    var m = drawMap(v, { x: startX, y: mapY, w: mapSize, h: mapSize }, C);
+    if (!m) return;
+
+    drawBlend(v, { x: startX + mapSize + gap, y: pad, w: panelW, h: availH }, C);
+  }
+
+  function drawNarrow(v, C){
+    var pad = 14;
+    var mapSize = Math.min(v.w - pad * 2, 320);
+    if (!(mapSize > 0)) return;
+
+    var m = drawMap(v, { x: (v.w - mapSize) / 2, y: pad, w: mapSize, h: mapSize }, C);
+    if (!m) return;
+
+    var blendW = v.w - pad * 2;
+    if (!(blendW > 0)) return;
+
+    drawBlend(v, { x: pad, y: pad + mapSize + 12, w: blendW, h: 158 }, C);
+  }
+
+  function drawPage(v){
+    var C = colors();
+    if (v.w < 560){
+      drawNarrow(v, C);
+    } else {
+      drawWide(v, C);
+    }
+  }
+
+  var view = makeView('cvSpeed', drawPage);
+  var dragging = false;
+
+  function evPos(ev){
+    if (!(view.w > 0) || !(view.h > 0)) return null;
+    var r = view.cv.getBoundingClientRect();
+    if (!(r.width > 0) || !(r.height > 0)) return null;
+    return {
+      x: (ev.clientX - r.left) * (view.w / r.width),
+      y: (ev.clientY - r.top) * (view.h / r.height)
+    };
+  }
+
+  function setFromPoint(p){
+    var m = view.map;
+    if (!m || !(m.R > 0)) return;
+    var dx = p.x - m.cx;
+    var dy = p.y - m.cy;
+    var len = Math.hypot(dx, dy);
+    if (len > m.R){
+      dx = dx * m.R / len;
+      dy = dy * m.R / len;
+    }
+    state.nx = dx / m.R;
+    state.ny = dy / m.R;
+    refresh();
+  }
+
+  function refresh(){
+    var speed = speedValue();
+    var dir = dirValue();
+    $('rSpeed').textContent = String(speed);
+    $('rDir').textContent = fmtDir(dir) + '°';
+    $('rBlend').textContent = '(' + fmtDir(dir) + ', ' + speed + ')';
+    view.draw();
+  }
+
+  view.cv.addEventListener('pointerdown', function(ev){
+    var p = evPos(ev);
+    var m = view.map;
+    if (!p || !m) return;
+    if (p.x < m.x0 || p.x > m.x1 || p.y < m.y0 || p.y > m.y1) return;
+    dragging = true;
+    if (view.cv.setPointerCapture){
+      try { view.cv.setPointerCapture(ev.pointerId); } catch (err) {}
+    }
+    setFromPoint(p);
+    ev.preventDefault();
+  });
+
+  view.cv.addEventListener('pointermove', function(ev){
+    if (!dragging) return;
+    var p = evPos(ev);
+    if (!p) return;
+    setFromPoint(p);
+    ev.preventDefault();
+  });
+
+  function endDrag(){ dragging = false; }
+  view.cv.addEventListener('pointerup', endDrag);
+  view.cv.addEventListener('pointercancel', endDrag);
+
+  // 테마가 바뀌면 색을 다시 읽어 그린다. 반복 실행이 아니라 이벤트에서만 그린다.
+  if (window.matchMedia){
+    var mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener){
+      mq.addEventListener('change', function(){ view.draw(); });
+    }
+  }
+  if (window.MutationObserver){
+    new MutationObserver(function(){ view.draw(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
+  refresh();
+  view.resize();
+})();
+</script>
+
+</body>
+</html>
