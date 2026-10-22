@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시안 v2 — 슬라이더로 변수를 만지면 그림이 움직인다</title>
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+.panel{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin:0 0 24px;background:var(--surface)}
+.sl{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin:0 0 10px}
+.sl label{font-family:ui-monospace,Consolas,monospace;font-size:.82rem;color:var(--accent);white-space:nowrap}
+.sl output{font-family:ui-monospace,Consolas,monospace;font-size:.92rem;color:var(--text);min-width:5.4em;text-align:right}
+.sl input[type=range]{width:100%}
+.hint{font-size:.78rem;color:var(--text-dim);margin:-4px 0 12px;padding-left:2px}
+canvas{display:block;width:100%;height:auto}
+.verdict{margin:10px 0 0;padding:10px 12px;border-radius:var(--radius);font-size:.9rem;background:var(--surface-2)}
+.verdict.ok{color:var(--accent)}
+.verdict.bad{color:var(--warn)}
+.try{border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:14px 0;font-size:.9rem}
+@media (max-width:460px){ .sl{grid-template-columns:auto 1fr;grid-auto-rows:auto}
+  .sl output{grid-column:2;text-align:left} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>시안 v2 — 슬라이더 + 움직이는 그림</h1>
+<p>네가 고른 B(움직임)와 C(변수 슬라이더)를 합쳤다. 값을 끌면 그림이 바로 반응한다.</p>
+</header>
+
+<article>
+
+<h2>발이 미끄러지는 이유</h2>
+
+<p>슬라이더 두 개가 <b>서로 다른 두 시스템</b>을 가리킨다. 위는 <b>캡슐을 옮기는 쪽</b>, 아래는 <b>애니메이션을 트는 쪽</b>이다. 둘은 서로를 모른다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sSpeed">MaxWalkSpeed</label>
+    <input type="range" id="sSpeed" min="0" max="600" step="10" value="600">
+    <output id="oSpeed">600 cm/s</output>
+  </div>
+  <p class="hint">캡슐이 1초에 나아가는 거리. 이동 컴포넌트가 가진 값이다.</p>
+
+  <div class="sl">
+    <label for="sRate">Play Rate</label>
+    <input type="range" id="sRate" min="0.5" max="4" step="0.05" value="1">
+    <output id="oRate">1.00 배</output>
+  </div>
+  <p class="hint">애니메이션 재생 속도. 이 걷기 애니메이션은 1배일 때 1초에 150cm 나아가도록 만들어졌다.</p>
+
+  <div class="stage"><canvas id="cv" aria-label="캐릭터가 제자리에서 달리고 지면이 흐른다. MaxWalkSpeed 는 지면이 흐르는 속도를, Play Rate 는 다리가 도는 속도를 정한다. 두 값이 어긋나면 발 밑에 미끄러짐 화살표가 나타난다."></canvas></div>
+
+  <p class="verdict" id="verdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <code>MaxWalkSpeed</code> 를 600 에 두고 <code>Play Rate</code> 를 끌어올려 미끄러짐을 0 으로 만들어 봐라. 몇 배가 필요한가? 그때 다리는 어떻게 보이나?</p>
+
+<h2>이 그림이 말하는 것</h2>
+
+<ul>
+<li><b>미끄러짐 = <code>MaxWalkSpeed</code> − (150 × <code>Play Rate</code>)</b>. 두 시스템의 속도 차이가 그대로 미끄러짐이다</li>
+<li>재생 속도를 올리면 거리는 맞출 수 있다. 대신 <b>다리가 그만큼 빨리 돈다</b></li>
+<li>엔진이 주는 도구들은 이 둘 사이에서 타협점을 찾는 방법이다. <code>Play Rate</code> 를 자동으로 맞추되 <b>0.75~1.25 안으로 제한</b>하고(Distance Matching), 모자란 몫은 <b>보폭 자체를 늘려</b>(Stride Warping) 메운다</li>
+</ul>
+
+<h2>이 형식으로 나머지도 만든다</h2>
+
+<p>괜찮으면 아래 그림들도 같은 방식으로 만든다. 전부 <b>슬라이더에 엔진 변수명을 붙이고, 끌면 바로 움직이는</b> 형태다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림</th><th>슬라이더로 만질 변수</th><th>무엇이 보이나</th></tr></thead>
+<tbody>
+<tr><td>캐릭터가 도는 두 방식</td><td><code>bOrientRotationToMovement</code> 켜고 끄기, <code>RotationRate</code></td><td>같은 입력인데 몸이 도는 쪽이 달라지고, Direction 값이 0 에 수렴하는지 −180~180 을 오가는지가 보인다</td></tr>
+<tr><td>동기화 그룹</td><td>걷기·달리기 블렌드 가중치</td><td>길이가 다른 두 애니메이션의 발 접지가 어긋났다가, 동기화를 켜면 맞춰진다</td></tr>
+<tr><td>본 단위로 섞기</td><td><code>BlendDepth</code>, 시작 본 선택</td><td>스켈레톤 그림에서 어느 본부터 상반신 포즈로 바뀌는지, 깊이에 따라 경계가 부드러워지는지</td></tr>
+<tr><td>레이어 교체</td><td>끼울 ABP 고르기</td><td>상반신만 바뀌고 하반신은 그대로인 것, 그리고 인스턴스 수가 하나 느는 것</td></tr>
+</tbody>
+</table>
+</div>
+
+</article>
+
+<footer class="site-foot">
+<p>표현 방식을 고르기 위한 임시 페이지다. 결정되면 본 페이지에 넣고 이 파일은 지운다.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var cv = document.getElementById('cv');
+  if (!cv) return;
+  var ctx = cv.getContext('2d');
+  var ANIM_BASE = 150;                 // 이 애니메이션이 1배속에서 내는 속도 (cm/s)
+  var st = { speed: 600, rate: 1, t: 0, raf: 0, visible: false, w: 0, h: 0 };
+
+  function cssv(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || '#888'; }
+  function C(){
+    return { text: cssv('--text'), dim: cssv('--text-dim'), line: cssv('--line'),
+             accent: cssv('--accent'), warn: cssv('--warn'), sf2: cssv('--surface-2') };
+  }
+  function label(s, x, y, color, size, align){
+    ctx.font = (size || 12) + 'px ui-monospace, Consolas, monospace';
+    ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(s, x, y);
+  }
+
+  function resize(){
+    var w = cv.clientWidth;
+    if (!(w > 0)) return false;
+    var h = w < 520 ? 250 : 210;
+    if (!(h > 0)) return false;
+    cv.width = w; cv.height = h; st.w = w; st.h = h;
+    return true;
+  }
+
+  function draw(){
+    if (!(st.w > 0) || !(st.h > 0)) return;
+    var c = C(), w = st.w, h = st.h;
+    ctx.clearRect(0, 0, w, h);
+
+    var footSpeed = ANIM_BASE * st.rate;        // 발이 땅을 미는 속도
+    var slip = st.speed - footSpeed;            // + 면 끌리고, − 면 땅을 파고든다
+    var PX = 0.38;                              // cm → px
+    var groundY = h - 52;
+    var cx = w * 0.38;
+
+    // 지면: MaxWalkSpeed 만큼 흐른다
+    var scroll = st.t * st.speed * PX;
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(8, groundY); ctx.lineTo(w - 8, groundY); ctx.stroke();
+    var step = 30, start = 8 - (scroll % step) - step;
+    for (var k = 0; k < 60; k++){
+      var gx = start + k * step;
+      if (gx > w - 8) break;
+      if (gx >= 8){
+        ctx.beginPath(); ctx.moveTo(gx, groundY + 3); ctx.lineTo(gx - 8, groundY + 12); ctx.stroke();
+      }
+    }
+
+    // 캐릭터: 다리 주기는 Play Rate 에 비례
+    var phase = st.t * st.rate * 1.15;
+    var stride = 38;
+    var hip = groundY - 48;
+    ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(cx, hip - 26); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, hip - 34, 7, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+
+    var contactX = null;
+    for (var i = 0; i < 2; i++){
+      var p = phase + i * 0.5;
+      var tt = (p - Math.floor(p)) * Math.PI * 2;
+      var lift = Math.max(0, Math.cos(tt));
+      var fx = cx + Math.sin(tt) * stride / 2;
+      var fy = groundY - lift * 16;
+      ctx.strokeStyle = lift < 0.02 ? c.accent : c.text;
+      ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(fx, fy); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = lift < 0.02 ? c.accent : c.dim; ctx.fill();
+      if (lift < 0.02 && contactX === null) contactX = fx;
+    }
+
+    // 접지한 발 밑에 미끄러짐 화살표
+    if (contactX !== null && Math.abs(slip) > 1){
+      var len = Math.max(10, Math.min(130, Math.abs(slip) * PX * 0.75));
+      var dir = slip > 0 ? -1 : 1;                 // 끌리면 뒤로
+      var ay = groundY + 24;
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(contactX, ay); ctx.lineTo(contactX + dir * len, ay); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(contactX + dir * len, ay);
+      ctx.lineTo(contactX + dir * (len - 7), ay - 5);
+      ctx.lineTo(contactX + dir * (len - 7), ay + 5);
+      ctx.closePath(); ctx.fillStyle = c.warn; ctx.fill();
+    }
+
+    // 두 속도를 막대로 나란히
+    var bx = 10, bw = w - 20, by = 16, bh = 9;
+    ctx.fillStyle = c.sf2; ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = c.dim; ctx.fillRect(bx, by, bw * (st.speed / 600), bh);
+    label('지면이 흐르는 속도  ' + Math.round(st.speed), bx, by - 8, c.dim, 11);
+
+    var by2 = by + 30;
+    ctx.fillStyle = c.sf2; ctx.fillRect(bx, by2, bw, bh);
+    ctx.fillStyle = c.accent; ctx.fillRect(bx, by2, bw * Math.min(1, footSpeed / 600), bh);
+    label('발이 땅을 미는 속도  ' + Math.round(footSpeed), bx, by2 - 8, c.accent, 11);
+  }
+
+  function tick(){
+    st.raf = 0;
+    if (!st.visible || document.hidden) return;
+    st.t += 1 / 60;
+    if (st.t > 1e6) st.t = 0;
+    draw();
+    st.raf = requestAnimationFrame(tick);
+  }
+  function run(on){
+    if (on){ if (!st.raf && st.visible && !document.hidden) st.raf = requestAnimationFrame(tick); }
+    else if (st.raf){ cancelAnimationFrame(st.raf); st.raf = 0; }
+  }
+
+  function verdict(){
+    var footSpeed = ANIM_BASE * st.rate;
+    var slip = Math.round(st.speed - footSpeed);
+    var el = document.getElementById('verdict');
+    var need = st.speed / ANIM_BASE;
+    if (Math.abs(slip) <= 5){
+      el.className = 'verdict ok';
+      el.textContent = '미끄러짐 거의 0 — 발이 지면을 따라간다. 지금 재생 속도는 ' + st.rate.toFixed(2) +
+        '배이고, 이 값이 0.75~1.25 를 벗어나면 다리 움직임이 어색해진다.';
+    } else if (slip > 0){
+      el.className = 'verdict bad';
+      el.textContent = '발이 매초 ' + slip + 'cm 뒤로 끌린다. 0 으로 만들려면 Play Rate 가 ' +
+        need.toFixed(2) + '배 필요하다.';
+    } else {
+      el.className = 'verdict bad';
+      el.textContent = '발이 매초 ' + (-slip) + 'cm 앞서 나간다. 다리가 몸보다 빨라 땅을 긁는 모양이 된다.';
+    }
+  }
+
+  function sync(){
+    document.getElementById('oSpeed').textContent = st.speed + ' cm/s';
+    document.getElementById('oRate').textContent = st.rate.toFixed(2) + ' 배';
+    verdict();
+    draw();
+  }
+
+  document.getElementById('sSpeed').addEventListener('input', function(e){
+    st.speed = Number(e.target.value) || 0; sync();
+  });
+  document.getElementById('sRate').addEventListener('input', function(e){
+    st.rate = Number(e.target.value) || 0.5; sync();
+  });
+
+  var last = -1;
+  new ResizeObserver(function(){
+    if (cv.clientWidth !== last){ last = cv.clientWidth; if (resize()) { draw(); } }
+  }).observe(cv);
+
+  new IntersectionObserver(function(es){
+    st.visible = es[0].isIntersecting;
+    run(st.visible);
+  }, { threshold: 0.15 }).observe(cv);
+
+  document.addEventListener('visibilitychange', function(){
+    if (document.hidden) run(false); else run(st.visible);
+  });
+
+  resize(); sync();
+})();
+</script>
+
+</body>
+</html>
