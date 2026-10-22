@@ -1027,6 +1027,7 @@ function initAccelFigure(){
       sim.tBrake = v.t - sim.mark;
     }
 
+    window.__accelDbg = { t: v.t, cycle: cycle, nowOn: nowOn, v: sim.v, from: sim.from, mark: sim.mark, tA: sim.tAccel, tB: sim.tBrake, P: P };
     sim.hist.push({ t: cycle, v: sim.v, on: nowOn });
     if (cycle < 0.02) sim.hist = [{ t: cycle, v: sim.v, on: nowOn }];
     if (sim.hist.length > 400) sim.hist.shift();     // 길이 상한
