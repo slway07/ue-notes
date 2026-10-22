@@ -326,6 +326,33 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 
 <p>걷기와 달리기는 한 사이클의 길이가 다르다. 그냥 섞으면 발이 어긋난다. 동기화 그룹은 애니메이션마다 <b>리더</b>와 <b>팔로워</b> 역할을 정해 이 문제를 푼다.</p>
 
+<h3>그림 읽는 법</h3>
+
+<p>위의 막대 두 개가 <b>걷기와 달리기 애니메이션의 재생 위치</b>다. 걷기는 한 바퀴가 1.2초, 달리기는 0.6초로 <b>길이가 다르다.</b> 막대 위의 점은 그 애니메이션에서 <b>발이 땅에 닿는 순간</b>이고, 세로선이 지금 재생 위치다. 맨 아래 캐릭터가 <b>둘을 섞은 결과</b>, 즉 실제로 화면에 나오는 모습이다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sBlend">블렌드 가중치</label>
+    <input type="range" id="sBlend" min="0" max="1" step="0.05" value="0.5">
+    <output id="oBlend">걷기 50% / 달리기 50%</output>
+  </div>
+  <p class="hint">BlendSpace 가 속도에 따라 자동으로 정하는 값이다. 여기서는 직접 끌어 본다.</p>
+
+  <div class="ctl" id="syncTabs">
+    <button type="button" data-sync="0" aria-pressed="false">동기화 끔</button>
+    <button type="button" data-sync="1" aria-pressed="true">동기화 켬</button>
+  </div>
+
+  <div class="stage"><canvas id="cvSync" aria-label="걷기와 달리기의 재생 위치를 나타내는 막대 두 개와, 둘을 섞은 결과 캐릭터. 동기화를 끄면 두 애니메이션의 발 접지 시점이 어긋나 섞인 캐릭터의 다리가 제대로 움직이지 않는다."></canvas></div>
+
+  <p class="verdict" id="syncVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>동기화 끔</b> 으로 두고 아래 캐릭터의 다리를 한참 보라. 두 애니메이션의 접지 시점이 계속 어긋나기 때문에 <b>다리가 제대로 뻗지 못하고 어정쩡하게 떨린다.</b> 걸음처럼 보이지 않는다. <b>동기화 켬</b> 으로 바꾸면 두 막대의 점이 세로로 줄을 맞추고, 다리도 제대로 걷는다.</p>
+
+<p>동기화 그룹이 하는 일이 이것이다. <b>길이가 다른 애니메이션들의 재생 위치를 서로 맞춰 준다.</b> 누구에게 맞출지를 정하는 것이 리더와 팔로워 역할이고, 가중치를 끝으로 밀어 보면 <b>리더가 바뀌는 것</b>도 볼 수 있다 &mdash; <code>CanBeLeader</code> 는 블렌드 가중치가 가장 높은 쪽이 리더가 되는 역할이다.</p>
+
+
 <div class="tablewrap">
 <table>
 <thead><tr><th>값</th><th>줄</th><th>뜻</th></tr></thead>
@@ -1182,6 +1209,126 @@ function initSlideFigure(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSlideFigure);
 else initSlideFigure();
+</script>
+
+
+<script>
+/* 동기화 그룹 — 길이가 다른 두 애니메이션을 섞을 때 재생 위치를 맞춰 주는 일. */
+function initSyncFigure(){
+  if (!window.Viz) return;
+  var WALK = 1.2, RUN = 0.6;          // 한 사이클 길이 (초)
+  var P = { blend: 0.5, sync: true };
+
+  // 한 다리의 발 위치 (phase 0~1). 걷기와 달리기는 보폭과 들어올림이 다르다.
+  function foot(phase, stride, lift){
+    var t = (phase - Math.floor(phase)) * Math.PI * 2;
+    return { x: Math.sin(t) * stride / 2, y: -Math.max(0, Math.cos(t)) * lift };
+  }
+
+  var v = Viz.view('cvSync', function(w){ return w < 520 ? 300 : 265; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var pad = 12, barW = w - pad * 2;
+    if (!(barW > 0)) return;
+
+    // 두 애니메이션의 현재 위상
+    var pw, pr;
+    if (P.sync){
+      // 가중치가 높은 쪽이 리더. 팔로워는 리더의 진행률을 그대로 쓴다.
+      var leaderIsRun = P.blend >= 0.5;
+      var lead = leaderIsRun ? (v.t / RUN) : (v.t / WALK);
+      pw = pr = lead;
+    } else {
+      pw = v.t / WALK; pr = v.t / RUN;     // 각자 자기 속도로 흐른다
+    }
+
+    function bar(y, label, phase, color, cycle){
+      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, pad, y, barW, 14, 7); ctx.fill();
+      // 발 접지 지점 두 곳 (0.0 과 0.5)
+      for (var i = 0; i < 2; i++){
+        var mx = pad + barW * (i * 0.5);
+        ctx.fillStyle = c.line;
+        ctx.beginPath(); ctx.arc(mx + 4, y + 7, 4, 0, Math.PI * 2); ctx.fill();
+      }
+      // 현재 재생 위치
+      var f = phase - Math.floor(phase);
+      var x = pad + barW * f;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 18); ctx.stroke();
+      Viz.text(ctx, label + '  ' + cycle.toFixed(1) + '초', pad, y - 12, color, 11);
+    }
+
+    bar(28, '걷기', pw, c.accent, WALK);
+    bar(78, '달리기', pr, c.warn, RUN);
+
+    // 섞인 결과 캐릭터
+    var groundY = h - 30;
+    var cx = w * 0.5;
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, groundY); ctx.lineTo(w - pad, groundY); ctx.stroke();
+
+    var hip = groundY - 46;
+    ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(cx, hip - 24); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, hip - 32, 7, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+
+    var reach = 0;
+    for (var k = 0; k < 2; k++){
+      var off = k * 0.5;
+      var fw = foot(pw + off, 34, 12);
+      var fr = foot(pr + off, 76, 22);
+      // 두 포즈를 가중치로 섞는다 = 엔진이 하는 일
+      var fx = cx + fw.x * (1 - P.blend) + fr.x * P.blend;
+      var fy = groundY + fw.y * (1 - P.blend) + fr.y * P.blend;
+      reach = Math.max(reach, Math.abs(fx - cx));
+      ctx.strokeStyle = c.text;
+      ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(fx, fy); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = c.accent; ctx.fill();
+    }
+    Viz.text(ctx, '섯인 결과', pad, groundY - 66, c.dim, 11);
+    Viz.text(ctx, '발 벌림 ' + Math.round(reach * 2), w - pad, groundY - 66, reach * 2 < 30 ? c.warn : c.dim, 11, 'right');
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var el = document.getElementById('syncVerdict');
+    if (!el) return;
+    var leaderIsRun = P.blend >= 0.5;
+    if (P.sync){
+      el.className = 'verdict ok';
+      el.textContent = '두 막대의 재생 위치가 같이 움직인다. ' +
+        '지금 리더는 <' + (leaderIsRun ? '달리기' : '걷기') + '> 다 — ' +
+        '가중치가 더 높은 쪽이 리더가 된다. 가중치를 반대로 밀면 리더도 바뀐다.';
+    } else {
+      el.className = 'verdict bad';
+      el.textContent = '두 애니메이션이 각자 흐른다. 접지 시점이 계속 어긋나므로 ' +
+        '섯은 결과의 발 벌림이 좌아들고, 걸음이 아니라 제자리에서 떨리는 모양이 된다.';
+    }
+  }
+
+  var sb = document.getElementById('sBlend');
+  if (sb) sb.addEventListener('input', function(e){
+    P.blend = Number(e.target.value);
+    var wp = Math.round((1 - P.blend) * 100);
+    document.getElementById('oBlend').textContent = '걷기 ' + wp + '% / 달리기 ' + (100 - wp) + '%';
+    verdict(); v.render();
+  });
+  var tabs = document.getElementById('syncTabs');
+  if (tabs) tabs.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    P.sync = b.getAttribute('data-sync') === '1';
+    var bs = tabs.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++){
+      bs[i].setAttribute('aria-pressed', (bs[i].getAttribute('data-sync') === '1') === P.sync ? 'true' : 'false');
+    }
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSyncFigure);
+else initSyncFigure();
 </script>
 
 </body>

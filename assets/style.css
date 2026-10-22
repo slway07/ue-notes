@@ -421,3 +421,27 @@ details.cat .toc a:active { background: var(--surface-2); }
   .sl { grid-template-columns: auto 1fr; }
   .sl output { grid-column: 2; text-align: left; }
 }
+
+/* 그림 안의 토글 버튼 묶음 */
+.ctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 10px;
+}
+.ctl button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.ctl button[aria-pressed="true"] {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent);
+}
