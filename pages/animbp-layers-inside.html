@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AnimBP 레이어 ② 안에서 무슨 일이 일어나나</title>
+<meta name="note-title" content="AnimBP 레이어 ② 안에서 무슨 일이 일어나나">
+<meta name="note-summary" content="레이어는 그래프 조각이 아니라 별도의 AnimInstance 객체다. 그 사실 하나가 비용과 스레드 규칙을 설명한다.">
+<meta name="note-tags" content="Animation, AnimBP, AnimInstance">
+<meta name="note-order" content="32">
+<meta name="note-category" content="애니메이션">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<style>
+/* 이 페이지 전용 */
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0;min-width:560px}
+.figbox{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.figbox-accent{fill:var(--surface);stroke:var(--accent);stroke-width:2}
+.figlabel{fill:var(--text);font-size:16px;font-weight:600}
+.figsub{fill:var(--text-dim);font-size:13px}
+.figline{stroke:var(--text-dim);stroke-width:1.5;fill:none}
+.figarrow{fill:var(--text-dim)}
+.figcap{fill:var(--text-dim);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>AnimBP 레이어 ② 안에서 무슨 일이 일어나나</h1>
+<p>레이어는 그래프 조각이 아니라 별도의 AnimInstance 객체다. 그 사실 하나가 비용과 스레드 규칙을 설명한다.</p>
+</header>
+
+<article>
+
+<p>캐릭터 하나에 ABP 하나를 두는 구성은 상반신과 하반신의 요구가 다를 때 금방 커진다. 링크드 레이어(Linked Anim Layer)는 이 문제를 <b>그래프를 나누는 방식</b>이 아니라 <b>인스턴스를 갈아끼우는 방식</b>으로 푼다. 이 페이지는 두 노드의 관계, 부모 포즈가 들어오는 길, 레이어의 실체, 스레드 규칙 순서로 정리한다.</p>
+
+<h2>1. 두 가지 노드: Linked Anim Graph 와 Linked Anim Layer</h2>
+
+<p>에디터의 애님 그래프에는 이름이 비슷한 노드가 둘 있다. <code>Linked Anim Graph</code> 와 <code>Linked Anim Layer</code> 다. 둘은 별개의 노드가 아니라 <b>상속 관계</b>다. 레이어 노드는 그래프 노드를 그대로 상속하고, 필드를 <b>두 개만</b> 더한다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>항목</th><th><code>FAnimNode_LinkedAnimGraph</code></th><th><code>FAnimNode_LinkedAnimLayer</code></th></tr></thead>
+<tbody>
+<tr><td>선언</td><td><code>AnimNode_LinkedAnimGraph.h:21</code></td><td><code>AnimNode_LinkedAnimLayer.h:21</code></td></tr>
+<tr><td>상속</td><td><code>FAnimNode_CustomProperty</code></td><td><code>FAnimNode_LinkedAnimGraph</code></td></tr>
+<tr><td>클래스 지정 필드</td><td><code>TSubclassOf&lt;UAnimInstance&gt; InstanceClass</code> (h:41~42)</td><td><code>TSubclassOf&lt;UAnimLayerInterface&gt; Interface</code> (h:31), <code>FName Layer</code> (h:35)</td></tr>
+<tr><td>동적 링크 함수 이름</td><td><code>NAME_AnimGraph</code> (cpp:358~361)</td><td><code>Layer</code> (cpp:10~13)</td></tr>
+<tr><td>대상 클래스</td><td><code>InstanceClass</code></td><td><code>Interface</code> (h:51~54)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>실행할 인스턴스는 이 노드 안에 직접 들어 있지 않다. 기반 클래스인 <code>FAnimNode_CustomProperty</code> 의 <code>TargetInstance</code> 에 들어 있고(<code>AnimNode_CustomProperty.h:71~73</code>), <code>GetTargetInstance&lt;UAnimInstance&gt;()</code> 로 꺼낸다. 어떤 클래스를 띄울지는 <code>InstanceClass</code> 가 정하고, 실제 생성은 <code>ReinitializeLinkedAnimInstance</code> 안의 <code>NewObject&lt;UAnimInstance&gt;(MeshComp, InstanceClass)</code> 에서 일어난다(<code>AnimNode_LinkedAnimGraph.cpp:295</code>).</p>
+
+<p>레이어 노드가 더하는 두 필드는 <code>Interface</code>(h:31)와 <code>Layer</code>(h:35)다. 동작 차이는 세 가지다.</p>
+
+<ol>
+<li><code>GetDynamicLinkFunctionName()</code> 이 <code>NAME_AnimGraph</code> 대신 <b><code>Layer</code> 이름</b>을 돌려준다(<code>AnimNode_LinkedAnimLayer.cpp:10~13</code> vs <code>AnimNode_LinkedAnimGraph.cpp:358~361</code>).</li>
+<li><code>GetDynamicLinkTarget()</code> 은 <code>Interface</code> 가 비어 있으면 <b>자기 자신(소유 인스턴스)을 돌려준다.</b> 이른바 self 레이어다(<code>AnimNode_LinkedAnimLayer.cpp:15~25</code>).</li>
+<li><code>GetTargetClass()</code> 가 <code>InstanceClass</code> 대신 <code>Interface</code> 를 돌려준다(<code>AnimNode_LinkedAnimLayer.h:51~54</code>).</li>
+</ol>
+
+<p>레이어 노드가 새로 만드는 동작은 이 두 필드와 세 가지 재정의가 전부다. 나머지는 상속한 그래프 노드의 실행 경로를 그대로 쓴다.</p>
+
+<h2>2. 부모의 포즈가 레이어로 들어가는 길</h2>
+
+<p>레이어는 빈 상태에서 시작하지 않는다. 부모 그래프가 만들던 포즈를 입력으로 받는다. 그 통로가 <code>FAnimNode_LinkedInputPose</code> 다(<code>AnimNode_LinkedInputPose.h:13</code>). 주요 멤버는 <code>CachedInputPose</code>(h:46~48), <code>DynamicLink</code>(h:74), <code>InputProxy</code>(h:81)다.</p>
+
+<p>부모 쪽 <code>FAnimNode_LinkedAnimGraph::DynamicLink</code> 가 대상 클래스에서 이 노드를 찾아 연결한다(<code>AnimNode_LinkedAnimGraph.cpp:401~403</code>). 연결되면 <code>InputProxy</code> 는 <b>부모 인스턴스의 프록시</b>를, <code>InputPose</code> 는 <b>부모 노드의 <code>FPoseLink</code></b> 를 가리킨다(<code>AnimNode_LinkedInputPose.cpp:83~84</code>).</p>
+
+<p><code>Evaluate_AnyThread</code> 의 동작이 핵심이다. <code>InputProxy</code> 가 있으면 <b>출력 프록시를 부모 것으로 바꿔치기해서</b> <code>InputPose.Evaluate(Output)</code> 를 실행한다. 부모 그래프의 포즈를 그대로 당겨오는 것이다. <code>InputProxy</code> 가 없으면 <code>CachedInputPose</code> 를 복사하거나 레퍼런스 포즈로 리셋한다(<code>AnimNode_LinkedInputPose.cpp:39~66</code>).</p>
+
+<p>그래서 레이어 안에서는 상반신 본만 덮어쓰고, 나머지 본은 부모가 만든 포즈를 그대로 흘려보낼 수 있다.</p>
+
+<figure>
+<svg viewBox="0 0 480 300" role="img" aria-labelledby="layersFigTitle layersFigDesc">
+<defs>
+<marker id="arrowHead" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+<path d="M0,0 L8,4 L0,8 z" class="figarrow"/>
+</marker>
+</defs>
+<title id="layersFigTitle">부모 AnimInstance 와 레이어 AnimInstance 의 연결</title>
+<desc id="layersFigDesc">메시 컴포넌트 아래에 부모 AnimInstance 와 레이어 AnimInstance 가 별도 객체로 있고, 부모 그래프의 포즈가 Linked Input Pose 를 통해 레이어로 들어간다.</desc>
+<rect x="10" y="10" width="460" height="280" rx="12" class="figbox" stroke-dasharray="5 5"/>
+<text x="24" y="34" class="figsub">메시 컴포넌트</text>
+<rect x="40" y="52" width="400" height="74" rx="10" class="figbox-accent"/>
+<text x="58" y="80" class="figlabel">부모 AnimInstance</text>
+<text x="58" y="104" class="figsub">AnimGraph — Linked Anim Graph 노드</text>
+<rect x="40" y="192" width="400" height="74" rx="10" class="figbox-accent"/>
+<text x="58" y="220" class="figlabel">레이어 AnimInstance (별도 객체)</text>
+<text x="58" y="244" class="figsub">Linked Input Pose — 레이어 그래프</text>
+<line x1="240" y1="126" x2="240" y2="186" class="figline" marker-end="url(#arrowHead)"/>
+<text x="254" y="150" class="figsub">DynamicLink</text>
+<text x="254" y="168" class="figcap">InputProxy · InputPose</text>
+</svg>
+<figcaption>부모 AnimInstance 의 Linked Anim Graph 노드가 레이어 인스턴스의 Linked Input Pose 와 연결된다. 연결되면 부모 그래프가 만들던 포즈가 레이어의 입력으로 들어간다.</figcaption>
+</figure>
+
+<h2>3. 레이어의 실체 — 별도 객체다</h2>
+
+<p>가장 흔한 오해는 레이어를 <b>같은 AnimInstance 안의 그래프 조각</b>으로 보는 것이다. 아니다. 레이어는 <code>NewObject&lt;UAnimInstance&gt;(MeshComp, ClassToSet)</code> 로 만든 <b>별도 <code>UAnimInstance</code> 객체</b>다(<code>AnimInstance.cpp:4054</code>).</p>
+
+<p>만든 직후 <code>bCreatedByLinkedAnimGraph = true</code> 를 세우고(<code>:4055</code>), 메시 컴포넌트의 목록에 등록한다. <code>MeshComp-&gt;GetLinkedAnimInstances().Add(...)</code> 가 그 등록이다(<code>:4018</code>, <code>:4091</code>). 각 인스턴스는 <b>자기 프록시</b>(<code>FAnimInstanceProxy</code>)를 따로 가진다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>구성</th><th>만들어지는 인스턴스</th></tr></thead>
+<tbody>
+<tr><td>그룹 없음</td><td>레이어마다 <code>UAnimInstance</code> 하나</td></tr>
+<tr><td>그룹 있음</td><td>그룹마다 <code>UAnimInstance</code> 하나</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>인스턴스 수는 그룹이 정한다. <b>그룹이 없으면 레이어마다 인스턴스 하나, 그룹이 있으면 그룹마다 하나</b>를 만든다(<code>AnimInstance.cpp:3977</code>, <code>:4040</code> 주석). 레이어를 여러 개 끼우는데 같은 그룹으로 묶여 있다면 객체가 그만큼 줄어든다는 뜻이다.</p>
+
+<p><code>bCreatedByLinkedAnimGraph</code> 의 주석은 <code>Flag to check if created by LinkedAnimGraph in ReinitializeLinkedAnimInstance</code> 이고, 선언은 <code>AnimInstance.h:392~393</code> 다. 이 플래그의 용도는 <b>누가 그 인스턴스를 소유하는지 구분</b>하는 것이다.</p>
+
+<p>비용을 볼 때는 그래프 노드 수가 아니라 인스턴스 수를 봐야 한다. 레이어를 하나 추가하면 런타임에 <code>UAnimInstance</code> 객체 하나와 그 프록시 하나가 더 생긴다. 그룹을 쓰면 이 수가 그룹 단위로 줄어든다.</p>
+
+<h2>4. 본 단위로 섞기</h2>
+
+<p>레이어가 상반신 ABP 를 통째로 갈아끼우는 장치라면, 그 결과를 부모 포즈와 <b>본 단위로 섞는</b> 노드는 <code>FAnimNode_LayeredBoneBlend</code> 다(<code>AnimNode_LayeredBoneBlend.h:21</code>).</p>
+
+<h3>그림 읽는 법</h3>
+
+<p>사람 모양으로 늘어놓은 동그라미 하나하나가 <b>뼈(본)</b> 다. 색이 그 뼈가 <b>어느 쪽 포즈를 따르는지</b> 나타낸다 &mdash; 흐린 쪽은 부모(하반신) 포즈 그대로이고, 진한 쪽은 레이어(상반신) 포즈로 완전히 바뀐 것이다. 중간 색은 둘이 섞인 상태다. 숫자는 그 뼈의 가중치다.</p>
+
+<div class="panel">
+  <div class="ctl" id="boneTabs">
+    <button type="button" data-bone="spine_01" aria-pressed="false">spine_01</button>
+    <button type="button" data-bone="spine_02" aria-pressed="true">spine_02</button>
+    <button type="button" data-bone="spine_03" aria-pressed="false">spine_03</button>
+  </div>
+  <p class="hint">기준이 되는 뼈 이름(<code>FBranchFilter</code> 의 <code>BoneName</code>). 이 뼈와 <b>그 아래 모든 자손</b>이 레이어 포즈를 따른다.</p>
+
+  <div class="sl">
+    <label for="sDepth">BlendDepth</label>
+    <input type="range" id="sDepth" min="0" max="5" step="1" value="0">
+    <output id="oDepth">0</output>
+  </div>
+  <p class="hint"><code>FBranchFilter</code> 의 <code>BlendDepth</code>. 몇 단계에 걸쳐 가중치를 1 까지 올릴지 정한다. <b>어디 있나</b> &mdash; Layered blend per bone 노드 → <b>Config</b> → Layer Setup → Branch Filters → <b>Branch</b>.</p>
+
+  <div class="stage"><canvas id="cvBone" aria-label="사람 모양으로 배치된 뼈 그림. 선택한 뼈와 그 자손들이 레이어 포즈를 따르도록 색이 바뀌고, BlendDepth 값에 따라 경계가 몇 단계에 걸쳐 부드러워진다."></canvas></div>
+
+  <p class="verdict" id="boneVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <code>BlendDepth</code> 를 <b>0 에서 1 로</b> 바꿔 보라. 아무것도 달라지지 않는다. 엔진이 <code>BlendDepth</code> 가 0 일 때 1 로 취급하기 때문이다. 이제 <b>3 이나 4</b> 로 올려 보라. 기준 뼈부터 아래로 <b>색이 단계적으로 진해진다</b> &mdash; 허리에서 갑자기 꺾이지 않고 등을 따라 서서히 넘어가는 것이고, 이것이 상반신 교체가 어색해 보이지 않게 하는 장치다.</p>
+
+<p>엔진이 쓰는 식은 이렇다. 기준 뼈에서 몇 세대 떨어졌는지를 <code>Depth</code> 라 할 때(기준 뼈 자신은 0), 가중치는 <code>(1 / BlendDepth) × (Depth + 1)</code> 이고 1 을 넘지 않도록 자른다. 그래서 <code>BlendDepth</code> 가 3 이면 기준 뼈가 0.33, 그 자식이 0.67, 손자에서 1.00 이 된다.</p>
+
+
+<p>이 노드의 <code>BlendMode</code>(h:36, <code>ELayeredBoneBlendMode</code>)는 두 값이다. <code>BranchFilter</code> 와 <code>BlendMask</code>. 주석은 "Whether to use branch filters or a blend mask to specify an input pose per-bone influence" 라고 적고 있다.</p>
+
+<ul>
+<li><code>BranchFilter</code> 모드는 <code>LayerSetup</code>(h:51, <code>TArray&lt;FInputBlendPose&gt;</code>)을 쓴다.</li>
+<li><code>BlendMask</code> 모드는 <code>BlendMasks</code>(h:43, <code>TArray&lt;TObjectPtr&lt;UBlendProfile&gt;&gt;</code>)를 쓴다.</li>
+</ul>
+
+<blockquote><b>흔히 헷갈리는 지점.</b> <code>BlendDepth</code> 는 <code>FAnimNode_LayeredBoneBlend</code> 의 필드가 아니다. <code>FInputBlendPose::BranchFilters</code> 에 들어가는 <code>FBranchFilter</code> 의 멤버다(<code>BoneMaskFilter.h:25</code>). 같은 구조체에 <code>FName BoneName</code> 이 함께 있어, <b>어느 본부터 몇 단계 깊이로 섞을지</b>를 한 쌍으로 정한다.</blockquote>
+
+<p><code>bMeshSpaceRotationBlend</code>(h:94) 주석은 "Whether to blend bone rotations in mesh space or in local space" 다. 실제 섞기는 본별 가중치 배열(<code>CurrentBoneBlendWeights</code>)을 만든 뒤 <code>FAnimationRuntime::BlendPosesPerBoneFilter</code> 에 넘기는 방식이다(<code>AnimNode_LayeredBoneBlend.cpp:322</code>).</p>
+
+<h2>5. 레이어와 스레드</h2>
+
+<p>링크된 인스턴스는 <b>항상 병렬 업데이트가 강제된다.</b> <code>USkeletalMeshComponent::TickAnimInstances</code> 가 링크된 인스턴스를 <code>ForceParallelUpdate</code> 로 업데이트하고, 코드 주석도 "Sub anim instances are always forced to do a parallel update" 라고 적고 있다(<code>SkeletalMeshComponent.cpp:1770~1774</code>).</p>
+
+<p>링크된 인스턴스의 프록시도 <code>FAnimInstanceProxy::UpdateAnimation_WithRoot</code> 를 거치고(<code>AnimInstanceProxy.cpp:1270</code>), 그 안에서 워커 스레드로 <code>NativeThreadSafeUpdateAnimation</code> 과 <code>BlueprintThreadSafeUpdateAnimation</code> 을 부른다(<code>:1349~1356</code>). <code>UAnimInstance::NativeThreadSafeUpdateAnimation</code> 선언 주석에도 "Executed on a worker thread just prior to graph update for linked anim instances" 라고 적혀 있다(<code>AnimInstance.h:1440~1442</code>).</p>
+
+<p>그래서 레이어 쪽 스레드 세이프 규칙은 더 빡빡하다. 링크된 인스턴스는 항상 병렬 경로다. 그래서 워커 스레드 단계의 규칙을 예외 없이 적용해야 한다.</p>
+
+<p>같은 인스턴스에 그룹 레이어 여러 개가 걸려 재진입할 때는 <code>FrameCounterForUpdate != GFrameCounter</code> 조건으로 <b>네이티브 업데이트가 한 프레임에 두 번 돌지 않게</b> 막는다(<code>AnimInstanceProxy.cpp:1334~1336</code>, <code>:1373</code>).</p>
+
+<p>레이어를 몇 개 끼우든 <b>그 캐릭터의 애니메이션 작업은 여전히 워커 하나에서 돈다.</b> 병렬은 캐릭터 사이에서 생긴다. 이 내용은 <a href="animbp-one-frame.html">AnimBP는 한 프레임에 무엇을 하나</a> 페이지에서 자세히 다룬다.</p>
+
+<h2>6. 소스 위치</h2>
+
+<p class="note">줄 번호는 UE 5.8 소스에서 확인한 값이다. 경로는 엔진 루트 기준이다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>FAnimNode_LinkedAnimGraph</code> 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_LinkedAnimGraph.h</code></td><td>21</td></tr>
+<tr><td><code>TargetInstance</code> (기반 클래스)</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_CustomProperty.h</code></td><td>71~73</td></tr>
+<tr><td><code>InstanceClass</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_LinkedAnimGraph.h</code></td><td>41~42</td></tr>
+<tr><td>인스턴스 생성 <code>NewObject</code></td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedAnimGraph.cpp</code></td><td>295</td></tr>
+<tr><td><code>FAnimNode_LinkedAnimLayer</code> 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_LinkedAnimLayer.h</code></td><td>21</td></tr>
+<tr><td><code>Interface</code> / <code>Layer</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_LinkedAnimLayer.h</code></td><td>31 / 35</td></tr>
+<tr><td><code>GetDynamicLinkFunctionName</code> (그래프)</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedAnimGraph.cpp</code></td><td>358~361</td></tr>
+<tr><td><code>GetDynamicLinkFunctionName</code> (레이어)</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedAnimLayer.cpp</code></td><td>10~13</td></tr>
+<tr><td><code>GetDynamicLinkTarget</code> (self 레이어)</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedAnimLayer.cpp</code></td><td>15~25</td></tr>
+<tr><td><code>GetTargetClass</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_LinkedAnimLayer.h</code></td><td>51~54</td></tr>
+<tr><td><code>FAnimNode_LinkedInputPose</code> 선언과 멤버</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimNode_LinkedInputPose.h</code></td><td>13, 46~48, 74, 81</td></tr>
+<tr><td><code>DynamicLink</code> 가 입력 포즈 노드를 찾음</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedAnimGraph.cpp</code></td><td>401~403</td></tr>
+<tr><td><code>InputProxy</code> / <code>InputPose</code> 연결</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedInputPose.cpp</code></td><td>83~84</td></tr>
+<tr><td><code>Evaluate_AnyThread</code></td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimNode_LinkedInputPose.cpp</code></td><td>39~66</td></tr>
+<tr><td>링크 인스턴스 생성 / 플래그 / 목록 등록</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>4018, 4054, 4055, 4091</td></tr>
+<tr><td>그룹별 인스턴스 수 주석</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>3977, 4040</td></tr>
+<tr><td><code>bCreatedByLinkedAnimGraph</code> 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimInstance.h</code></td><td>392~393</td></tr>
+<tr><td><code>FAnimNode_LayeredBoneBlend</code> 선언 / <code>BlendMode</code> / 마스크</td><td><code>Engine/Source/Runtime/AnimGraphRuntime/Public/AnimNodes/AnimNode_LayeredBoneBlend.h</code></td><td>21, 36, 43, 51</td></tr>
+<tr><td><code>bMeshSpaceRotationBlend</code></td><td><code>Engine/Source/Runtime/AnimGraphRuntime/Public/AnimNodes/AnimNode_LayeredBoneBlend.h</code></td><td>94</td></tr>
+<tr><td><code>FBranchFilter::BlendDepth</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimData/BoneMaskFilter.h</code></td><td>25</td></tr>
+<tr><td>본별 가중치 블렌드</td><td><code>Engine/Source/Runtime/AnimGraphRuntime/Private/AnimNodes/AnimNode_LayeredBoneBlend.cpp</code></td><td>322</td></tr>
+<tr><td><code>TickAnimInstances</code> 의 강제 병렬</td><td><code>Engine/Source/Runtime/Engine/Private/Components/SkeletalMeshComponent.cpp</code></td><td>1770~1774</td></tr>
+<tr><td><code>UpdateAnimation_WithRoot</code> / 스레드 세이프 업데이트 / 재진입 방지</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstanceProxy.cpp</code></td><td>1270, 1334~1336, 1349~1356, 1373</td></tr>
+<tr><td><code>NativeThreadSafeUpdateAnimation</code> 주석</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimInstance.h</code></td><td>1440~1442</td></tr>
+<tr><td>런타임 교체 함수 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimInstance.h</code></td><td>850, 865, 877, 888, 895</td></tr>
+<tr><td>런타임 교체 함수 구현</td><td><code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp</code></td><td>3771, 3796, 4142, 4164, 4313</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 — 위 표의 파일과 줄 번호.</p>
+
+
+<div class="nextprev">
+<a href="animbp-linked-layers.html">&larr; ① 왜 나누고 어떻게 쓰나</a>
+<a href="animbp-layers-pitfalls.html">③ 흔한 실수와 런타임 교체 &rarr;</a>
+</div>
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 레이어를 쓸지 판단하는 기준, 네 단계 설정, 링크드 애님 그래프·레이어 노드, 부모 포즈 전달, 인스턴스 생성, 본 단위 블렌딩, 스레드 규칙, 흔한 실수, 런타임 교체 함수를 다뤘다. 설정 순서와 공식 문서 링크는 <a href="animbp-linked-layers.html">① 왜 나누고 어떻게 쓰나</a> 에 있다.</p>
+</footer>
+
+</div>
+
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<script>
+/* 본 단위 블렌딩 — FAnimationRuntime::CreateMaskWeights 의 식을 그대로 옮겼다.
+   가중치 = clamp((1 / BlendDepth) * (Depth + 1), 0, 1),  BlendDepth 가 0 이면 1 로 친다. */
+function initBoneFigure(){
+  if (!window.Viz) return;
+
+  // 이름, 부모, 화면 위치(상대 단위)
+  var BONES = [
+    ['pelvis',      null,         0,    0],
+    ['spine_01',    'pelvis',     0,   -1],
+    ['spine_02',    'spine_01',   0,   -2],
+    ['spine_03',    'spine_02',   0,   -3],
+    ['neck',        'spine_03',   0,   -4],
+    ['head',        'neck',       0,   -5],
+    ['clavicle_l',  'spine_03',  -1,   -3.1],
+    ['upperarm_l',  'clavicle_l',-2,   -3.1],
+    ['lowerarm_l',  'upperarm_l',-3,   -3.1],
+    ['hand_l',      'lowerarm_l',-4,   -3.1],
+    ['clavicle_r',  'spine_03',   1,   -3.1],
+    ['upperarm_r',  'clavicle_r', 2,   -3.1],
+    ['lowerarm_r',  'upperarm_r', 3,   -3.1],
+    ['hand_r',      'lowerarm_r', 4,   -3.1],
+    ['thigh_l',     'pelvis',  -0.7,    1],
+    ['calf_l',      'thigh_l', -0.7,    2],
+    ['foot_l',      'calf_l',  -0.7,    3],
+    ['thigh_r',     'pelvis',   0.7,    1],
+    ['calf_r',      'thigh_r',  0.7,    2],
+    ['foot_r',      'calf_r',   0.7,    3]
+  ];
+  var IDX = {};
+  for (var i = 0; i < BONES.length; i++) IDX[BONES[i][0]] = i;
+
+  // 기준 뼈로부터의 세대 차이. 자손이 아니면 -1 (엔진의 GetDepthBetweenBones 와 같은 뜻)
+  function depthFrom(boneName, maskName){
+    var d = 0, cur = boneName;
+    for (var k = 0; k < 40; k++){
+      if (cur === maskName) return d;
+      var parent = BONES[IDX[cur]][1];
+      if (!parent) return -1;
+      cur = parent; d++;
+    }
+    return -1;
+  }
+
+  var P = { mask: 'spine_02', depth: 0 };
+
+  function weightOf(boneName){
+    var depth = depthFrom(boneName, P.mask);
+    if (depth === -1) return 0;
+    var per = (P.depth !== 0) ? (1 / P.depth) : 1;
+    return Math.max(0, Math.min(1, per * (depth + 1)));
+  }
+
+  var v = Viz.view('cvBone', function(w){ return w < 520 ? 330 : 300; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var unit = Math.min(w / 11, h / 10);
+    if (!(unit > 0)) return;
+    var ox = w * 0.42, oy = h * 0.46;
+    function PX(b){ return ox + b[2] * unit; }
+    function PY(b){ return oy + b[3] * unit; }
+
+    // 뼈를 잇는 선
+    ctx.strokeStyle = c.line; ctx.lineWidth = 2;
+    for (var i = 0; i < BONES.length; i++){
+      var b = BONES[i];
+      if (!b[1]) continue;
+      var p = BONES[IDX[b[1]]];
+      ctx.beginPath(); ctx.moveTo(PX(p), PY(p)); ctx.lineTo(PX(b), PY(b)); ctx.stroke();
+    }
+
+    // 뼈 동그라미
+    for (var j = 0; j < BONES.length; j++){
+      var bb = BONES[j];
+      var wgt = weightOf(bb[0]);
+      var x = PX(bb), y = PY(bb);
+      ctx.beginPath(); ctx.arc(x, y, wgt > 0 ? 9 : 6, 0, Math.PI * 2);
+      if (wgt <= 0){ ctx.fillStyle = c.line; }
+      else { ctx.globalAlpha = 0.25 + wgt * 0.75; ctx.fillStyle = c.accent; }
+      ctx.fill(); ctx.globalAlpha = 1;
+      if (bb[0] === P.mask){
+        ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, 13, 0, Math.PI * 2); ctx.stroke();
+      }
+      if (wgt > 0 && wgt < 1){
+        Viz.text(ctx, wgt.toFixed(2), x + 13, y, c.text, 10);
+      }
+    }
+
+    Viz.text(ctx, '진한 색 = 레이어(상반신) 포즈', 10, 16, c.accent, 11);
+    Viz.text(ctx, '흐린 색 = 부모(하반신) 포즈 그대로', 10, 32, c.dim, 11);
+    Viz.text(ctx, '노란 테두리 = 기준 뼈', 10, 48, c.warn, 11);
+  });
+
+  if (!v) return;
+
+  function verdict(){
+    var el = document.getElementById('boneVerdict');
+    if (!el) return;
+    var full = 0, part = 0;
+    for (var i = 0; i < BONES.length; i++){
+      var wg = weightOf(BONES[i][0]);
+      if (wg >= 1) full++; else if (wg > 0) part++;
+    }
+    var eff = P.depth === 0 ? 1 : P.depth;
+    el.className = 'verdict';
+    el.textContent = '기준 뼈 ' + P.mask + ' · BlendDepth ' + P.depth +
+      (P.depth === 0 ? ' (0 은 1 과 같게 동작한다)' : '') +
+      ' → 완전히 레이어 포즈인 뼈 ' + full + '개, 섞이는 중인 뼈 ' + part + '개. ' +
+      '기준 뼈의 가중치는 ' + (1 / eff).toFixed(2) + ' 이고 ' + eff + '단계 아래에서 1.00 에 닿는다.';
+  }
+
+  var tabs = document.getElementById('boneTabs');
+  if (tabs) tabs.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    P.mask = b.getAttribute('data-bone');
+    var bs = tabs.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', bs[i] === b ? 'true' : 'false');
+    verdict(); v.render();
+  });
+  var sl = document.getElementById('sDepth');
+  if (sl) sl.addEventListener('input', function(e){
+    P.depth = Number(e.target.value) || 0;
+    document.getElementById('oDepth').textContent = String(P.depth);
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBoneFigure);
+else initBoneFigure();
+</script>
+</body>
+</html>

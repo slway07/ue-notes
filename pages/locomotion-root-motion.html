@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Locomotion ③ 루트 모션과 BlendSpace</title>
+<meta name="note-title" content="Locomotion ③ 루트 모션과 BlendSpace">
+<meta name="note-summary" content="캐릭터의 위치를 코드가 정하는가 애니메이션이 정하는가. 그리고 BlendSpace 가 샘플을 고르는 방식.">
+<meta name="note-tags" content="Animation, Root Motion, BlendSpace">
+<meta name="note-order" content="24">
+<meta name="note-category" content="애니메이션">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<style>
+/* 이 페이지 전용 */
+.stage canvas{touch-action:none;cursor:crosshair}
+.stage canvas:active{cursor:grabbing}
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0;min-width:520px}
+</style>
+<script src="../assets/viz.js?v=32ab0c43"></script>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Locomotion ③ 루트 모션과 BlendSpace</h1>
+<p>캐릭터의 위치를 코드가 정하는가 애니메이션이 정하는가. 그리고 BlendSpace 가 샘플을 고르는 방식.</p>
+</header>
+
+<article>
+
+<p>캐릭터가 앞으로 나아가는 일과 다리가 움직이는 일은 서로 다른 시스템이 맡는다. 이동은 캡슐의 위치를 바꾸고, 애니메이션은 뼈를 돌린다. 그 사이를 잇는 값은 <b>Speed</b> 와 <b>Direction</b> 두 개뿐이고, AnimBP 가 매 프레임 이 둘을 계산해 BlendSpace 의 좌표로 넘긴다.</p>
+
+<h2>1. 위치를 누가 정하는가 (루트 모션)</h2>
+
+<p>평소 이동은 캡슐이 옮기고, 공격·구르기 같은 동작은 애니메이션이 위치를 옮기는 편이 자연스럽다. 어느 쪽을 쓸지 정하는 값이 <code>ERootMotionMode</code> 다.</p>
+
+<h3>그림 읽는 법</h3>
+
+<p>두 캐릭터에게 <b>같은 공격 동작</b>을 같은 시점에 시킨다. 왼쪽은 캡슐이 옮기고, 오른쪽은 애니메이션이 옮긴다. 바닥의 <b>흐린 자취</b>가 지나온 길이고, 위의 띠는 <b>공격 몽타주가 재생되는 구간</b>이다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sLunge">공격 동작에 담긴 전진량</label>
+    <input type="range" id="sLunge" min="0" max="250" step="10" value="150">
+    <output id="oLunge">150 cm</output>
+  </div>
+  <p class="hint">애니메이터가 공격 모션을 만들 때 루트 본을 얼마나 앞으로 뺐는지. 이 값은 <b>애니메이션 에셋 안에</b> 들어 있고 코드에 없다.</p>
+
+  <div class="stage"><canvas id="cvRoot" aria-label="같은 공격 동작을 하는 두 캐릭터. 왼쪽은 캡슐이 일정 속도로 옮겨 공격 중에도 미끄러지듯 나아가고, 오른쪽은 애니메이션에 담긴 전진량만큼 훅 나아갔다 멈춘다."></canvas></div>
+
+  <p class="verdict" id="rootVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 전진량을 0 으로 내려 보라. 오른쪽 캐릭터는 공격 중에 <b>제자리에 선다.</b> 애니메이션이 위치를 정하기 때문에, 에셋에 전진이 없으면 아무리 입력을 넣어도 안 움직인다. 반대로 왼쪽은 전진량과 무관하게 늘 같은 속도로 나아간다 &mdash; <b>애니메이션이 무엇이든 코드가 정한 대로 간다.</b></p>
+
+<p>그래서 둘을 섞어 쓴다. 평소 이동은 캡슐이 맡고, 공격·구르기처럼 <b>동작마다 이동 거리가 달라야 하는 것</b>만 루트 모션으로 맡긴다. 기본값 <code>RootMotionFromMontagesOnly</code> 가 정확히 그 구성이다 &mdash; 몽타주로 재생되는 것만 루트 모션을 꺼내 쓴다.</p>
+
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>줄</th><th>주석의 뜻</th></tr></thead>
+<tbody>
+<tr><td><code>NoRootMotionExtraction</code></td><td>32</td><td>루트 모션을 애니메이션에 그대로 둔다</td></tr>
+<tr><td><code>IgnoreRootMotion</code></td><td>35</td><td>뽑아내되 적용하지 않는다</td></tr>
+<tr><td><code>RootMotionFromEverything</code></td><td>38</td><td>최종 포즈에 기여하는 <b>모든</b> 애니메이션에서 루트 모션을 가져온다. 네트워크 멀티플레이에는 적합하지 않다</td></tr>
+<tr><td><code>RootMotionFromMontagesOnly</code></td><td>41</td><td>몽타주에서만 가져온다. 네트워크 멀티플레이에 적합하다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimEnums.h</code>, enum <code>ERootMotionMode</code> 는 27줄에서 시작한다.</p>
+
+<p>기본값은 <code>RootMotionFromMontagesOnly</code> 다. <code>UAnimInstance</code> 생성자가 <code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp:202</code> 에서 이 값을 넣는다. 그래서 평소 이동은 캡슐이 옮기고, 공격·구르기 같은 몽타주만 루트 모션으로 움직이는 구성이 기본이다.</p>
+
+<h2>2. BlendSpace 가 샘플을 고르는 방식</h2>
+
+<h3>그림 읽는 법</h3>
+
+<p>가로가 <b>Direction</b>, 세로가 <b>Speed</b> 인 평면이고, 동그라미가 <b>배치해 둔 애니메이션(샘플)</b>이다. 평면을 <b>누르거나 끌면</b> 그 자리가 현재 입력값이 된다. 입력이 떨어진 자리를 둘러싼 <b>삼각형 하나가 밝아지고</b>, 그 세 꼭짓점이 섞여 최종 포즈가 된다. 각 꼭짓점 옆 숫자가 섞이는 비율이다.</p>
+
+<div class="panel">
+  <div class="stage"><canvas id="cvBS" aria-label="Direction과 Speed를 축으로 하는 평면에 애니메이션 샘플이 놓여 있다. 입력 좌표를 끌면 그 좌표를 포함하는 삼각형이 밝아지고 세 꼭짓점의 가중치가 표시된다."></canvas></div>
+  <p class="verdict" id="bsVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 샘플 동그라미 <b>바로 위</b>로 끌어가 보라. 그 샘플 하나만 가중치 1.00 이 되고 나머지는 사라진다. 삼각형의 <b>한가운데</b>로 가면 셋이 고르게 섞인다. 그리고 <b>세로축 맨 아래(Speed 0)</b> 로 내려가면 Direction 을 아무리 바꿔도 결과가 같다 &mdash; 멈춰 있을 때는 방향이 의미가 없기 때문이고, 그래서 BlendSpace 아래쪽에는 보통 Idle 하나만 둔다.</p>
+
+<p>엔진이 하는 일이 정확히 이것이다. 샘플들을 삼각형으로 나눠 두고, 입력 좌표가 든 삼각형을 찾아 <b>무게중심 좌표</b>로 세 꼭짓점의 비율을 구한다. 격자로 칸칸이 나누는 방식이 아니다.</p>
+
+
+<p><code>UBlendSpace</code> 는 입력 좌표를 받아 재생할 샘플과 가중치를 고른다.</p>
+
+<ul>
+<li>축 배열은 <code>FBlendParameter BlendParameters[3]</code> 로 3칸이지만, <b>런타임 기본 경로는 1차원과 2차원만 처리한다.</b> 그 밖의 차원은 "Unhandled number of dimensions" 경고를 내고 빈 결과를 낸다</li>
+<li>기본 경로는 격자 보간이 아니다. <code>bInterpolateUsingGrid</code> 의 기본값은 false 이고, 실제로는 <b>삼각분할</b>이다</li>
+<li>2D 는 입력 좌표가 든 삼각형을 찾아 <code>FMath::GetBaryCentric2D</code> 로 세 꼭짓점의 가중치를 구한다</li>
+<li>1D 는 구간을 찾고, 구간 밖이면 가장 가까운 끝점에 가중치 1.0 을 준다</li>
+<li>가중치가 <code>ZERO_ANIMWEIGHT_THRESH</code> 를 넘는 샘플만 실제로 재생 목록에 들어간다</li>
+<li>입력 → 가중치의 진입점은 <code>UBlendSpace::GetSamplesFromBlendInput</code> 이다</li>
+</ul>
+
+<p>2D 에서는 입력 점을 품은 삼각형의 세 꼭짓점 가중치가 계산되고, 그중 문턱을 넘는 샘플만 그 프레임에 재생된다. 그림의 점을 움직여 보면 Direction 과 Speed 가 축 위에서 어디로 가는지 확인할 수 있다.</p>
+
+
+<h2>3. 더 읽을 것 (공식 문서)</h2>
+<ul>
+<li><a href="https://dev.epicgames.com/documentation/ko-kr/unreal-engine/blend-spaces-in-unreal-engine" target="_blank" rel="noopener">Blend Spaces</a> &mdash; 샘플 배치와 축 설정, 자동 샘플 배치</li>
+<li><a href="https://dev.epicgames.com/documentation/ko-kr/unreal-engine/locomotion-in-unreal-engine" target="_blank" rel="noopener">Locomotion</a> &mdash; 이동 애니메이션 전반의 공식 안내</li>
+</ul>
+
+<h2>4. 소스 위치</h2>
+<p>이 시리즈에서 인용한 엔진 소스의 파일과 줄 번호는 <a href="locomotion-speed-to-animation.html">① 속도가 애니메이션이 되는 길</a> 에 모아 두었다.</p>
+
+<div class="nextprev">
+<a href="locomotion-foot-sliding.html">&larr; ② 발이 미끄러지는 이유</a>
+</div>
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 이동 값이 애니메이션으로 넘어가는 경로만 다뤘다. 스테이트 머신의 전이 규칙, 노티파이, IK 는 다루지 않았다.</p>
+</footer>
+
+</div>
+
+<script>
+/* 루트 모션 — 같은 공격 동작을 캡슐이 옮길 때와 애니메이션이 옮길 때. */
+function initRootFigure(){
+  if (!window.Viz) return;
+  var P = { lunge: 150 };
+  var CYCLE = 3.0;          // 3초마다 공격
+  var ATTACK = 0.8;         // 공격 몽타주 길이
+  var WALK_SPEED = 180;     // 캡슐 구동 쪽의 이동 속도 (cm/s)
+  var PX = 0.5;
+
+  // 공격 동작 안에서의 전진 진행률 (0~1). 앞쪽에서 빠르게, 끝에서 멈춘다.
+  function lungeCurve(u){
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    return 1 - Math.pow(1 - u, 3);
+  }
+
+  var v = Viz.view('cvRoot', function(w){ return w < 560 ? 330 : 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var narrow = w < 560;
+    var cells = narrow
+      ? [{x:0,y:0,w:w,h:h/2}, {x:0,y:h/2,w:w,h:h/2}]
+      : [{x:0,y:0,w:w/2,h:h}, {x:w/2,y:0,w:w/2,h:h}];
+
+    var cyc = v.t % CYCLE;
+    var attacking = cyc < ATTACK;
+    var u = attacking ? (cyc / ATTACK) : 1;
+
+    for (var i = 0; i < 2; i++){
+      var cell = cells[i];
+      var isRoot = (i === 1);
+      var title = isRoot ? '루트 모션이 옮긴다' : '캡슐이 옮긴다';
+      var sub = isRoot ? 'RootMotionFromMontagesOnly' : 'Acceleration / Velocity';
+      var col = isRoot ? c.warn : c.accent;
+
+      if (i === 1){
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (narrow){ ctx.moveTo(8, cell.y); ctx.lineTo(w - 8, cell.y); }
+        else { ctx.moveTo(cell.x, 8); ctx.lineTo(cell.x, h - 8); }
+        ctx.stroke();
+      }
+
+      Viz.text(ctx, title, cell.x + 12, cell.y + 16, col, 12);
+      Viz.text(ctx, sub, cell.x + 12, cell.y + 32, c.dim, 10);
+
+      // 몽타주 재생 구간 띠
+      var tx = cell.x + 12, tw = cell.w - 24;
+      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, tx, cell.y + 44, tw, 8, 4); ctx.fill();
+      ctx.fillStyle = attacking ? col : c.line;
+      Viz.roundRect(ctx, tx, cell.y + 44, tw * (ATTACK / CYCLE), 8, 4); ctx.fill();
+      var px = tx + tw * (cyc / CYCLE);
+      ctx.strokeStyle = c.text; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, cell.y + 40); ctx.lineTo(px, cell.y + 56); ctx.stroke();
+      Viz.text(ctx, attacking ? '공격 중' : '대기', tx + tw, cell.y + 36, attacking ? col : c.dim, 10, 'right');
+
+      // 이동 거리 계산
+      var dist;
+      if (isRoot){
+        dist = P.lunge * lungeCurve(u);          // 애니메이션이 정한다
+      } else {
+        dist = WALK_SPEED * Math.min(cyc, ATTACK); // 코드가 정한 속도로 간다
+      }
+
+      var groundY = cell.y + cell.h - 34;
+      var x0 = cell.x + 34;
+      var maxD = Math.max(60, cell.w - 90);
+      var scale = Math.min(PX, maxD / Math.max(1, Math.max(P.lunge, WALK_SPEED * ATTACK)));
+
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cell.x + 12, groundY); ctx.lineTo(cell.x + cell.w - 12, groundY); ctx.stroke();
+
+      // 지나온 자취
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.35; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x0, groundY - 2); ctx.lineTo(x0 + dist * scale, groundY - 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // 캐릭터 (공격 중에는 팔을 뻗은 모양)
+      var cx2 = x0 + dist * scale;
+      var hip = groundY - 42;
+      ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2, hip - 22); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx2 + 2, hip - 30, 6, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+      // 다리
+      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2 - 9, groundY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2 + 9, groundY); ctx.stroke();
+      // 팔 — 공격 중이면 앞으로
+      ctx.strokeStyle = attacking ? col : c.dim;
+      ctx.beginPath(); ctx.moveTo(cx2, hip - 16);
+      if (attacking) ctx.lineTo(cx2 + 22, hip - 20); else ctx.lineTo(cx2 + 6, hip - 2);
+      ctx.stroke();
+
+      Viz.text(ctx, '이동 ' + Math.round(dist) + 'cm', cell.x + cell.w - 12, groundY + 18, c.dim, 11, 'right');
+    }
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var el = document.getElementById('rootVerdict');
+    if (!el) return;
+    var capsule = Math.round(WALK_SPEED * ATTACK);
+    if (P.lunge === 0){
+      el.className = 'verdict bad';
+      el.textContent = '전진량이 0 이라 오른쪽은 공격 중에 제자리에 선다. 애니메이션이 위치를 정하므로, ' +
+        '에셋에 전진이 없으면 코드가 무엇을 하든 움직이지 않는다. 왼쪽은 여전히 ' + capsule + 'cm 나아간다.';
+    } else {
+      el.className = 'verdict';
+      el.textContent = '공격 한 번에 왼쪽은 ' + capsule + 'cm (속도 × 시간), 오른쪽은 ' + P.lunge + 'cm (애니메이션에 담긴 값) 나아간다. ' +
+        '오른쪽은 동작마다 거리가 다를 수 있고, 왼쪽은 어떤 동작이든 같은 속도로 간다.';
+    }
+  }
+
+  var sl = document.getElementById('sLunge');
+  if (sl) sl.addEventListener('input', function(e){
+    P.lunge = Number(e.target.value) || 0;
+    document.getElementById('oLunge').textContent = P.lunge + ' cm';
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRootFigure);
+else initRootFigure();
+</script>
+<script>
+/* BlendSpace — 삼각분할과 무게중심 가중치. 엔진은 격자가 아니라 삼각형으로 나눈다. */
+function initBSFigure(){
+  if (!window.Viz) return;
+  var DIRS = [-180, -90, 0, 90, 180];
+  var SPEEDS = [0, 150, 600];
+  var NAMES = ['Idle', 'Walk', 'Run'];
+  var SUF = ['_B', '_L', '_F', '_R', '_B'];
+  var THRESH = 0.00001;              // ZERO_ANIMWEIGHT_THRESH
+  var input = { dir: 0, speed: 420 };
+
+  function sampleName(di, si){
+    if (si === 0) return 'Idle';
+    return NAMES[si] + SUF[di];
+  }
+
+  var v = Viz.view('cvBS', function(w){ return w < 520 ? 300 : 280; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var padL = 44, padR = 16, padT = 26, padB = 34;
+    var gw = w - padL - padR, gh = h - padT - padB;
+    if (!(gw > 0) || !(gh > 0)) return;
+
+    function X(d){ return padL + ((d + 180) / 360) * gw; }
+    function Y(sp){ return padT + gh - (sp / 600) * gh; }
+
+    // 축
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.strokeRect(padL, padT, gw, gh);
+    Viz.text(ctx, 'Speed', padL - 6, padT - 12, c.dim, 10, 'right');
+    Viz.text(ctx, '600', padL - 6, Y(600), c.dim, 10, 'right');
+    Viz.text(ctx, '0', padL - 6, Y(0), c.dim, 10, 'right');
+    for (var k = 0; k < DIRS.length; k++){
+      Viz.text(ctx, String(DIRS[k]), X(DIRS[k]), padT + gh + 14, c.dim, 10, 'center');
+    }
+    Viz.text(ctx, 'Direction', padL + gw, padT + gh + 28, c.dim, 10, 'right');
+
+    // 입력이 든 칸과 삼각형 찾기
+    var di = 0, si = 0;
+    for (var i = 0; i < DIRS.length - 1; i++){ if (input.dir >= DIRS[i]) di = i; }
+    for (var j = 0; j < SPEEDS.length - 1; j++){ if (input.speed >= SPEEDS[j]) si = j; }
+    var d0 = DIRS[di], d1 = DIRS[di + 1], s0 = SPEEDS[si], s1 = SPEEDS[si + 1];
+    var u = (input.dir - d0) / (d1 - d0);
+    var vv = (input.speed - s0) / (s1 - s0);
+    u = Math.max(0, Math.min(1, u)); vv = Math.max(0, Math.min(1, vv));
+
+    // 사각형을 두 삼각형으로 나눈다 (엔진의 삼각분할을 단순화한 것)
+    var tri, wts;
+    if (u + vv <= 1){
+      tri = [[di, si], [di + 1, si], [di, si + 1]];
+      wts = [1 - u - vv, u, vv];
+    } else {
+      tri = [[di + 1, si + 1], [di + 1, si], [di, si + 1]];
+      wts = [u + vv - 1, 1 - vv, 1 - u];
+    }
+
+    // 활성 삼각형
+    ctx.fillStyle = c.accent; ctx.globalAlpha = 0.14;
+    ctx.beginPath();
+    for (var t = 0; t < 3; t++){
+      var px = X(DIRS[tri[t][0]]), py = Y(SPEEDS[tri[t][1]]);
+      if (t === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // 샘플 점
+    for (var a = 0; a < DIRS.length; a++){
+      for (var b = 0; b < SPEEDS.length; b++){
+        var sx = X(DIRS[a]), sy = Y(SPEEDS[b]);
+        var wi = -1;
+        for (var t2 = 0; t2 < 3; t2++){ if (tri[t2][0] === a && tri[t2][1] === b) wi = t2; }
+        var active = wi >= 0 && wts[wi] > THRESH;
+        ctx.beginPath(); ctx.arc(sx, sy, active ? 7 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = active ? c.accent : c.line; ctx.fill();
+        if (active){
+          Viz.text(ctx, sampleName(a, b) + '  ' + wts[wi].toFixed(2), sx + 11, sy - 10, c.text, 11);
+        }
+      }
+    }
+
+    // 입력 좌표
+    var ix = X(input.dir), iy = Y(input.speed);
+    ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ix, iy, 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ix - 10, iy); ctx.lineTo(ix + 10, iy);
+    ctx.moveTo(ix, iy - 10); ctx.lineTo(ix, iy + 10); ctx.stroke();
+    Viz.text(ctx, '(' + Math.round(input.dir) + ', ' + Math.round(input.speed) + ')', ix, iy + 22, c.warn, 11, 'center');
+
+    v.__tri = tri; v.__wts = wts;
+  });
+
+  if (!v) return;
+
+  function verdict(){
+    var el = document.getElementById('bsVerdict');
+    if (!el || !v.__tri) return;
+    var parts = [];
+    for (var i = 0; i < 3; i++){
+      if (v.__wts[i] > THRESH) parts.push(sampleName(v.__tri[i][0], v.__tri[i][1]) + ' ' + v.__wts[i].toFixed(2));
+    }
+    var dropped = 3 - parts.length;
+    el.className = 'verdict';
+    el.textContent = '섞이는 샘플: ' + parts.join('  +  ') +
+      (dropped > 0 ? '   (가중치가 0.00001 이하인 샘플 ' + dropped + '개는 아예 재생 목록에서 빠진다)' : '');
+  }
+
+  function pick(e){
+    var r = v.cv.getBoundingClientRect();
+    if (!(r.width > 0)) return;
+    var padL = 44, padR = 16, padT = 26, padB = 34;
+    var gw = v.w - padL - padR, gh = v.h - padT - padB;
+    if (!(gw > 0) || !(gh > 0)) return;
+    var x = (e.clientX - r.left) * (v.w / r.width);
+    var y = (e.clientY - r.top) * (v.h / r.height);
+    input.dir = Math.max(-180, Math.min(180, ((x - padL) / gw) * 360 - 180));
+    input.speed = Math.max(0, Math.min(600, (1 - (y - padT) / gh) * 600));
+    v.render(); verdict();
+  }
+  var dragging = false;
+  v.cv.addEventListener('pointerdown', function(e){ dragging = true; pick(e); e.preventDefault(); });
+  v.cv.addEventListener('pointermove', function(e){ if (dragging) pick(e); });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+  v.cv.style.touchAction = 'none';
+  v.cv.style.cursor = 'crosshair';
+
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBSFigure);
+else initBSFigure();
+</script>
+</body>
+</html>

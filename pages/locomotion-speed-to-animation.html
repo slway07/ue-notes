@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Locomotion — 속도가 어떻게 애니메이션이 되나</title>
-<meta name="note-title" content="Locomotion — 속도가 어떻게 애니메이션이 되나">
-<meta name="note-summary" content="캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed와 Direction 둘뿐이다.">
+<title>Locomotion ① 속도가 애니메이션이 되는 길</title>
+<meta name="note-title" content="Locomotion ① 속도가 애니메이션이 되는 길">
+<meta name="note-summary" content="캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed 와 Direction 둘뿐이다.">
 <meta name="note-tags" content="Animation, Locomotion, CharacterMovement">
 <meta name="note-order" content="20">
 <meta name="note-category" content="애니메이션">
@@ -30,8 +30,8 @@
 <p><a class="back" href="../index.html">&larr; 목차</a></p>
 
 <header class="site-head">
-<h1>Locomotion — 속도가 어떻게 애니메이션이 되나</h1>
-<p>캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed와 Direction 둘뿐이다.</p>
+<h1>Locomotion ① 속도가 애니메이션이 되는 길</h1>
+<p>캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed 와 Direction 둘뿐이다.</p>
 </header>
 
 <article>
@@ -60,7 +60,7 @@
 
 <p>오른쪽으로 가면 Direction 이 <b>+</b>, 왼쪽으로 가면 <b>−</b> 다. 정면이 0, 뒤가 ±180 이다. 그림의 <b>+</b> 와 <b>−</b> 표시가 그 규칙을 보여 준다.</p>
 
-<p>이 값이 BlendSpace 의 가로축(Direction)·세로축(Speed)으로 들어간다. 그림 오른쪽(좁은 화면에서는 아래)의 사각형은 두 값을 축에 놓아 본 것이다. 실제 샘플 배치와 삼각분할은 10절에서 다룬다.</p>
+<p>이 값이 BlendSpace 의 가로축(Direction)·세로축(Speed)으로 들어간다. 그림 오른쪽(좁은 화면에서는 아래)의 사각형은 두 값을 축에 놓아 본 것이다. 실제 샘플 배치와 삼각분할은 <a href="locomotion-root-motion.html">③ 루트 모션과 BlendSpace</a> 에서 다룬다.</p>
 
 <p class="note">캐릭터는 가운데에서 정면(위쪽)을 본다. 중심에서 가장자리까지가 Speed 0~600 이고, 가장자리를 넘겨 끌면 600 에서 멈춘다. 좁은 화면에서는 평면도가 위, BlendSpace 가 아래로 재배치된다.</p>
 
@@ -249,199 +249,7 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 
 <p>만약 <code>bOrientRotationToMovement</code> 쪽이 켜져 있었다면 <b>몸이 왼쪽을 향해 돌아버려서</b> Direction 은 곧 0 에 수렴하고, 게걸음이 아니라 "왼쪽으로 몸을 틀어 앞으로 걷기"가 된다. <b>조준 자세가 유지되지 않는다.</b> 두 스위치의 차이가 눈에 보이는 지점이 여기다.</p>
 
-<h2>7. 발이 미끄러지는 이유</h2>
-
-<p>원인은 하나다. <b>애니메이션이 전제한 이동량과 실제 이동량이 다르다.</b> 달리기 애니메이션은 한 사이클에 특정 거리만큼 나아가는 것을 전제하는데, 캡슐은 그와 다른 속도로 움직인다. 남는 차이만큼 발이 지면을 미끄러진다.</p>
-
-<blockquote>
-<p><b>숫자로 보면.</b> 걷기 애니메이션이 한 사이클에 <b>150cm</b> 나아가도록 만들어졌다고 하자. 이 애니메이션을 그대로 틀면서 캡슐은 <code>MaxWalkSpeed</code> 기본값인 <b>600cm/s</b> 로 움직인다. 발은 150, 몸은 600 — <b>매초 450cm 만큼 지면이 발 밑에서 흘러간다.</b> 이것이 미끄러짐의 정체다.</p>
-<p>재생 속도를 4배로 올리면 거리는 맞는다. 대신 다리가 4배로 빨리 움직여 사람이 아니라 감긴 필름처럼 보인다. <b>거리를 맞추는 것과 자연스러움을 지키는 것이 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
-</blockquote>
-
-
-<h3>그림 읽는 법</h3>
-
-<p>캐릭터는 <b>제자리에서 달리고 지면이 흐른다.</b> 러닝머신을 떠올리면 된다. 그래야 두 속도를 나란히 비교할 수 있다.</p>
-
-<div class="tablewrap">
-<table>
-<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
-<tbody>
-<tr><td><b>흐르는 빗금 바닥</b></td><td>지면. 흐르는 속도가 <code>MaxWalkSpeed</code> 다. 캐릭터가 세상을 지나가는 속도</td></tr>
-<tr><td><b>초록색으로 바뀐 발</b></td><td>지금 땅을 딛고 있는 발</td></tr>
-<tr><td><b>발 밑의 화살표</b></td><td>딛고 있는 동안 <b>발이 밀리는 양과 방향</b>. 이것이 미끄러짐이다. 길수록 심하다</td></tr>
-<tr><td><b>위쪽 막대 두 개</b></td><td>위는 지면이 흐르는 속도, 아래는 발이 땅을 미는 속도. <b>두 막대 길이가 같아지면 미끄러짐이 사라진다</b></td></tr>
-</tbody>
-</table>
-</div>
-
-<div class="panel">
-  <div class="sl">
-    <label for="sSpeed">MaxWalkSpeed</label>
-    <input type="range" id="sSpeed" min="0" max="600" step="10" value="600">
-    <output id="oSpeed">600 cm/s</output>
-  </div>
-  <p class="hint">캡슐이 1초에 나아가는 거리. <b>어디 있나</b> &mdash; <code>UCharacterMovementComponent</code> &rarr; 캐릭터 BP 의 <b>CharacterMovement</b> 컴포넌트 &rarr; <b>Character Movement: Walking</b>.</p>
-
-  <div class="sl">
-    <label for="sRate">Play Rate</label>
-    <input type="range" id="sRate" min="0.5" max="4" step="0.05" value="1">
-    <output id="oRate">1.00 배</output>
-  </div>
-  <p class="hint">애니메이션 재생 속도. 이 걷기 애니메이션은 1배일 때 1초에 150cm 나아가도록 만들어졌다. <b>어디 있나</b> &mdash; 애님 그래프의 시퀀스 재생 노드 입력 핀.</p>
-
-  <div class="stage"><canvas id="cvSlide" aria-label="제자리에서 달리는 캐릭터와 흐르는 지면. 두 슬라이더 값이 어긋나면 접지한 발 밑에 미끄러짐 화살표가 나타난다."></canvas></div>
-
-  <p class="verdict" id="slideVerdict"></p>
-</div>
-
-<p class="try"><b>해 볼 것.</b> <code>MaxWalkSpeed</code> 를 600 에 두고 <code>Play Rate</code> 를 올려 미끄러짐을 0 으로 만들어 봐라. <b>4.00 배</b> 가 필요하다. 그때 다리가 어떻게 보이는지 보라 &mdash; 거리는 맞았지만 사람이 달리는 모습이 아니다. <b>거리를 맞추는 것과 자연스러움은 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
-
-<p>엔진이 주는 해결 축은 세 개다.</p>
-
-<ol>
-<li><b>재생 속도 조절</b> — 애니메이션 재생률을 실제 속도에 맞춰 늘리고 줄인다. 가장 단순하지만 과하게 늘리면 동작이 부자연스러워진다.</li>
-<li><b>Distance Matching</b> — 이동 <b>거리</b>에 맞춰 애니메이션 시간을 전진시킨다. 함수는 <code>UAnimDistanceMatchingLibrary::AdvanceTimeByDistanceMatching</code> 이고, 선언은 <code>Engine/Plugins/Animation/AnimationLocomotionLibrary/Source/Runtime/Public/AnimDistanceMatchingLibrary.h:36</code>, 구현은 같은 플러그인의 <code>.../Private/AnimDistanceMatchingLibrary.cpp:155</code> 다. <b><code>PlayRateClamp</code> 기본값은 (0.75, 1.25)</b> 다. 재생률을 이 범위로 묶는다는 뜻이고, 나머지 오차는 다른 기법이 메꾼다.</li>
-<li><b>Stride Warping</b> — 보폭 자체를 늘리고 줄인다. 구조체는 <code>FAnimNode_StrideWarping</code> 이고, <code>Engine/Plugins/Animation/AnimationWarping/Source/Runtime/Public/BoneControllers/AnimNode_StrideWarping.h:36</code> 에 선언돼 있다. 플러그인 설명은 이 기능이 "Stride, Orientation, Slope Warping 을 포함한다"고 적고 있다.</li>
-</ol>
-
-<p><b>"foot sliding" 이라는 이름의 노드나 함수는 엔진에 없다.</b> 증상의 이름일 뿐이다. 그래서 이름으로 검색해도 안 나오고, 엔진이 주는 것은 위 2·3 같은 도구다.</p>
-
-<h3>언제 무엇을 쓰나</h3>
-
-<div class="tablewrap">
-<table>
-<thead><tr><th>상황</th><th>쓸 것</th></tr></thead>
-<tbody>
-<tr><td>속도가 걷기·달리기처럼 <b>몇 단계로 고정</b>된다</td><td>속도별 샘플을 BlendSpace 에 두는 것으로 충분하다. 추가 기법이 필요 없다</td></tr>
-<tr><td>속도가 <b>연속적으로</b> 변한다 (가속·감속이 잦다)</td><td><b>Stride Warping</b> — 보폭 자체를 속도에 맞춰 늘리고 줄인다. 속도마다 샘플을 만들지 않아도 된다</td></tr>
-<tr><td><b>출발·정지·착지</b> 순간에 발이 뜨거나 미끄러진다</td><td><b>Distance Matching</b> — 시간이 아니라 <b>이동한 거리</b>로 애니메이션을 전진시킨다</td></tr>
-<tr><td>둘 다 필요하다</td><td>공식 문서의 Lyra 설명처럼, 출발 구간은 Distance Matching 으로 시작해 달리기 상태에 가까워지면 Stride Warping 을 섞는 방식이 있다</td></tr>
-</tbody>
-</table>
-</div>
-
-<h2>8. 길이가 다른 애니메이션을 맞추기 (동기화 그룹)</h2>
-
-<p>걷기와 달리기는 한 사이클의 길이가 다르다. 그냥 섞으면 발이 어긋난다. 동기화 그룹은 애니메이션마다 <b>리더</b>와 <b>팔로워</b> 역할을 정해 이 문제를 푼다.</p>
-
-<h3>그림 읽는 법</h3>
-
-<p>위의 막대 두 개가 <b>걷기와 달리기 애니메이션의 재생 위치</b>다. 걷기는 한 바퀴가 1.2초, 달리기는 0.6초로 <b>길이가 다르다.</b> 막대 위의 점은 그 애니메이션에서 <b>발이 땅에 닿는 순간</b>이고, 세로선이 지금 재생 위치다. 맨 아래 캐릭터가 <b>둘을 섞은 결과</b>, 즉 실제로 화면에 나오는 모습이다.</p>
-
-<div class="panel">
-  <div class="sl">
-    <label for="sBlend">블렌드 가중치</label>
-    <input type="range" id="sBlend" min="0" max="1" step="0.05" value="0.5">
-    <output id="oBlend">걷기 50% / 달리기 50%</output>
-  </div>
-  <p class="hint">BlendSpace 가 속도에 따라 자동으로 정하는 값이다. 여기서는 직접 끌어 본다.</p>
-
-  <div class="ctl" id="syncTabs">
-    <button type="button" data-sync="0" aria-pressed="false">동기화 끔</button>
-    <button type="button" data-sync="1" aria-pressed="true">동기화 켬</button>
-  </div>
-
-  <div class="stage"><canvas id="cvSync" aria-label="걷기와 달리기의 재생 위치를 나타내는 막대 두 개와, 둘을 섞은 결과 캐릭터. 동기화를 끄면 두 애니메이션의 발 접지 시점이 어긋나 섞인 캐릭터의 다리가 제대로 움직이지 않는다."></canvas></div>
-
-  <p class="verdict" id="syncVerdict"></p>
-</div>
-
-<p class="try"><b>해 볼 것.</b> <b>동기화 끔</b> 으로 두고 아래 캐릭터의 다리를 한참 보라. 두 애니메이션의 접지 시점이 계속 어긋나기 때문에 <b>다리가 제대로 뻗지 못하고 어정쩡하게 떨린다.</b> 걸음처럼 보이지 않는다. <b>동기화 켬</b> 으로 바꾸면 두 막대의 점이 세로로 줄을 맞추고, 다리도 제대로 걷는다.</p>
-
-<p>동기화 그룹이 하는 일이 이것이다. <b>길이가 다른 애니메이션들의 재생 위치를 서로 맞춰 준다.</b> 누구에게 맞출지를 정하는 것이 리더와 팔로워 역할이고, 가중치를 끝으로 밀어 보면 <b>리더가 바뀌는 것</b>도 볼 수 있다 &mdash; <code>CanBeLeader</code> 는 블렌드 가중치가 가장 높은 쪽이 리더가 되는 역할이다.</p>
-
-
-<div class="tablewrap">
-<table>
-<thead><tr><th>값</th><th>줄</th><th>뜻</th></tr></thead>
-<tbody>
-<tr><td><code>CanBeLeader</code></td><td>567</td><td>블렌드 가중치가 이전 최고 리더보다 높으면 리더가 될 수 있다</td></tr>
-<tr><td><code>AlwaysFollower</code></td><td>570</td><td>항상 팔로워다. 전부 팔로워면 먼저 tick 된 쪽이 리더가 된다</td></tr>
-<tr><td><code>AlwaysLeader</code></td><td>573</td><td>항상 리더다. 여러 개면 마지막에 tick 된 쪽이 이긴다</td></tr>
-<tr><td><code>TransitionLeader</code></td><td>576</td><td>블렌드 인 동안은 그룹에서 빠지고, 블렌드가 끝나면 블렌드 아웃까지 리더다</td></tr>
-<tr><td><code>TransitionFollower</code></td><td>579</td><td>블렌드 인 동안 빠지고, 끝나면 팔로워다</td></tr>
-<tr><td><code>ExclusiveAlwaysLeader</code></td><td>582</td><td>항상 리더다. 리더로 tick 하지 못하면 동기화 없이 단독 재생한다</td></tr>
-</tbody>
-</table>
-</div>
-
-<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimationAsset.h</code>, enum <code>EAnimGroupRole</code> 은 562줄에서 시작한다.</p>
-
-<p>역할만 정한다고 위치가 저절로 맞는 것은 아니다. 리더와 팔로워 모두 <code>FMarkerTickRecord</code> 의 이전/다음 마커 쌍을 기준으로 자기 위치를 맞춘다. 마커 인덱스를 찾는 함수가 <code>UAnimSequenceBase::GetMarkerIndicesForPosition</code> 이고(선언 <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimSequenceBase.h:205</code>), 팔로워는 <code>AnimSequenceBase.cpp:602</code>, 리더는 <code>:621</code> 에서 이 함수를 호출한다.</p>
-
-<h2>9. 위치를 누가 정하는가 (루트 모션)</h2>
-
-<p>평소 이동은 캡슐이 옮기고, 공격·구르기 같은 동작은 애니메이션이 위치를 옮기는 편이 자연스럽다. 어느 쪽을 쓸지 정하는 값이 <code>ERootMotionMode</code> 다.</p>
-
-<h3>그림 읽는 법</h3>
-
-<p>두 캐릭터에게 <b>같은 공격 동작</b>을 같은 시점에 시킨다. 왼쪽은 캡슐이 옮기고, 오른쪽은 애니메이션이 옮긴다. 바닥의 <b>흐린 자취</b>가 지나온 길이고, 위의 띠는 <b>공격 몽타주가 재생되는 구간</b>이다.</p>
-
-<div class="panel">
-  <div class="sl">
-    <label for="sLunge">공격 동작에 담긴 전진량</label>
-    <input type="range" id="sLunge" min="0" max="250" step="10" value="150">
-    <output id="oLunge">150 cm</output>
-  </div>
-  <p class="hint">애니메이터가 공격 모션을 만들 때 루트 본을 얼마나 앞으로 뺐는지. 이 값은 <b>애니메이션 에셋 안에</b> 들어 있고 코드에 없다.</p>
-
-  <div class="stage"><canvas id="cvRoot" aria-label="같은 공격 동작을 하는 두 캐릭터. 왼쪽은 캡슐이 일정 속도로 옮겨 공격 중에도 미끄러지듯 나아가고, 오른쪽은 애니메이션에 담긴 전진량만큼 훅 나아갔다 멈춘다."></canvas></div>
-
-  <p class="verdict" id="rootVerdict"></p>
-</div>
-
-<p class="try"><b>해 볼 것.</b> 전진량을 0 으로 내려 보라. 오른쪽 캐릭터는 공격 중에 <b>제자리에 선다.</b> 애니메이션이 위치를 정하기 때문에, 에셋에 전진이 없으면 아무리 입력을 넣어도 안 움직인다. 반대로 왼쪽은 전진량과 무관하게 늘 같은 속도로 나아간다 &mdash; <b>애니메이션이 무엇이든 코드가 정한 대로 간다.</b></p>
-
-<p>그래서 둘을 섞어 쓴다. 평소 이동은 캡슐이 맡고, 공격·구르기처럼 <b>동작마다 이동 거리가 달라야 하는 것</b>만 루트 모션으로 맡긴다. 기본값 <code>RootMotionFromMontagesOnly</code> 가 정확히 그 구성이다 &mdash; 몽타주로 재생되는 것만 루트 모션을 꺼내 쓴다.</p>
-
-
-<div class="tablewrap">
-<table>
-<thead><tr><th>값</th><th>줄</th><th>주석의 뜻</th></tr></thead>
-<tbody>
-<tr><td><code>NoRootMotionExtraction</code></td><td>32</td><td>루트 모션을 애니메이션에 그대로 둔다</td></tr>
-<tr><td><code>IgnoreRootMotion</code></td><td>35</td><td>뽑아내되 적용하지 않는다</td></tr>
-<tr><td><code>RootMotionFromEverything</code></td><td>38</td><td>최종 포즈에 기여하는 <b>모든</b> 애니메이션에서 루트 모션을 가져온다. 네트워크 멀티플레이에는 적합하지 않다</td></tr>
-<tr><td><code>RootMotionFromMontagesOnly</code></td><td>41</td><td>몽타주에서만 가져온다. 네트워크 멀티플레이에 적합하다</td></tr>
-</tbody>
-</table>
-</div>
-
-<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimEnums.h</code>, enum <code>ERootMotionMode</code> 는 27줄에서 시작한다.</p>
-
-<p>기본값은 <code>RootMotionFromMontagesOnly</code> 다. <code>UAnimInstance</code> 생성자가 <code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp:202</code> 에서 이 값을 넣는다. 그래서 평소 이동은 캡슐이 옮기고, 공격·구르기 같은 몽타주만 루트 모션으로 움직이는 구성이 기본이다.</p>
-
-<h2>10. BlendSpace 가 샘플을 고르는 방식</h2>
-
-<h3>그림 읽는 법</h3>
-
-<p>가로가 <b>Direction</b>, 세로가 <b>Speed</b> 인 평면이고, 동그라미가 <b>배치해 둔 애니메이션(샘플)</b>이다. 평면을 <b>누르거나 끌면</b> 그 자리가 현재 입력값이 된다. 입력이 떨어진 자리를 둘러싼 <b>삼각형 하나가 밝아지고</b>, 그 세 꼭짓점이 섞여 최종 포즈가 된다. 각 꼭짓점 옆 숫자가 섞이는 비율이다.</p>
-
-<div class="panel">
-  <div class="stage"><canvas id="cvBS" aria-label="Direction과 Speed를 축으로 하는 평면에 애니메이션 샘플이 놓여 있다. 입력 좌표를 끌면 그 좌표를 포함하는 삼각형이 밝아지고 세 꼭짓점의 가중치가 표시된다."></canvas></div>
-  <p class="verdict" id="bsVerdict"></p>
-</div>
-
-<p class="try"><b>해 볼 것.</b> 샘플 동그라미 <b>바로 위</b>로 끌어가 보라. 그 샘플 하나만 가중치 1.00 이 되고 나머지는 사라진다. 삼각형의 <b>한가운데</b>로 가면 셋이 고르게 섞인다. 그리고 <b>세로축 맨 아래(Speed 0)</b> 로 내려가면 Direction 을 아무리 바꿔도 결과가 같다 &mdash; 멈춰 있을 때는 방향이 의미가 없기 때문이고, 그래서 BlendSpace 아래쪽에는 보통 Idle 하나만 둔다.</p>
-
-<p>엔진이 하는 일이 정확히 이것이다. 샘플들을 삼각형으로 나눠 두고, 입력 좌표가 든 삼각형을 찾아 <b>무게중심 좌표</b>로 세 꼭짓점의 비율을 구한다. 격자로 칸칸이 나누는 방식이 아니다.</p>
-
-
-<p><code>UBlendSpace</code> 는 입력 좌표를 받아 재생할 샘플과 가중치를 고른다.</p>
-
-<ul>
-<li>축 배열은 <code>FBlendParameter BlendParameters[3]</code> 로 3칸이지만, <b>런타임 기본 경로는 1차원과 2차원만 처리한다.</b> 그 밖의 차원은 "Unhandled number of dimensions" 경고를 내고 빈 결과를 낸다</li>
-<li>기본 경로는 격자 보간이 아니다. <code>bInterpolateUsingGrid</code> 의 기본값은 false 이고, 실제로는 <b>삼각분할</b>이다</li>
-<li>2D 는 입력 좌표가 든 삼각형을 찾아 <code>FMath::GetBaryCentric2D</code> 로 세 꼭짓점의 가중치를 구한다</li>
-<li>1D 는 구간을 찾고, 구간 밖이면 가장 가까운 끝점에 가중치 1.0 을 준다</li>
-<li>가중치가 <code>ZERO_ANIMWEIGHT_THRESH</code> 를 넘는 샘플만 실제로 재생 목록에 들어간다</li>
-<li>입력 → 가중치의 진입점은 <code>UBlendSpace::GetSamplesFromBlendInput</code> 이다</li>
-</ul>
-
-<p>2D 에서는 입력 점을 품은 삼각형의 세 꼭짓점 가중치가 계산되고, 그중 문턱을 넘는 샘플만 그 프레임에 재생된다. 그림의 점을 움직여 보면 Direction 과 Speed 가 축 위에서 어디로 가는지 확인할 수 있다.</p>
-
-<h2>11. 더 읽을 것 (공식 문서)</h2>
+<h2>7. 더 읽을 것 (공식 문서)</h2>
 
 <p>이 페이지는 "무엇이 무엇을 정하는가"를 다뤘다. 에디터에서 실제로 만드는 순서는 공식 문서가 자세하다.</p>
 
@@ -453,7 +261,7 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 <li><a href="https://dev.epicgames.com/documentation/ko-kr/unreal-engine/game-animation-sample-project-in-unreal-engine" target="_blank" rel="noopener">Game Animation Sample Project</a> — 모션 매칭 기반의 공식 샘플 프로젝트</li>
 </ul>
 
-<h2>12. 소스 위치</h2>
+<h2>8. 소스 위치</h2>
 
 <div class="tablewrap">
 <table>
@@ -493,6 +301,10 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 
 <p class="src">출처 — 위 표의 파일과 줄 번호. 표의 <code>...</code> 는 바로 위 줄의 <code>Engine/Plugins/Animation/AnimationLocomotionLibrary/Source/Runtime</code> 을 줄인 것이다.</p>
 
+
+<div class="nextprev">
+<a href="locomotion-foot-sliding.html">② 발이 미끄러지는 이유 &rarr;</a>
+</div>
 </article>
 
 <footer class="site-foot">
@@ -920,8 +732,6 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
   view.resize();
 })();
 </script>
-
-
 <script>
 /* 캐릭터가 도는 두 방식 — 같은 입력을 두 모드에 동시에 넣어 비교한다. */
 function initRotFigure(){
@@ -1029,8 +839,6 @@ function initRotFigure(){
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRotFigure);
 else initRotFigure();
 </script>
-
-
 <script>
 /* 가속과 감속 — UCharacterMovementComponent 의 계산식을 그대로 옮겼다.
    가속: Velocity += Acceleration * dt   (마찰은 크기를 줄이지 않는다)
@@ -1163,467 +971,5 @@ function initAccelFigure(){
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAccelFigure);
 else initAccelFigure();
 </script>
-
-
-<script>
-/* 발 미끄러짐 — MaxWalkSpeed(지면이 흐르는 속도)와 Play Rate(발이 땅을 미는 속도)의 차이를 보여준다. */
-function initSlideFigure(){
-  if (!window.Viz) return;
-  var ANIM_BASE = 150;                 // 이 애니메이션이 1배속에서 내는 속도 (cm/s)
-  var P = { speed: 600, rate: 1 };
-
-  var v = Viz.view('cvSlide', function(w){ return w < 520 ? 250 : 215; }, function(v){
-    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
-    var footSpeed = ANIM_BASE * P.rate;
-    var slip = P.speed - footSpeed;
-    var PX = 0.38;
-    var groundY = h - 54;
-    var cx = w * 0.38;
-
-    Viz.ground(ctx, 8, w - 8, groundY, v.t * P.speed * PX, c);
-
-    var phase = v.t * P.rate * 1.15;
-    var contact = Viz.runner(ctx, cx, groundY, phase, 38, c);
-
-    // 접지한 발 밑에 미끄러짐 화살표
-    if (contact !== null && Math.abs(slip) > 1){
-      var len = Math.max(10, Math.min(130, Math.abs(slip) * PX * 0.75));
-      var dir = slip > 0 ? -1 : 1;
-      var ay = groundY + 26;
-      Viz.arrow(ctx, contact, ay, contact + dir * len, ay, c.warn, 2);
-    }
-
-    // 두 속도 막대
-    var bx = 10, bw = w - 20, bh = 9;
-    ctx.fillStyle = c.sf2; ctx.fillRect(bx, 16, bw, bh);
-    ctx.fillStyle = c.dim; ctx.fillRect(bx, 16, bw * (P.speed / 600), bh);
-    Viz.text(ctx, '지면이 흐르는 속도  ' + Math.round(P.speed), bx, 8, c.dim, 11);
-
-    ctx.fillStyle = c.sf2; ctx.fillRect(bx, 46, bw, bh);
-    ctx.fillStyle = c.accent; ctx.fillRect(bx, 46, bw * Math.min(1, footSpeed / 600), bh);
-    Viz.text(ctx, '발이 땅을 미는 속도  ' + Math.round(footSpeed), bx, 38, c.accent, 11);
-  });
-
-  if (!v) return;
-  Viz.animate(v);
-
-  function verdict(){
-    var footSpeed = ANIM_BASE * P.rate;
-    var slip = Math.round(P.speed - footSpeed);
-    var need = ANIM_BASE > 0 ? P.speed / ANIM_BASE : 0;
-    var el = document.getElementById('slideVerdict');
-    if (!el) return;
-    if (Math.abs(slip) <= 5){
-      el.className = 'verdict ok';
-      el.textContent = '미끄러짐 거의 0 — 발이 지면을 따라간다. ' +
-        '지금 재생 속도는 ' + P.rate.toFixed(2) + '배이고, ' +
-        '이 값이 0.75~1.25 를 벗어나면 다리 움직임이 어색해진다.';
-    } else if (slip > 0){
-      el.className = 'verdict bad';
-      el.textContent = '발이 매초 ' + slip + 'cm 뒤로 끌린다. 0 으로 만들려면 Play Rate 가 ' +
-        need.toFixed(2) + '배 필요하다.';
-    } else {
-      el.className = 'verdict bad';
-      el.textContent = '발이 매초 ' + (-slip) + 'cm 앞서 나간다. 다리가 몸보다 빨라 땅을 긁는 모양이 된다.';
-    }
-  }
-
-  var a = document.getElementById('sSpeed');
-  if (a) a.addEventListener('input', function(e){
-    P.speed = Number(e.target.value) || 0;
-    document.getElementById('oSpeed').textContent = P.speed + ' cm/s';
-    verdict(); v.render();
-  });
-  var b = document.getElementById('sRate');
-  if (b) b.addEventListener('input', function(e){
-    P.rate = Number(e.target.value) || 0.5;
-    document.getElementById('oRate').textContent = P.rate.toFixed(2) + ' 배';
-    verdict(); v.render();
-  });
-  verdict();
-}
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSlideFigure);
-else initSlideFigure();
-</script>
-
-
-<script>
-/* 동기화 그룹 — 길이가 다른 두 애니메이션을 섞을 때 재생 위치를 맞춰 주는 일. */
-function initSyncFigure(){
-  if (!window.Viz) return;
-  var WALK = 1.2, RUN = 0.6;          // 한 사이클 길이 (초)
-  var P = { blend: 0.5, sync: true };
-
-  // 한 다리의 발 위치 (phase 0~1). 걷기와 달리기는 보폭과 들어올림이 다르다.
-  function foot(phase, stride, lift){
-    var t = (phase - Math.floor(phase)) * Math.PI * 2;
-    return { x: Math.sin(t) * stride / 2, y: -Math.max(0, Math.cos(t)) * lift };
-  }
-
-  var v = Viz.view('cvSync', function(w){ return w < 520 ? 300 : 265; }, function(v){
-    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
-    var pad = 12, barW = w - pad * 2;
-    if (!(barW > 0)) return;
-
-    // 두 애니메이션의 현재 위상
-    var pw, pr;
-    if (P.sync){
-      // 가중치가 높은 쪽이 리더. 팔로워는 리더의 진행률을 그대로 쓴다.
-      var leaderIsRun = P.blend >= 0.5;
-      var lead = leaderIsRun ? (v.t / RUN) : (v.t / WALK);
-      pw = pr = lead;
-    } else {
-      pw = v.t / WALK; pr = v.t / RUN;     // 각자 자기 속도로 흐른다
-    }
-
-    function bar(y, label, phase, color, cycle){
-      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, pad, y, barW, 14, 7); ctx.fill();
-      // 발 접지 지점 두 곳 (0.0 과 0.5)
-      for (var i = 0; i < 2; i++){
-        var mx = pad + barW * (i * 0.5);
-        ctx.fillStyle = c.line;
-        ctx.beginPath(); ctx.arc(mx + 4, y + 7, 4, 0, Math.PI * 2); ctx.fill();
-      }
-      // 현재 재생 위치
-      var f = phase - Math.floor(phase);
-      var x = pad + barW * f;
-      ctx.strokeStyle = color; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 18); ctx.stroke();
-      Viz.text(ctx, label + '  ' + cycle.toFixed(1) + '초', pad, y - 12, color, 11);
-    }
-
-    bar(28, '걷기', pw, c.accent, WALK);
-    bar(78, '달리기', pr, c.warn, RUN);
-
-    // 섞인 결과 캐릭터
-    var groundY = h - 30;
-    var cx = w * 0.5;
-    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(pad, groundY); ctx.lineTo(w - pad, groundY); ctx.stroke();
-
-    var hip = groundY - 46;
-    ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(cx, hip - 24); ctx.stroke();
-    ctx.beginPath(); ctx.arc(cx, hip - 32, 7, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
-
-    var reach = 0;
-    for (var k = 0; k < 2; k++){
-      var off = k * 0.5;
-      var fw = foot(pw + off, 34, 12);
-      var fr = foot(pr + off, 76, 22);
-      // 두 포즈를 가중치로 섞는다 = 엔진이 하는 일
-      var fx = cx + fw.x * (1 - P.blend) + fr.x * P.blend;
-      var fy = groundY + fw.y * (1 - P.blend) + fr.y * P.blend;
-      reach = Math.max(reach, Math.abs(fx - cx));
-      ctx.strokeStyle = c.text;
-      ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(fx, fy); ctx.stroke();
-      ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3.5, 0, 0, Math.PI * 2);
-      ctx.fillStyle = c.accent; ctx.fill();
-    }
-    Viz.text(ctx, '섞인 결과', pad, groundY - 66, c.dim, 11);
-    Viz.text(ctx, '발 벌림 ' + Math.round(reach * 2), w - pad, groundY - 66, reach * 2 < 30 ? c.warn : c.dim, 11, 'right');
-  });
-
-  if (!v) return;
-  Viz.animate(v);
-
-  function verdict(){
-    var el = document.getElementById('syncVerdict');
-    if (!el) return;
-    var leaderIsRun = P.blend >= 0.5;
-    if (P.sync){
-      el.className = 'verdict ok';
-      el.textContent = '두 막대의 재생 위치가 같이 움직인다. ' +
-        '지금 리더는 <' + (leaderIsRun ? '달리기' : '걷기') + '> 다 — ' +
-        '가중치가 더 높은 쪽이 리더가 된다. 가중치를 반대로 밀면 리더도 바뀐다.';
-    } else {
-      el.className = 'verdict bad';
-      el.textContent = '두 애니메이션이 각자 흐른다. 접지 시점이 계속 어긋나므로 ' +
-        '섞은 결과의 발 벌림이 줄어들고, 걸음이 아니라 제자리에서 떨리는 모양이 된다.';
-    }
-  }
-
-  var sb = document.getElementById('sBlend');
-  if (sb) sb.addEventListener('input', function(e){
-    P.blend = Number(e.target.value);
-    var wp = Math.round((1 - P.blend) * 100);
-    document.getElementById('oBlend').textContent = '걷기 ' + wp + '% / 달리기 ' + (100 - wp) + '%';
-    verdict(); v.render();
-  });
-  var tabs = document.getElementById('syncTabs');
-  if (tabs) tabs.addEventListener('click', function(e){
-    var b = e.target.closest('button'); if (!b) return;
-    P.sync = b.getAttribute('data-sync') === '1';
-    var bs = tabs.querySelectorAll('button');
-    for (var i = 0; i < bs.length; i++){
-      bs[i].setAttribute('aria-pressed', (bs[i].getAttribute('data-sync') === '1') === P.sync ? 'true' : 'false');
-    }
-    verdict(); v.render();
-  });
-  verdict();
-}
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSyncFigure);
-else initSyncFigure();
-</script>
-
-
-<script>
-/* 루트 모션 — 같은 공격 동작을 캡슐이 옮길 때와 애니메이션이 옮길 때. */
-function initRootFigure(){
-  if (!window.Viz) return;
-  var P = { lunge: 150 };
-  var CYCLE = 3.0;          // 3초마다 공격
-  var ATTACK = 0.8;         // 공격 몽타주 길이
-  var WALK_SPEED = 180;     // 캡슐 구동 쪽의 이동 속도 (cm/s)
-  var PX = 0.5;
-
-  // 공격 동작 안에서의 전진 진행률 (0~1). 앞쪽에서 빠르게, 끝에서 멈춘다.
-  function lungeCurve(u){
-    if (u <= 0) return 0;
-    if (u >= 1) return 1;
-    return 1 - Math.pow(1 - u, 3);
-  }
-
-  var v = Viz.view('cvRoot', function(w){ return w < 560 ? 330 : 240; }, function(v){
-    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
-    var narrow = w < 560;
-    var cells = narrow
-      ? [{x:0,y:0,w:w,h:h/2}, {x:0,y:h/2,w:w,h:h/2}]
-      : [{x:0,y:0,w:w/2,h:h}, {x:w/2,y:0,w:w/2,h:h}];
-
-    var cyc = v.t % CYCLE;
-    var attacking = cyc < ATTACK;
-    var u = attacking ? (cyc / ATTACK) : 1;
-
-    for (var i = 0; i < 2; i++){
-      var cell = cells[i];
-      var isRoot = (i === 1);
-      var title = isRoot ? '루트 모션이 옮긴다' : '캡슐이 옮긴다';
-      var sub = isRoot ? 'RootMotionFromMontagesOnly' : 'Acceleration / Velocity';
-      var col = isRoot ? c.warn : c.accent;
-
-      if (i === 1){
-        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
-        ctx.beginPath();
-        if (narrow){ ctx.moveTo(8, cell.y); ctx.lineTo(w - 8, cell.y); }
-        else { ctx.moveTo(cell.x, 8); ctx.lineTo(cell.x, h - 8); }
-        ctx.stroke();
-      }
-
-      Viz.text(ctx, title, cell.x + 12, cell.y + 16, col, 12);
-      Viz.text(ctx, sub, cell.x + 12, cell.y + 32, c.dim, 10);
-
-      // 몽타주 재생 구간 띠
-      var tx = cell.x + 12, tw = cell.w - 24;
-      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, tx, cell.y + 44, tw, 8, 4); ctx.fill();
-      ctx.fillStyle = attacking ? col : c.line;
-      Viz.roundRect(ctx, tx, cell.y + 44, tw * (ATTACK / CYCLE), 8, 4); ctx.fill();
-      var px = tx + tw * (cyc / CYCLE);
-      ctx.strokeStyle = c.text; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(px, cell.y + 40); ctx.lineTo(px, cell.y + 56); ctx.stroke();
-      Viz.text(ctx, attacking ? '공격 중' : '대기', tx + tw, cell.y + 36, attacking ? col : c.dim, 10, 'right');
-
-      // 이동 거리 계산
-      var dist;
-      if (isRoot){
-        dist = P.lunge * lungeCurve(u);          // 애니메이션이 정한다
-      } else {
-        dist = WALK_SPEED * Math.min(cyc, ATTACK); // 코드가 정한 속도로 간다
-      }
-
-      var groundY = cell.y + cell.h - 34;
-      var x0 = cell.x + 34;
-      var maxD = Math.max(60, cell.w - 90);
-      var scale = Math.min(PX, maxD / Math.max(1, Math.max(P.lunge, WALK_SPEED * ATTACK)));
-
-      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(cell.x + 12, groundY); ctx.lineTo(cell.x + cell.w - 12, groundY); ctx.stroke();
-
-      // 지나온 자취
-      ctx.strokeStyle = col; ctx.globalAlpha = 0.35; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(x0, groundY - 2); ctx.lineTo(x0 + dist * scale, groundY - 2); ctx.stroke();
-      ctx.globalAlpha = 1;
-
-      // 캐릭터 (공격 중에는 팔을 뻗은 모양)
-      var cx2 = x0 + dist * scale;
-      var hip = groundY - 42;
-      ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2, hip - 22); ctx.stroke();
-      ctx.beginPath(); ctx.arc(cx2 + 2, hip - 30, 6, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
-      // 다리
-      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2 - 9, groundY); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2 + 9, groundY); ctx.stroke();
-      // 팔 — 공격 중이면 앞으로
-      ctx.strokeStyle = attacking ? col : c.dim;
-      ctx.beginPath(); ctx.moveTo(cx2, hip - 16);
-      if (attacking) ctx.lineTo(cx2 + 22, hip - 20); else ctx.lineTo(cx2 + 6, hip - 2);
-      ctx.stroke();
-
-      Viz.text(ctx, '이동 ' + Math.round(dist) + 'cm', cell.x + cell.w - 12, groundY + 18, c.dim, 11, 'right');
-    }
-  });
-
-  if (!v) return;
-  Viz.animate(v);
-
-  function verdict(){
-    var el = document.getElementById('rootVerdict');
-    if (!el) return;
-    var capsule = Math.round(WALK_SPEED * ATTACK);
-    if (P.lunge === 0){
-      el.className = 'verdict bad';
-      el.textContent = '전진량이 0 이라 오른쪽은 공격 중에 제자리에 선다. 애니메이션이 위치를 정하므로, ' +
-        '에셋에 전진이 없으면 코드가 무엇을 하든 움직이지 않는다. 왼쪽은 여전히 ' + capsule + 'cm 나아간다.';
-    } else {
-      el.className = 'verdict';
-      el.textContent = '공격 한 번에 왼쪽은 ' + capsule + 'cm (속도 × 시간), 오른쪽은 ' + P.lunge + 'cm (애니메이션에 담긴 값) 나아간다. ' +
-        '오른쪽은 동작마다 거리가 다를 수 있고, 왼쪽은 어떤 동작이든 같은 속도로 간다.';
-    }
-  }
-
-  var sl = document.getElementById('sLunge');
-  if (sl) sl.addEventListener('input', function(e){
-    P.lunge = Number(e.target.value) || 0;
-    document.getElementById('oLunge').textContent = P.lunge + ' cm';
-    verdict(); v.render();
-  });
-  verdict();
-}
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRootFigure);
-else initRootFigure();
-</script>
-
-
-<script>
-/* BlendSpace — 삼각분할과 무게중심 가중치. 엔진은 격자가 아니라 삼각형으로 나눈다. */
-function initBSFigure(){
-  if (!window.Viz) return;
-  var DIRS = [-180, -90, 0, 90, 180];
-  var SPEEDS = [0, 150, 600];
-  var NAMES = ['Idle', 'Walk', 'Run'];
-  var SUF = ['_B', '_L', '_F', '_R', '_B'];
-  var THRESH = 0.00001;              // ZERO_ANIMWEIGHT_THRESH
-  var input = { dir: 0, speed: 420 };
-
-  function sampleName(di, si){
-    if (si === 0) return 'Idle';
-    return NAMES[si] + SUF[di];
-  }
-
-  var v = Viz.view('cvBS', function(w){ return w < 520 ? 300 : 280; }, function(v){
-    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
-    var padL = 44, padR = 16, padT = 26, padB = 34;
-    var gw = w - padL - padR, gh = h - padT - padB;
-    if (!(gw > 0) || !(gh > 0)) return;
-
-    function X(d){ return padL + ((d + 180) / 360) * gw; }
-    function Y(sp){ return padT + gh - (sp / 600) * gh; }
-
-    // 축
-    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
-    ctx.strokeRect(padL, padT, gw, gh);
-    Viz.text(ctx, 'Speed', padL - 6, padT - 12, c.dim, 10, 'right');
-    Viz.text(ctx, '600', padL - 6, Y(600), c.dim, 10, 'right');
-    Viz.text(ctx, '0', padL - 6, Y(0), c.dim, 10, 'right');
-    for (var k = 0; k < DIRS.length; k++){
-      Viz.text(ctx, String(DIRS[k]), X(DIRS[k]), padT + gh + 14, c.dim, 10, 'center');
-    }
-    Viz.text(ctx, 'Direction', padL + gw, padT + gh + 28, c.dim, 10, 'right');
-
-    // 입력이 든 칸과 삼각형 찾기
-    var di = 0, si = 0;
-    for (var i = 0; i < DIRS.length - 1; i++){ if (input.dir >= DIRS[i]) di = i; }
-    for (var j = 0; j < SPEEDS.length - 1; j++){ if (input.speed >= SPEEDS[j]) si = j; }
-    var d0 = DIRS[di], d1 = DIRS[di + 1], s0 = SPEEDS[si], s1 = SPEEDS[si + 1];
-    var u = (input.dir - d0) / (d1 - d0);
-    var vv = (input.speed - s0) / (s1 - s0);
-    u = Math.max(0, Math.min(1, u)); vv = Math.max(0, Math.min(1, vv));
-
-    // 사각형을 두 삼각형으로 나눈다 (엔진의 삼각분할을 단순화한 것)
-    var tri, wts;
-    if (u + vv <= 1){
-      tri = [[di, si], [di + 1, si], [di, si + 1]];
-      wts = [1 - u - vv, u, vv];
-    } else {
-      tri = [[di + 1, si + 1], [di + 1, si], [di, si + 1]];
-      wts = [u + vv - 1, 1 - vv, 1 - u];
-    }
-
-    // 활성 삼각형
-    ctx.fillStyle = c.accent; ctx.globalAlpha = 0.14;
-    ctx.beginPath();
-    for (var t = 0; t < 3; t++){
-      var px = X(DIRS[tri[t][0]]), py = Y(SPEEDS[tri[t][1]]);
-      if (t === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
-    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5; ctx.stroke();
-
-    // 샘플 점
-    for (var a = 0; a < DIRS.length; a++){
-      for (var b = 0; b < SPEEDS.length; b++){
-        var sx = X(DIRS[a]), sy = Y(SPEEDS[b]);
-        var wi = -1;
-        for (var t2 = 0; t2 < 3; t2++){ if (tri[t2][0] === a && tri[t2][1] === b) wi = t2; }
-        var active = wi >= 0 && wts[wi] > THRESH;
-        ctx.beginPath(); ctx.arc(sx, sy, active ? 7 : 4, 0, Math.PI * 2);
-        ctx.fillStyle = active ? c.accent : c.line; ctx.fill();
-        if (active){
-          Viz.text(ctx, sampleName(a, b) + '  ' + wts[wi].toFixed(2), sx + 11, sy - 10, c.text, 11);
-        }
-      }
-    }
-
-    // 입력 좌표
-    var ix = X(input.dir), iy = Y(input.speed);
-    ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(ix, iy, 6, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(ix - 10, iy); ctx.lineTo(ix + 10, iy);
-    ctx.moveTo(ix, iy - 10); ctx.lineTo(ix, iy + 10); ctx.stroke();
-    Viz.text(ctx, '(' + Math.round(input.dir) + ', ' + Math.round(input.speed) + ')', ix, iy + 22, c.warn, 11, 'center');
-
-    v.__tri = tri; v.__wts = wts;
-  });
-
-  if (!v) return;
-
-  function verdict(){
-    var el = document.getElementById('bsVerdict');
-    if (!el || !v.__tri) return;
-    var parts = [];
-    for (var i = 0; i < 3; i++){
-      if (v.__wts[i] > THRESH) parts.push(sampleName(v.__tri[i][0], v.__tri[i][1]) + ' ' + v.__wts[i].toFixed(2));
-    }
-    var dropped = 3 - parts.length;
-    el.className = 'verdict';
-    el.textContent = '섞이는 샘플: ' + parts.join('  +  ') +
-      (dropped > 0 ? '   (가중치가 0.00001 이하인 샘플 ' + dropped + '개는 아예 재생 목록에서 빠진다)' : '');
-  }
-
-  function pick(e){
-    var r = v.cv.getBoundingClientRect();
-    if (!(r.width > 0)) return;
-    var padL = 44, padR = 16, padT = 26, padB = 34;
-    var gw = v.w - padL - padR, gh = v.h - padT - padB;
-    if (!(gw > 0) || !(gh > 0)) return;
-    var x = (e.clientX - r.left) * (v.w / r.width);
-    var y = (e.clientY - r.top) * (v.h / r.height);
-    input.dir = Math.max(-180, Math.min(180, ((x - padL) / gw) * 360 - 180));
-    input.speed = Math.max(0, Math.min(600, (1 - (y - padT) / gh) * 600));
-    v.render(); verdict();
-  }
-  var dragging = false;
-  v.cv.addEventListener('pointerdown', function(e){ dragging = true; pick(e); e.preventDefault(); });
-  v.cv.addEventListener('pointermove', function(e){ if (dragging) pick(e); });
-  window.addEventListener('pointerup', function(){ dragging = false; });
-  v.cv.style.touchAction = 'none';
-  v.cv.style.cursor = 'crosshair';
-
-  verdict();
-}
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBSFigure);
-else initBSFigure();
-</script>
-
 </body>
 </html>

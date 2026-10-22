@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Locomotion ② 발이 미끄러지는 이유</title>
+<meta name="note-title" content="Locomotion ② 발이 미끄러지는 이유">
+<meta name="note-summary" content="애니메이션이 전제한 이동량과 실제 이동량이 다르면 발이 미끄러진다. 길이가 다른 애니메이션을 맞추는 법까지.">
+<meta name="note-tags" content="Animation, Locomotion, Distance Matching">
+<meta name="note-order" content="22">
+<meta name="note-category" content="애니메이션">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<style>
+/* 이 페이지 전용 */
+.stage canvas{touch-action:none;cursor:crosshair}
+.stage canvas:active{cursor:grabbing}
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0;min-width:520px}
+</style>
+<script src="../assets/viz.js?v=32ab0c43"></script>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Locomotion ② 발이 미끄러지는 이유</h1>
+<p>애니메이션이 전제한 이동량과 실제 이동량이 다르면 발이 미끄러진다. 길이가 다른 애니메이션을 맞추는 법까지.</p>
+</header>
+
+<article>
+
+<p>캐릭터가 앞으로 나아가는 일과 다리가 움직이는 일은 서로 다른 시스템이 맡는다. 이동은 캡슐의 위치를 바꾸고, 애니메이션은 뼈를 돌린다. 그 사이를 잇는 값은 <b>Speed</b> 와 <b>Direction</b> 두 개뿐이고, AnimBP 가 매 프레임 이 둘을 계산해 BlendSpace 의 좌표로 넘긴다.</p>
+
+<h2>1. 발이 미끄러지는 이유</h2>
+
+<p>원인은 하나다. <b>애니메이션이 전제한 이동량과 실제 이동량이 다르다.</b> 달리기 애니메이션은 한 사이클에 특정 거리만큼 나아가는 것을 전제하는데, 캡슐은 그와 다른 속도로 움직인다. 남는 차이만큼 발이 지면을 미끄러진다.</p>
+
+<blockquote>
+<p><b>숫자로 보면.</b> 걷기 애니메이션이 한 사이클에 <b>150cm</b> 나아가도록 만들어졌다고 하자. 이 애니메이션을 그대로 틀면서 캡슐은 <code>MaxWalkSpeed</code> 기본값인 <b>600cm/s</b> 로 움직인다. 발은 150, 몸은 600 — <b>매초 450cm 만큼 지면이 발 밑에서 흘러간다.</b> 이것이 미끄러짐의 정체다.</p>
+<p>재생 속도를 4배로 올리면 거리는 맞는다. 대신 다리가 4배로 빨리 움직여 사람이 아니라 감긴 필름처럼 보인다. <b>거리를 맞추는 것과 자연스러움을 지키는 것이 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
+</blockquote>
+
+
+<h3>그림 읽는 법</h3>
+
+<p>캐릭터는 <b>제자리에서 달리고 지면이 흐른다.</b> 러닝머신을 떠올리면 된다. 그래야 두 속도를 나란히 비교할 수 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>흐르는 빗금 바닥</b></td><td>지면. 흐르는 속도가 <code>MaxWalkSpeed</code> 다. 캐릭터가 세상을 지나가는 속도</td></tr>
+<tr><td><b>초록색으로 바뀐 발</b></td><td>지금 땅을 딛고 있는 발</td></tr>
+<tr><td><b>발 밑의 화살표</b></td><td>딛고 있는 동안 <b>발이 밀리는 양과 방향</b>. 이것이 미끄러짐이다. 길수록 심하다</td></tr>
+<tr><td><b>위쪽 막대 두 개</b></td><td>위는 지면이 흐르는 속도, 아래는 발이 땅을 미는 속도. <b>두 막대 길이가 같아지면 미끄러짐이 사라진다</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sSpeed">MaxWalkSpeed</label>
+    <input type="range" id="sSpeed" min="0" max="600" step="10" value="600">
+    <output id="oSpeed">600 cm/s</output>
+  </div>
+  <p class="hint">캡슐이 1초에 나아가는 거리. <b>어디 있나</b> &mdash; <code>UCharacterMovementComponent</code> &rarr; 캐릭터 BP 의 <b>CharacterMovement</b> 컴포넌트 &rarr; <b>Character Movement: Walking</b>.</p>
+
+  <div class="sl">
+    <label for="sRate">Play Rate</label>
+    <input type="range" id="sRate" min="0.5" max="4" step="0.05" value="1">
+    <output id="oRate">1.00 배</output>
+  </div>
+  <p class="hint">애니메이션 재생 속도. 이 걷기 애니메이션은 1배일 때 1초에 150cm 나아가도록 만들어졌다. <b>어디 있나</b> &mdash; 애님 그래프의 시퀀스 재생 노드 입력 핀.</p>
+
+  <div class="stage"><canvas id="cvSlide" aria-label="제자리에서 달리는 캐릭터와 흐르는 지면. 두 슬라이더 값이 어긋나면 접지한 발 밑에 미끄러짐 화살표가 나타난다."></canvas></div>
+
+  <p class="verdict" id="slideVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <code>MaxWalkSpeed</code> 를 600 에 두고 <code>Play Rate</code> 를 올려 미끄러짐을 0 으로 만들어 봐라. <b>4.00 배</b> 가 필요하다. 그때 다리가 어떻게 보이는지 보라 &mdash; 거리는 맞았지만 사람이 달리는 모습이 아니다. <b>거리를 맞추는 것과 자연스러움은 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
+
+<p>엔진이 주는 해결 축은 세 개다.</p>
+
+<ol>
+<li><b>재생 속도 조절</b> — 애니메이션 재생률을 실제 속도에 맞춰 늘리고 줄인다. 가장 단순하지만 과하게 늘리면 동작이 부자연스러워진다.</li>
+<li><b>Distance Matching</b> — 이동 <b>거리</b>에 맞춰 애니메이션 시간을 전진시킨다. 함수는 <code>UAnimDistanceMatchingLibrary::AdvanceTimeByDistanceMatching</code> 이고, 선언은 <code>Engine/Plugins/Animation/AnimationLocomotionLibrary/Source/Runtime/Public/AnimDistanceMatchingLibrary.h:36</code>, 구현은 같은 플러그인의 <code>.../Private/AnimDistanceMatchingLibrary.cpp:155</code> 다. <b><code>PlayRateClamp</code> 기본값은 (0.75, 1.25)</b> 다. 재생률을 이 범위로 묶는다는 뜻이고, 나머지 오차는 다른 기법이 메꾼다.</li>
+<li><b>Stride Warping</b> — 보폭 자체를 늘리고 줄인다. 구조체는 <code>FAnimNode_StrideWarping</code> 이고, <code>Engine/Plugins/Animation/AnimationWarping/Source/Runtime/Public/BoneControllers/AnimNode_StrideWarping.h:36</code> 에 선언돼 있다. 플러그인 설명은 이 기능이 "Stride, Orientation, Slope Warping 을 포함한다"고 적고 있다.</li>
+</ol>
+
+<p><b>"foot sliding" 이라는 이름의 노드나 함수는 엔진에 없다.</b> 증상의 이름일 뿐이다. 그래서 이름으로 검색해도 안 나오고, 엔진이 주는 것은 위 2·3 같은 도구다.</p>
+
+<h3>언제 무엇을 쓰나</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>상황</th><th>쓸 것</th></tr></thead>
+<tbody>
+<tr><td>속도가 걷기·달리기처럼 <b>몇 단계로 고정</b>된다</td><td>속도별 샘플을 BlendSpace 에 두는 것으로 충분하다. 추가 기법이 필요 없다</td></tr>
+<tr><td>속도가 <b>연속적으로</b> 변한다 (가속·감속이 잦다)</td><td><b>Stride Warping</b> — 보폭 자체를 속도에 맞춰 늘리고 줄인다. 속도마다 샘플을 만들지 않아도 된다</td></tr>
+<tr><td><b>출발·정지·착지</b> 순간에 발이 뜨거나 미끄러진다</td><td><b>Distance Matching</b> — 시간이 아니라 <b>이동한 거리</b>로 애니메이션을 전진시킨다</td></tr>
+<tr><td>둘 다 필요하다</td><td>공식 문서의 Lyra 설명처럼, 출발 구간은 Distance Matching 으로 시작해 달리기 상태에 가까워지면 Stride Warping 을 섞는 방식이 있다</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>2. 길이가 다른 애니메이션을 맞추기 (동기화 그룹)</h2>
+
+<p>걷기와 달리기는 한 사이클의 길이가 다르다. 그냥 섞으면 발이 어긋난다. 동기화 그룹은 애니메이션마다 <b>리더</b>와 <b>팔로워</b> 역할을 정해 이 문제를 푼다.</p>
+
+<h3>그림 읽는 법</h3>
+
+<p>위의 막대 두 개가 <b>걷기와 달리기 애니메이션의 재생 위치</b>다. 걷기는 한 바퀴가 1.2초, 달리기는 0.6초로 <b>길이가 다르다.</b> 막대 위의 점은 그 애니메이션에서 <b>발이 땅에 닿는 순간</b>이고, 세로선이 지금 재생 위치다. 맨 아래 캐릭터가 <b>둘을 섞은 결과</b>, 즉 실제로 화면에 나오는 모습이다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sBlend">블렌드 가중치</label>
+    <input type="range" id="sBlend" min="0" max="1" step="0.05" value="0.5">
+    <output id="oBlend">걷기 50% / 달리기 50%</output>
+  </div>
+  <p class="hint">BlendSpace 가 속도에 따라 자동으로 정하는 값이다. 여기서는 직접 끌어 본다.</p>
+
+  <div class="ctl" id="syncTabs">
+    <button type="button" data-sync="0" aria-pressed="false">동기화 끔</button>
+    <button type="button" data-sync="1" aria-pressed="true">동기화 켬</button>
+  </div>
+
+  <div class="stage"><canvas id="cvSync" aria-label="걷기와 달리기의 재생 위치를 나타내는 막대 두 개와, 둘을 섞은 결과 캐릭터. 동기화를 끄면 두 애니메이션의 발 접지 시점이 어긋나 섞인 캐릭터의 다리가 제대로 움직이지 않는다."></canvas></div>
+
+  <p class="verdict" id="syncVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>동기화 끔</b> 으로 두고 아래 캐릭터의 다리를 한참 보라. 두 애니메이션의 접지 시점이 계속 어긋나기 때문에 <b>다리가 제대로 뻗지 못하고 어정쩡하게 떨린다.</b> 걸음처럼 보이지 않는다. <b>동기화 켬</b> 으로 바꾸면 두 막대의 점이 세로로 줄을 맞추고, 다리도 제대로 걷는다.</p>
+
+<p>동기화 그룹이 하는 일이 이것이다. <b>길이가 다른 애니메이션들의 재생 위치를 서로 맞춰 준다.</b> 누구에게 맞출지를 정하는 것이 리더와 팔로워 역할이고, 가중치를 끝으로 밀어 보면 <b>리더가 바뀌는 것</b>도 볼 수 있다 &mdash; <code>CanBeLeader</code> 는 블렌드 가중치가 가장 높은 쪽이 리더가 되는 역할이다.</p>
+
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>줄</th><th>뜻</th></tr></thead>
+<tbody>
+<tr><td><code>CanBeLeader</code></td><td>567</td><td>블렌드 가중치가 이전 최고 리더보다 높으면 리더가 될 수 있다</td></tr>
+<tr><td><code>AlwaysFollower</code></td><td>570</td><td>항상 팔로워다. 전부 팔로워면 먼저 tick 된 쪽이 리더가 된다</td></tr>
+<tr><td><code>AlwaysLeader</code></td><td>573</td><td>항상 리더다. 여러 개면 마지막에 tick 된 쪽이 이긴다</td></tr>
+<tr><td><code>TransitionLeader</code></td><td>576</td><td>블렌드 인 동안은 그룹에서 빠지고, 블렌드가 끝나면 블렌드 아웃까지 리더다</td></tr>
+<tr><td><code>TransitionFollower</code></td><td>579</td><td>블렌드 인 동안 빠지고, 끝나면 팔로워다</td></tr>
+<tr><td><code>ExclusiveAlwaysLeader</code></td><td>582</td><td>항상 리더다. 리더로 tick 하지 못하면 동기화 없이 단독 재생한다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">파일 — <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimationAsset.h</code>, enum <code>EAnimGroupRole</code> 은 562줄에서 시작한다.</p>
+
+<p>역할만 정한다고 위치가 저절로 맞는 것은 아니다. 리더와 팔로워 모두 <code>FMarkerTickRecord</code> 의 이전/다음 마커 쌍을 기준으로 자기 위치를 맞춘다. 마커 인덱스를 찾는 함수가 <code>UAnimSequenceBase::GetMarkerIndicesForPosition</code> 이고(선언 <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimSequenceBase.h:205</code>), 팔로워는 <code>AnimSequenceBase.cpp:602</code>, 리더는 <code>:621</code> 에서 이 함수를 호출한다.</p>
+
+
+<h2>3. 더 읽을 것 (공식 문서)</h2>
+<ul>
+<li><a href="https://dev.epicgames.com/documentation/ko-kr/unreal-engine/pose-warping-in-unreal-engine" target="_blank" rel="noopener">Pose Warping</a> &mdash; Stride·Orientation·Slope Warping 설정</li>
+<li><a href="https://dev.epicgames.com/documentation/ko-kr/unreal-engine/animation-in-lyra-sample-game-in-unreal-engine" target="_blank" rel="noopener">Animation in Lyra Sample Game</a> &mdash; 출발·정지·착지에 Distance Matching 을 쓴 공식 예</li>
+<li><a href="https://dev.epicgames.com/documentation/ko-kr/unreal-engine/game-animation-sample-project-in-unreal-engine" target="_blank" rel="noopener">Game Animation Sample Project</a> &mdash; 모션 매칭 기반 공식 샘플</li>
+</ul>
+
+<h2>4. 소스 위치</h2>
+<p>이 시리즈에서 인용한 엔진 소스의 파일과 줄 번호는 <a href="locomotion-speed-to-animation.html">① 속도가 애니메이션이 되는 길</a> 에 모아 두었다.</p>
+
+<div class="nextprev">
+<a href="locomotion-speed-to-animation.html">&larr; ① 속도가 애니메이션이 되는 길</a>
+<a href="locomotion-root-motion.html">③ 루트 모션과 BlendSpace &rarr;</a>
+</div>
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 이동 값이 애니메이션으로 넘어가는 경로만 다뤘다. 스테이트 머신의 전이 규칙, 노티파이, IK 는 다루지 않았다.</p>
+</footer>
+
+</div>
+
+<script>
+/* 발 미끄러짐 — MaxWalkSpeed(지면이 흐르는 속도)와 Play Rate(발이 땅을 미는 속도)의 차이를 보여준다. */
+function initSlideFigure(){
+  if (!window.Viz) return;
+  var ANIM_BASE = 150;                 // 이 애니메이션이 1배속에서 내는 속도 (cm/s)
+  var P = { speed: 600, rate: 1 };
+
+  var v = Viz.view('cvSlide', function(w){ return w < 520 ? 250 : 215; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var footSpeed = ANIM_BASE * P.rate;
+    var slip = P.speed - footSpeed;
+    var PX = 0.38;
+    var groundY = h - 54;
+    var cx = w * 0.38;
+
+    Viz.ground(ctx, 8, w - 8, groundY, v.t * P.speed * PX, c);
+
+    var phase = v.t * P.rate * 1.15;
+    var contact = Viz.runner(ctx, cx, groundY, phase, 38, c);
+
+    // 접지한 발 밑에 미끄러짐 화살표
+    if (contact !== null && Math.abs(slip) > 1){
+      var len = Math.max(10, Math.min(130, Math.abs(slip) * PX * 0.75));
+      var dir = slip > 0 ? -1 : 1;
+      var ay = groundY + 26;
+      Viz.arrow(ctx, contact, ay, contact + dir * len, ay, c.warn, 2);
+    }
+
+    // 두 속도 막대
+    var bx = 10, bw = w - 20, bh = 9;
+    ctx.fillStyle = c.sf2; ctx.fillRect(bx, 16, bw, bh);
+    ctx.fillStyle = c.dim; ctx.fillRect(bx, 16, bw * (P.speed / 600), bh);
+    Viz.text(ctx, '지면이 흐르는 속도  ' + Math.round(P.speed), bx, 8, c.dim, 11);
+
+    ctx.fillStyle = c.sf2; ctx.fillRect(bx, 46, bw, bh);
+    ctx.fillStyle = c.accent; ctx.fillRect(bx, 46, bw * Math.min(1, footSpeed / 600), bh);
+    Viz.text(ctx, '발이 땅을 미는 속도  ' + Math.round(footSpeed), bx, 38, c.accent, 11);
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var footSpeed = ANIM_BASE * P.rate;
+    var slip = Math.round(P.speed - footSpeed);
+    var need = ANIM_BASE > 0 ? P.speed / ANIM_BASE : 0;
+    var el = document.getElementById('slideVerdict');
+    if (!el) return;
+    if (Math.abs(slip) <= 5){
+      el.className = 'verdict ok';
+      el.textContent = '미끄러짐 거의 0 — 발이 지면을 따라간다. ' +
+        '지금 재생 속도는 ' + P.rate.toFixed(2) + '배이고, ' +
+        '이 값이 0.75~1.25 를 벗어나면 다리 움직임이 어색해진다.';
+    } else if (slip > 0){
+      el.className = 'verdict bad';
+      el.textContent = '발이 매초 ' + slip + 'cm 뒤로 끌린다. 0 으로 만들려면 Play Rate 가 ' +
+        need.toFixed(2) + '배 필요하다.';
+    } else {
+      el.className = 'verdict bad';
+      el.textContent = '발이 매초 ' + (-slip) + 'cm 앞서 나간다. 다리가 몸보다 빨라 땅을 긁는 모양이 된다.';
+    }
+  }
+
+  var a = document.getElementById('sSpeed');
+  if (a) a.addEventListener('input', function(e){
+    P.speed = Number(e.target.value) || 0;
+    document.getElementById('oSpeed').textContent = P.speed + ' cm/s';
+    verdict(); v.render();
+  });
+  var b = document.getElementById('sRate');
+  if (b) b.addEventListener('input', function(e){
+    P.rate = Number(e.target.value) || 0.5;
+    document.getElementById('oRate').textContent = P.rate.toFixed(2) + ' 배';
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSlideFigure);
+else initSlideFigure();
+</script>
+<script>
+/* 동기화 그룹 — 길이가 다른 두 애니메이션을 섞을 때 재생 위치를 맞춰 주는 일. */
+function initSyncFigure(){
+  if (!window.Viz) return;
+  var WALK = 1.2, RUN = 0.6;          // 한 사이클 길이 (초)
+  var P = { blend: 0.5, sync: true };
+
+  // 한 다리의 발 위치 (phase 0~1). 걷기와 달리기는 보폭과 들어올림이 다르다.
+  function foot(phase, stride, lift){
+    var t = (phase - Math.floor(phase)) * Math.PI * 2;
+    return { x: Math.sin(t) * stride / 2, y: -Math.max(0, Math.cos(t)) * lift };
+  }
+
+  var v = Viz.view('cvSync', function(w){ return w < 520 ? 300 : 265; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var pad = 12, barW = w - pad * 2;
+    if (!(barW > 0)) return;
+
+    // 두 애니메이션의 현재 위상
+    var pw, pr;
+    if (P.sync){
+      // 가중치가 높은 쪽이 리더. 팔로워는 리더의 진행률을 그대로 쓴다.
+      var leaderIsRun = P.blend >= 0.5;
+      var lead = leaderIsRun ? (v.t / RUN) : (v.t / WALK);
+      pw = pr = lead;
+    } else {
+      pw = v.t / WALK; pr = v.t / RUN;     // 각자 자기 속도로 흐른다
+    }
+
+    function bar(y, label, phase, color, cycle){
+      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, pad, y, barW, 14, 7); ctx.fill();
+      // 발 접지 지점 두 곳 (0.0 과 0.5)
+      for (var i = 0; i < 2; i++){
+        var mx = pad + barW * (i * 0.5);
+        ctx.fillStyle = c.line;
+        ctx.beginPath(); ctx.arc(mx + 4, y + 7, 4, 0, Math.PI * 2); ctx.fill();
+      }
+      // 현재 재생 위치
+      var f = phase - Math.floor(phase);
+      var x = pad + barW * f;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 18); ctx.stroke();
+      Viz.text(ctx, label + '  ' + cycle.toFixed(1) + '초', pad, y - 12, color, 11);
+    }
+
+    bar(28, '걷기', pw, c.accent, WALK);
+    bar(78, '달리기', pr, c.warn, RUN);
+
+    // 섞인 결과 캐릭터
+    var groundY = h - 30;
+    var cx = w * 0.5;
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, groundY); ctx.lineTo(w - pad, groundY); ctx.stroke();
+
+    var hip = groundY - 46;
+    ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(cx, hip - 24); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, hip - 32, 7, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+
+    var reach = 0;
+    for (var k = 0; k < 2; k++){
+      var off = k * 0.5;
+      var fw = foot(pw + off, 34, 12);
+      var fr = foot(pr + off, 76, 22);
+      // 두 포즈를 가중치로 섞는다 = 엔진이 하는 일
+      var fx = cx + fw.x * (1 - P.blend) + fr.x * P.blend;
+      var fy = groundY + fw.y * (1 - P.blend) + fr.y * P.blend;
+      reach = Math.max(reach, Math.abs(fx - cx));
+      ctx.strokeStyle = c.text;
+      ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(fx, fy); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = c.accent; ctx.fill();
+    }
+    Viz.text(ctx, '섞인 결과', pad, groundY - 66, c.dim, 11);
+    Viz.text(ctx, '발 벌림 ' + Math.round(reach * 2), w - pad, groundY - 66, reach * 2 < 30 ? c.warn : c.dim, 11, 'right');
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var el = document.getElementById('syncVerdict');
+    if (!el) return;
+    var leaderIsRun = P.blend >= 0.5;
+    if (P.sync){
+      el.className = 'verdict ok';
+      el.textContent = '두 막대의 재생 위치가 같이 움직인다. ' +
+        '지금 리더는 <' + (leaderIsRun ? '달리기' : '걷기') + '> 다 — ' +
+        '가중치가 더 높은 쪽이 리더가 된다. 가중치를 반대로 밀면 리더도 바뀐다.';
+    } else {
+      el.className = 'verdict bad';
+      el.textContent = '두 애니메이션이 각자 흐른다. 접지 시점이 계속 어긋나므로 ' +
+        '섞은 결과의 발 벌림이 줄어들고, 걸음이 아니라 제자리에서 떨리는 모양이 된다.';
+    }
+  }
+
+  var sb = document.getElementById('sBlend');
+  if (sb) sb.addEventListener('input', function(e){
+    P.blend = Number(e.target.value);
+    var wp = Math.round((1 - P.blend) * 100);
+    document.getElementById('oBlend').textContent = '걷기 ' + wp + '% / 달리기 ' + (100 - wp) + '%';
+    verdict(); v.render();
+  });
+  var tabs = document.getElementById('syncTabs');
+  if (tabs) tabs.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    P.sync = b.getAttribute('data-sync') === '1';
+    var bs = tabs.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++){
+      bs[i].setAttribute('aria-pressed', (bs[i].getAttribute('data-sync') === '1') === P.sync ? 'true' : 'false');
+    }
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSyncFigure);
+else initSyncFigure();
+</script>
+</body>
+</html>

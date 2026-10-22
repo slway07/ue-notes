@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AnimBP 레이어 ③ 흔한 실수와 런타임 교체</title>
+<meta name="note-title" content="AnimBP 레이어 ③ 흔한 실수와 런타임 교체">
+<meta name="note-summary" content="되돌리지 않는 경우, 인터페이스 없이 쓰는 경우, 조용히 느는 비용. 그리고 런타임 교체 함수.">
+<meta name="note-tags" content="Animation, AnimBP, Linked Anim Layer">
+<meta name="note-order" content="34">
+<meta name="note-category" content="애니메이션">
+<meta name="theme-color" content="#2f6f4f">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<style>
+/* 이 페이지 전용 */
+.note{font-size:.85rem;color:var(--text-dim);margin:8px 0 18px;line-height:1.6}
+.src{font-size:.8rem;color:var(--text-dim)}
+.src code{font-size:.95em}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0;min-width:560px}
+.figbox{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.figbox-accent{fill:var(--surface);stroke:var(--accent);stroke-width:2}
+.figlabel{fill:var(--text);font-size:16px;font-weight:600}
+.figsub{fill:var(--text-dim);font-size:13px}
+.figline{stroke:var(--text-dim);stroke-width:1.5;fill:none}
+.figarrow{fill:var(--text-dim)}
+.figcap{fill:var(--text-dim);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>AnimBP 레이어 ③ 흔한 실수와 런타임 교체</h1>
+<p>되돌리지 않는 경우, 인터페이스 없이 쓰는 경우, 조용히 느는 비용. 그리고 런타임 교체 함수.</p>
+</header>
+
+<article>
+
+<p>캐릭터 하나에 ABP 하나를 두는 구성은 상반신과 하반신의 요구가 다를 때 금방 커진다. 링크드 레이어(Linked Anim Layer)는 이 문제를 <b>그래프를 나누는 방식</b>이 아니라 <b>인스턴스를 갈아끼우는 방식</b>으로 푼다. 이 페이지는 두 노드의 관계, 부모 포즈가 들어오는 길, 레이어의 실체, 스레드 규칙 순서로 정리한다.</p>
+
+<h2>1. 이렇게 하면 어긋난다</h2>
+
+<h3>레이어를 끼우기만 하고 되돌리지 않는다</h3>
+
+<p>무기를 바꿀 때마다 새 클래스를 링크하면 <b>덮어쓰기</b> 라 보통은 문제가 없다. 다만 "무기를 내려놓고 맨손으로 돌아가는" 경우처럼 <b>기본 상태로 되돌려야 할 때</b> 링크만 반복하면 마지막 무기의 상반신이 남는다. 이때 쓰는 것이 <code>UnlinkAnimClassLayers</code> 이고, 이 함수는 해당 클래스가 돌리던 레이어 노드들을 <b>기본값으로 되돌린다.</b></p>
+
+<h3>인터페이스 없이 Linked Anim Graph 만 쓴다</h3>
+
+<p><code>Linked Anim Graph</code> 는 노드 하나에 ABP 하나를 통째로 꽂는 방식이다. 바꿔 끼울 수는 있지만 <b>"그래프의 어느 부분을 교체한다"는 약속이 없다.</b> <code>Linked Anim Layer</code> 는 인터페이스가 정한 <b>레이어 단위</b>로 갈아끼운다. 그래서 여러 레이어를 각각 다른 ABP 로 채우는 구성이 가능하다. 두 노드의 코드상 차이는 <a href="animbp-layers-inside.html">② 안에서 무슨 일이 일어나나</a> 에 있다.</p>
+
+<h3>레이어를 늘리면 조용히 비용이 는다</h3>
+
+<p>레이어 하나는 런타임 객체 하나다(<a href="animbp-layers-inside.html">②편</a>). 그래프에 노드를 하나 더 놓는 느낌이지만 실제로는 <code>UAnimInstance</code> 와 그 프록시가 하나씩 늘어난다. <b>그룹으로 묶으면 그룹당 하나</b>로 줄어드니, 함께 갈리는 레이어들은 같은 그룹에 두는 편이 낫다.</p>
+
+<p>다만 레이어를 몇 개 끼우든 <b>그 캐릭터의 애니메이션 작업 자체는 여전히 워커 하나에서 돈다</b>(<a href="animbp-layers-inside.html">②편</a>). 레이어를 늘린다고 계산이 여러 코어로 갈리지는 않는다.</p>
+
+<h2>2. 런타임에 갈아끼우기</h2>
+
+<p>런타임 교체는 <code>UAnimInstance</code> 의 함수로 한다. 선언은 <code>AnimInstance.h</code>, 구현은 <code>AnimInstance.cpp</code> 다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>시그니처</th><th>선언 줄</th><th>구현 줄</th></tr></thead>
+<tbody>
+<tr><td><code>UAnimInstance* GetLinkedAnimGraphInstanceByTag(FName InTag) const</code></td><td>850</td><td>3771</td></tr>
+<tr><td><code>void LinkAnimGraphByTag(FName InTag, TSubclassOf&lt;UAnimInstance&gt; InClass)</code></td><td>865</td><td>3796</td></tr>
+<tr><td><code>virtual void LinkAnimClassLayers(TSubclassOf&lt;UAnimInstance&gt; InClass)</code></td><td>877</td><td>4142</td></tr>
+<tr><td><code>virtual void UnlinkAnimClassLayers(TSubclassOf&lt;UAnimInstance&gt; InClass)</code></td><td>888</td><td>4164</td></tr>
+<tr><td><code>UAnimInstance* GetLinkedAnimLayerInstanceByGroup(FName InGroup) const</code></td><td>895</td><td>4313</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>태그 계열은 그래프 인스턴스를 찾거나 링크하고, 클래스 계열은 레이어를 링크·언링크하며, 그룹 계열은 레이어 인스턴스를 찾는다. <code>LinkAnimClassLayers</code> 와 <code>UnlinkAnimClassLayers</code> 는 내부적으로 <code>PerformLinkedLayerOverlayOperation</code> 에 클래스 선택 람다를 넘겨 실제 링크를 수행한다.</p>
+
+
+<h2>3. 소스 위치</h2>
+<p>이 시리즈에서 인용한 엔진 소스의 파일과 줄 번호는 <a href="animbp-layers-inside.html">② 안에서 무슨 일이 일어나나</a> 에 모아 두었다.</p>
+
+<div class="nextprev">
+<a href="animbp-layers-inside.html">&larr; ② 안에서 무슨 일이 일어나나</a>
+</div>
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 레이어를 쓸지 판단하는 기준, 네 단계 설정, 링크드 애님 그래프·레이어 노드, 부모 포즈 전달, 인스턴스 생성, 본 단위 블렌딩, 스레드 규칙, 흔한 실수, 런타임 교체 함수를 다뤘다. 설정 순서와 공식 문서 링크는 <a href="animbp-linked-layers.html">① 왜 나누고 어떻게 쓰나</a> 에 있다.</p>
+</footer>
+
+</div>
+
+<script src="../assets/viz.js?v=32ab0c43"></script>
+
+</body>
+</html>

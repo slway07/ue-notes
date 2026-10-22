@@ -15,7 +15,7 @@
 <p>언리얼 엔진 학습 노트 &middot; 눈으로 보는 쪽에 가깝게</p>
 </header>
 <main>
-<details class="cat" data-cat="충돌과 물리" open>
+<details class="cat" data-cat="충돌과 물리">
 <summary><span class="chev"></span>충돌과 물리<span class="n">1</span></summary>
 <ul class="toc">
 <li><a href="pages/collision-simple-vs-complex.html?v=c1b9c63b">
@@ -25,7 +25,7 @@
 </a></li>
 </ul>
 </details>
-<details class="cat" data-cat="AI와 길찾기" open>
+<details class="cat" data-cat="AI와 길찾기">
 <summary><span class="chev"></span>AI와 길찾기<span class="n">2</span></summary>
 <ul class="toc">
 <li><a href="pages/navmesh-how-it-is-built.html?v=7826dee1">
@@ -40,29 +40,49 @@
 </a></li>
 </ul>
 </details>
-<details class="cat" data-cat="애니메이션" open>
-<summary><span class="chev"></span>애니메이션<span class="n">3</span></summary>
+<details class="cat" data-cat="애니메이션">
+<summary><span class="chev"></span>애니메이션<span class="n">7</span></summary>
 <ul class="toc">
 <li><a href="pages/animbp-one-frame.html?v=24fe218a">
 <span class="t">AnimBP는 한 프레임에 무엇을 하나</span>
 <span class="s">Update는 게임 스레드와 워커 스레드로 갈린다. 어느 쪽에서 도는지를 알면 스레드 세이프 규칙이 암기가 아니게 된다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">멀티스레드</span></span>
 </a></li>
-<li><a href="pages/locomotion-speed-to-animation.html?v=f6f75804">
-<span class="t">Locomotion — 속도가 어떻게 애니메이션이 되나</span>
-<span class="s">캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed와 Direction 둘뿐이다.</span>
+<li><a href="pages/locomotion-speed-to-animation.html?v=9db57e31">
+<span class="t">Locomotion ① 속도가 애니메이션이 되는 길</span>
+<span class="s">캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed 와 Direction 둘뿐이다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">Locomotion</span><span class="tag">CharacterMovement</span></span>
 </a></li>
-<li><a href="pages/animbp-linked-layers.html?v=abeab872">
-<span class="t">AnimBP 레이어 — 한 캐릭터에 여러 ABP 끼우기</span>
-<span class="s">레이어는 그래프 조각이 아니라 별도의 AnimInstance 객체다. 그 사실 하나가 비용과 스레드 규칙을 전부 설명한다.</span>
+<li><a href="pages/locomotion-foot-sliding.html?v=eaed3e17">
+<span class="t">Locomotion ② 발이 미끄러지는 이유</span>
+<span class="s">애니메이션이 전제한 이동량과 실제 이동량이 다르면 발이 미끄러진다. 길이가 다른 애니메이션을 맞추는 법까지.</span>
+<span class="tags"><span class="tag">Animation</span><span class="tag">Locomotion</span><span class="tag">Distance Matching</span></span>
+</a></li>
+<li><a href="pages/locomotion-root-motion.html?v=6bba27c3">
+<span class="t">Locomotion ③ 루트 모션과 BlendSpace</span>
+<span class="s">캐릭터의 위치를 코드가 정하는가 애니메이션이 정하는가. 그리고 BlendSpace 가 샘플을 고르는 방식.</span>
+<span class="tags"><span class="tag">Animation</span><span class="tag">Root Motion</span><span class="tag">BlendSpace</span></span>
+</a></li>
+<li><a href="pages/animbp-linked-layers.html?v=d6e3db99">
+<span class="t">AnimBP 레이어 ① 왜 나누고 어떻게 쓰나</span>
+<span class="s">상반신만 떼어내 런타임에 갈아끼우는 장치. 쓸 경우와 쓰지 않을 경우, 그리고 설정 네 단계.</span>
+<span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">Linked Anim Layer</span></span>
+</a></li>
+<li><a href="pages/animbp-layers-inside.html?v=8fe6a93c">
+<span class="t">AnimBP 레이어 ② 안에서 무슨 일이 일어나나</span>
+<span class="s">레이어는 그래프 조각이 아니라 별도의 AnimInstance 객체다. 그 사실 하나가 비용과 스레드 규칙을 설명한다.</span>
+<span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">AnimInstance</span></span>
+</a></li>
+<li><a href="pages/animbp-layers-pitfalls.html?v=9ad5780b">
+<span class="t">AnimBP 레이어 ③ 흔한 실수와 런타임 교체</span>
+<span class="s">되돌리지 않는 경우, 인터페이스 없이 쓰는 경우, 조용히 느는 비용. 그리고 런타임 교체 함수.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">Linked Anim Layer</span></span>
 </a></li>
 </ul>
 </details>
 </main>
 <footer class="site-foot">
-<p>마지막 갱신 2026-10-22 &middot; 페이지 6개</p>
+<p>마지막 갱신 2026-10-22 &middot; 페이지 10개</p>
 </footer>
 </div>
 <script>
