@@ -23,7 +23,7 @@
 .tablewrap{overflow-x:auto;margin:0 0 16px}
 .tablewrap table{margin:0;min-width:520px}
 </style>
-<script src="../assets/viz.js" defer></script>
+<script src="../assets/viz.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -750,7 +750,7 @@ if (Owner)
 
 <script>
 /* 캐릭터가 도는 두 방식 — 같은 입력을 두 모드에 동시에 넣어 비교한다. */
-(function(){
+function initRotFigure(){
   if (!window.Viz) return;
   var rate = 360;                      // RotationRate (deg/s)
   var bodyA = 0, bodyB = 0;            // 각 모드의 현재 몸 방향 (deg, 0 = 위)
@@ -837,7 +837,9 @@ if (Owner)
     var out = document.getElementById('oRot');
     if (out) out.textContent = rate + ' °/s';
   });
-})();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRotFigure);
+else initRotFigure();
 </script>
 
 </body>
