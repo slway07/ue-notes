@@ -154,7 +154,7 @@ if (Owner)
   <p class="verdict" id="accelVerdict"></p>
 </div>
 
-<p class="try"><b>해 볼 것.</b> 세 값을 기본값(2048 / 2048 / 8)에 두고 올라가는 선과 내려가는 선을 비교해 봐라. <b>가속과 감속 숫자가 같은데도 내려오는 쪽이 훨씬 가파르다.</b> 이제 <code>GroundFriction</code> 만 0 으로 내려 보면 두 선의 기울기가 같아진다. 왜 그런지는 아래에 있다.</p>
+<p class="try"><b>해 볼 것.</b> 세 값을 기본값(2048 / 2048 / 8)에 두고 올라가는 선과 내려가는 선을 비교해 봐라. <b>가속과 감속 숫자가 같은데도 내려오는 쪽이 훨씬 가파르다.</b> 기본값에서 재 보면 <b>0 → 600 가속에 0.28초, 600 → 0 정지에 0.08초</b> — 같은 숫자를 넣었는데 <b>멈추는 쪽이 3.4배 빠르다.</b> 이제 <code>GroundFriction</code> 만 0 으로 내려 보면 두 선의 기울기가 같아진다. 왜 그런지는 아래에 있다.</p>
 
 <h3>왜 멈출 때가 더 빠른가</h3>
 
@@ -1027,7 +1027,6 @@ function initAccelFigure(){
       sim.tBrake = v.t - sim.mark;
     }
 
-    window.__accelDbg = { t: v.t, cycle: cycle, nowOn: nowOn, v: sim.v, from: sim.from, mark: sim.mark, tA: sim.tAccel, tB: sim.tBrake, P: P };
     sim.hist.push({ t: cycle, v: sim.v, on: nowOn });
     if (cycle < 0.02) sim.hist = [{ t: cycle, v: sim.v, on: nowOn }];
     if (sim.hist.length > 400) sim.hist.shift();     // 길이 상한
