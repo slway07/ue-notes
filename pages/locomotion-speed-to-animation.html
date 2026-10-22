@@ -765,7 +765,7 @@ function initRotFigure(){
   var v = Viz.view('cvRot', function(w){ return w < 560 ? 420 : 250; }, function(v){
     var c = v.c, ctx = v.ctx;
     var narrow = v.w < 560;
-    var inputDeg = Viz.wrap180(v.t * 55);        // 입력 방향이 천천히 한 바퀴 돈다
+    var inputDeg = 150 * Math.sin(v.t * 0.55);   // 입력 방향이 좌우로 꺾인다 (실제 조작에 가깝게)
 
     var cells = narrow
       ? [{x:0, y:0, w:v.w, h:v.h/2}, {x:0, y:v.h/2, w:v.w, h:v.h/2}]
@@ -815,7 +815,7 @@ function initRotFigure(){
 
   Viz.animate(v, function(v){
     var step = rate / 60;
-    var inputDeg = Viz.wrap180(v.t * 55);
+    var inputDeg = 150 * Math.sin(v.t * 0.55);
     bodyA = approach(bodyA, inputDeg, step);     // 가는 쪽을 본다
     bodyB = approach(bodyB, AIM, step);          // 컨트롤러가 원하는 쪽을 본다
     var dirA = Math.abs(Viz.wrap180(inputDeg - bodyA));
