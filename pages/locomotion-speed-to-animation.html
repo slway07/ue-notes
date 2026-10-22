@@ -259,6 +259,45 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 <p>재생 속도를 4배로 올리면 거리는 맞는다. 대신 다리가 4배로 빨리 움직여 사람이 아니라 감긴 필름처럼 보인다. <b>거리를 맞추는 것과 자연스러움을 지키는 것이 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
 </blockquote>
 
+
+<h3>그림 읽는 법</h3>
+
+<p>캐릭터는 <b>제자리에서 달리고 지면이 흐른다.</b> 러닝머신을 떠올리면 된다. 그래야 두 속도를 나란히 비교할 수 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>흐르는 빗금 바닥</b></td><td>지면. 흐르는 속도가 <code>MaxWalkSpeed</code> 다. 캐릭터가 세상을 지나가는 속도</td></tr>
+<tr><td><b>초록색으로 바뀐 발</b></td><td>지금 땅을 딛고 있는 발</td></tr>
+<tr><td><b>발 밑의 화살표</b></td><td>딛고 있는 동안 <b>발이 밀리는 양과 방향</b>. 이것이 미끄러짐이다. 길수록 심하다</td></tr>
+<tr><td><b>위쪽 막대 두 개</b></td><td>위는 지면이 흐르는 속도, 아래는 발이 땅을 미는 속도. <b>두 막대 길이가 같아지면 미끄러짐이 사라진다</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sSpeed">MaxWalkSpeed</label>
+    <input type="range" id="sSpeed" min="0" max="600" step="10" value="600">
+    <output id="oSpeed">600 cm/s</output>
+  </div>
+  <p class="hint">캡슐이 1초에 나아가는 거리. <b>어디 있나</b> &mdash; <code>UCharacterMovementComponent</code> &rarr; 캐릭터 BP 의 <b>CharacterMovement</b> 컴포넌트 &rarr; <b>Character Movement: Walking</b>.</p>
+
+  <div class="sl">
+    <label for="sRate">Play Rate</label>
+    <input type="range" id="sRate" min="0.5" max="4" step="0.05" value="1">
+    <output id="oRate">1.00 배</output>
+  </div>
+  <p class="hint">애니메이션 재생 속도. 이 걷기 애니메이션은 1배일 때 1초에 150cm 나아가도록 만들어졌다. <b>어디 있나</b> &mdash; 애님 그래프의 시퀀스 재생 노드 입력 핀.</p>
+
+  <div class="stage"><canvas id="cvSlide" aria-label="제자리에서 달리는 캐릭터와 흐르는 지면. 두 슬라이더 값이 어긋나면 접지한 발 밑에 미끄러짐 화살표가 나타난다."></canvas></div>
+
+  <p class="verdict" id="slideVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <code>MaxWalkSpeed</code> 를 600 에 두고 <code>Play Rate</code> 를 올려 미끄러짐을 0 으로 만들어 봐라. <b>4.00 배</b> 가 필요하다. 그때 다리가 어떻게 보이는지 보라 &mdash; 거리는 맞았지만 사람이 달리는 모습이 아니다. <b>거리를 맞추는 것과 자연스러움은 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
+
 <p>엔진이 주는 해결 축은 세 개다.</p>
 
 <ol>
@@ -1061,6 +1100,88 @@ function initAccelFigure(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAccelFigure);
 else initAccelFigure();
+</script>
+
+
+<script>
+/* 발 미끄러짐 — MaxWalkSpeed(지면이 흐르는 속도)와 Play Rate(발이 땅을 미는 속도)의 차이를 보여준다. */
+function initSlideFigure(){
+  if (!window.Viz) return;
+  var ANIM_BASE = 150;                 // 이 애니메이션이 1배속에서 내는 속도 (cm/s)
+  var P = { speed: 600, rate: 1 };
+
+  var v = Viz.view('cvSlide', function(w){ return w < 520 ? 250 : 215; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var footSpeed = ANIM_BASE * P.rate;
+    var slip = P.speed - footSpeed;
+    var PX = 0.38;
+    var groundY = h - 54;
+    var cx = w * 0.38;
+
+    Viz.ground(ctx, 8, w - 8, groundY, v.t * P.speed * PX, c);
+
+    var phase = v.t * P.rate * 1.15;
+    var contact = Viz.runner(ctx, cx, groundY, phase, 38, c);
+
+    // 접지한 발 밑에 미끄러짐 화살표
+    if (contact !== null && Math.abs(slip) > 1){
+      var len = Math.max(10, Math.min(130, Math.abs(slip) * PX * 0.75));
+      var dir = slip > 0 ? -1 : 1;
+      var ay = groundY + 26;
+      Viz.arrow(ctx, contact, ay, contact + dir * len, ay, c.warn, 2);
+    }
+
+    // 두 속도 막대
+    var bx = 10, bw = w - 20, bh = 9;
+    ctx.fillStyle = c.sf2; ctx.fillRect(bx, 16, bw, bh);
+    ctx.fillStyle = c.dim; ctx.fillRect(bx, 16, bw * (P.speed / 600), bh);
+    Viz.text(ctx, '지면이 흐르는 속도  ' + Math.round(P.speed), bx, 8, c.dim, 11);
+
+    ctx.fillStyle = c.sf2; ctx.fillRect(bx, 46, bw, bh);
+    ctx.fillStyle = c.accent; ctx.fillRect(bx, 46, bw * Math.min(1, footSpeed / 600), bh);
+    Viz.text(ctx, '발이 땅을 미는 속도  ' + Math.round(footSpeed), bx, 38, c.accent, 11);
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var footSpeed = ANIM_BASE * P.rate;
+    var slip = Math.round(P.speed - footSpeed);
+    var need = ANIM_BASE > 0 ? P.speed / ANIM_BASE : 0;
+    var el = document.getElementById('slideVerdict');
+    if (!el) return;
+    if (Math.abs(slip) <= 5){
+      el.className = 'verdict ok';
+      el.textContent = '미끄러짐 거의 0 — 발이 지면을 따라간다. ' +
+        '지금 재생 속도는 ' + P.rate.toFixed(2) + '배이고, ' +
+        '이 값이 0.75~1.25 를 벗어나면 다리 움직임이 어색해진다.';
+    } else if (slip > 0){
+      el.className = 'verdict bad';
+      el.textContent = '발이 매초 ' + slip + 'cm 뒤로 끌린다. 0 으로 만들려면 Play Rate 가 ' +
+        need.toFixed(2) + '배 필요하다.';
+    } else {
+      el.className = 'verdict bad';
+      el.textContent = '발이 매초 ' + (-slip) + 'cm 앞서 나간다. 다리가 몸보다 빨라 땅을 긁는 모양이 된다.';
+    }
+  }
+
+  var a = document.getElementById('sSpeed');
+  if (a) a.addEventListener('input', function(e){
+    P.speed = Number(e.target.value) || 0;
+    document.getElementById('oSpeed').textContent = P.speed + ' cm/s';
+    verdict(); v.render();
+  });
+  var b = document.getElementById('sRate');
+  if (b) b.addEventListener('input', function(e){
+    P.rate = Number(e.target.value) || 0.5;
+    document.getElementById('oRate').textContent = P.rate.toFixed(2) + ' 배';
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSlideFigure);
+else initSlideFigure();
 </script>
 
 </body>
