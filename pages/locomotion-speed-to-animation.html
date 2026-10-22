@@ -942,7 +942,7 @@ function initAccelFigure(){
   var STOP_V = 10;              // BRAKE_TO_STOP_VELOCITY
 
   var P = { accel: 2048, brake: 2048, friction: 8 };
-  var sim = { v: 0, phase: 0, hist: [], tAccel: null, tBrake: null, mark: 0 };
+  var sim = { v: 0, phase: 0, hist: [], tAccel: null, tBrake: null, mark: 0, from: 0 };
 
   var SPAN = 4.0;               // 그래프에 보이는 시간 (초)
   var ON = 2.0;                 // 입력을 넣는 시간
@@ -1013,14 +1013,19 @@ function initAccelFigure(){
     var prevOn = sim.phase;
 
     // 구간이 바뀌는 순간 시간 재기 시작
-    if (nowOn && !prevOn){ sim.mark = v.t; sim.tAccel = null; }
-    if (!nowOn && prevOn){ sim.mark = v.t; sim.tBrake = null; }
+    if (nowOn && !prevOn){ sim.mark = v.t; sim.tAccel = null; sim.from = sim.v; }
+    if (!nowOn && prevOn){ sim.mark = v.t; sim.tBrake = null; sim.from = sim.v; }
     sim.phase = nowOn;
 
-    var before = sim.v;
     stepSim(dt, nowOn);
-    if (nowOn && sim.tAccel === null && sim.v >= MAX_SPEED - 0.5) sim.tAccel = v.t - sim.mark;
-    if (!nowOn && sim.tBrake === null && before > 0 && sim.v === 0) sim.tBrake = v.t - sim.mark;
+    // 구간이 시작될 때의 속도(sim.from)를 기준으로 판정한다.
+    // 한 프레임만 참인 조건에 기대면 그 프레임을 놓쳤을 때 영영 기록되지 않는다.
+    if (nowOn && sim.tAccel === null && sim.from < MAX_SPEED && sim.v >= MAX_SPEED - 0.5){
+      sim.tAccel = v.t - sim.mark;
+    }
+    if (!nowOn && sim.tBrake === null && sim.from > 0 && sim.v <= 0){
+      sim.tBrake = v.t - sim.mark;
+    }
 
     sim.hist.push({ t: cycle, v: sim.v, on: nowOn });
     if (cycle < 0.02) sim.hist = [{ t: cycle, v: sim.v, on: nowOn }];
