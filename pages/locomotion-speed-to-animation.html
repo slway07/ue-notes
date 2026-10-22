@@ -141,6 +141,25 @@ if (Owner)
 
 <p>그래서 <b>스트레이프가 필요한 게임은 후자</b>를 쓰고, 이때는 Direction 축이 실제로 쓰이므로 <b>BlendSpace 도 2D</b> 가 필요해진다. 전자는 Direction 이 거의 0 이라 가로축이 거의 쓰이지 않는다.</p>
 
+
+<h3>그림 읽는 법</h3>
+
+<p>왼쪽과 오른쪽에 <b>같은 캐릭터를 위에서 내려다본</b> 그림이 하나씩 있다. 둘에게 <b>똑같은 입력</b>을 주고, 스위치만 다르게 켜 둔 것이다. 입력은 좌우로 천천히 꺾인다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>점선 화살표</b> (입력)</td><td>스틱이나 WASD 가 가리키는 방향. 플레이어가 <b>가고 싶은 쪽</b>이다. 두 그림 모두 같은 각도로 움직인다</td></tr>
+<tr><td><b>동그라미</b></td><td>캐릭터를 위에서 본 몸통(캡슐)</td></tr>
+<tr><td><b>동그라미에서 튀어나온 짧은 선과 점</b></td><td>몸이 <b>보고 있는 쪽</b>. 사람으로 치면 코다. 이게 돌아가는 속도를 정하는 값이 <code>RotationRate</code> 다</td></tr>
+<tr><td><b>맨 아래 숫자</b> (Direction)</td><td>점선(가고 싶은 쪽)과 코(보고 있는 쪽)가 <b>몇 도나 벌어져 있는지</b>. 이 값이 그대로 BlendSpace 의 가로축으로 들어간다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>무엇을 보면 되나.</b> 왼쪽은 <b>코가 점선을 쫓아간다.</b> 둘이 거의 겹치므로 Direction 이 0 근처에 머문다 &mdash; 앞으로 걷는 애니메이션 하나로 충분하다는 뜻이다. 오른쪽은 <b>코가 위쪽에 고정돼 있다.</b> 조준 방향을 유지하기 때문이고, 그래서 점선만 혼자 돌고 Direction 이 −180~180 을 오간다 &mdash; 옆걸음·뒷걸음 애니메이션이 반드시 필요해진다.</p>
+
 <div class="panel">
   <div class="sl">
     <label for="sRot">RotationRate (Yaw)</label>
@@ -762,7 +781,7 @@ function initRotFigure(){
     return cur + (d > 0 ? maxStep : -maxStep);
   }
 
-  var v = Viz.view('cvRot', function(w){ return w < 560 ? 420 : 250; }, function(v){
+  var v = Viz.view('cvRot', function(w){ return w < 560 ? 450 : 275; }, function(v){
     var c = v.c, ctx = v.ctx;
     var narrow = v.w < 560;
     var inputDeg = 150 * Math.sin(v.t * 0.55);   // 입력 방향이 좌우로 꺾인다 (실제 조작에 가깝게)
@@ -772,8 +791,8 @@ function initRotFigure(){
       : [{x:0, y:0, w:v.w/2, h:v.h}, {x:v.w/2, y:0, w:v.w/2, h:v.h}];
 
     var info = [
-      { title: 'bOrientRotationToMovement', body: bodyA, color: c.accent },
-      { title: 'bUseControllerDesiredRotation', body: bodyB, color: c.warn }
+      { title: 'bOrientRotationToMovement', sub: '몸이 가는 쪽을 본다', body: bodyA, color: c.accent, aim: false },
+      { title: 'bUseControllerDesiredRotation', sub: '몸이 조준 쪽을 본다', body: bodyB, color: c.warn, aim: true }
     ];
 
     for (var i = 0; i < 2; i++){
@@ -792,7 +811,21 @@ function initRotFigure(){
         ctx.stroke();
       }
 
-      Viz.text(ctx, o.title, cx, cell.y + 16, o.color, 11, 'center');
+      Viz.text(ctx, o.title, cx, cell.y + 15, o.color, 11, 'center');
+      Viz.text(ctx, o.sub, cx, cell.y + 31, c.dim, 11, 'center');
+
+      // 오른쪽 그림에는 조준 방향(고정)을 같이 표시한다
+      if (o.aim){
+        var aa = (AIM - 90) * Math.PI / 180;
+        ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(aa) * (r + 30), cy + Math.sin(aa) * (r + 30));
+        ctx.stroke();
+        ctx.setLineDash([]);
+        Viz.text(ctx, '조준 방향 (고정)', cx, cy - r - 40, c.dim, 10, 'center');
+      }
 
       // 입력 방향 (점선 화살표)
       var ia = (inputDeg - 90) * Math.PI / 180;
