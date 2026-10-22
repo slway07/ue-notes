@@ -49,7 +49,51 @@
 
 <p>레이어는 <b>상반신 부분만 다른 ABP 로 떼어내 런타임에 갈아끼우는</b> 장치다. 이동 ABP 는 그대로 두고, 손에 든 것에 따라 상반신 ABP 만 바꿔 끼운다.</p>
 
-<h2>2. 두 가지 노드: Linked Anim Graph 와 Linked Anim Layer</h2>
+<h2>2. 언제 쓰나 (그리고 언제 쓰지 않나)</h2>
+
+<h3>쓸 만한 경우</h3>
+
+<ul>
+<li><b>손에 든 것·자세에 따라 상반신 동작이 통째로 갈릴 때.</b> 무기 종류, 들고 있는 상자, 부상 상태 같은 것</li>
+<li><b>애니메이션이 계속 추가되는 프로젝트.</b> 공식 문서는 라이브 서비스처럼 콘텐츠가 꾸준히 늘고 갱신되는 <b>복잡도 높은 프로젝트</b>에 이 구조를 권한다</li>
+<li><b>메모리를 아껴야 할 때.</b> 공식 문서는 실제로 링크된 애님 블루프린트만 로드되므로 메모리를 줄일 수 있다고 적고 있다. 쓰지 않는 무기의 상반신 로직은 올라오지 않는다</li>
+<li><b>여러 사람이 나눠 작업할 때.</b> 무기 담당자가 각자 자기 ABP 만 열면 된다. 이동 ABP 와 파일이 갈린다</li>
+</ul>
+
+<h3>쓰지 않는 편이 나은 경우</h3>
+
+<ul>
+<li>캐릭터가 한 종류이고 동작 묶음이 고정이라면 레이어는 과한 구조다. <b>인스턴스만 늘고 얻는 것이 없다</b>(6절 참고)</li>
+<li>갈아끼울 일이 없는데 "구조가 깔끔해 보여서" 나누는 경우. 레이어 하나마다 런타임 객체가 하나씩 더 생긴다</li>
+</ul>
+
+<h2>3. 어떻게 쓰나 — 네 단계</h2>
+
+<p>설정은 네 단계다. 앞의 셋은 에디터에서 한 번, 마지막 하나만 런타임에 반복된다.</p>
+
+<ol>
+<li><b>Anim Layer Interface 에셋을 만든다.</b> 여기에 레이어의 <b>이름과 입력</b>을 미리 정해 둔다. 이 인터페이스가 "상반신 레이어는 이런 모양이다"라는 약속이 된다</li>
+<li><b>베이스 ABP 가 그 인터페이스를 구현한다.</b> 구현하면 애님 그래프에 해당 레이어 노드가 생기고, 거기에 기본 동작을 넣는다</li>
+<li><b>갈아끼울 ABP 들을 만든다.</b> 같은 인터페이스를 구현하고 <b>레이어 안의 로직만</b> 작성한다. 이동 로직은 여기에 넣지 않는다</li>
+<li><b>런타임에 링크한다.</b> 무기를 바꾸는 시점에 <code>LinkAnimClassLayers</code> 를 부르면 그 ABP 의 레이어가 현재 레이어를 덮어쓴다</li>
+</ol>
+
+<h3>블루프린트</h3>
+
+<pre><code>(무기를 바꾸는 시점)
+Get Mesh → Get Anim Instance → Link Anim Class Layers
+                                 └ In Class: 끼울 ABP 클래스</code></pre>
+
+<h3>C++</h3>
+
+<pre><code>if (UAnimInstance* AnimInst = GetMesh()-&gt;GetAnimInstance())
+{
+    AnimInst-&gt;LinkAnimClassLayers(RifleLayerClass);
+}</code></pre>
+
+<p>되돌릴 때는 <code>UnlinkAnimClassLayers</code> 를 쓴다. 자세한 시그니처는 10절 표에 있다.</p>
+
+<h2>4. 두 가지 노드: Linked Anim Graph 와 Linked Anim Layer</h2>
 
 <p>에디터의 애님 그래프에는 이름이 비슷한 노드가 둘 있다. <code>Linked Anim Graph</code> 와 <code>Linked Anim Layer</code> 다. 둘은 별개의 노드가 아니라 <b>상속 관계</b>다. 레이어 노드는 그래프 노드를 그대로 상속하고, 필드를 <b>두 개만</b> 더한다.</p>
 
@@ -78,7 +122,7 @@
 
 <p>레이어 노드가 새로 만드는 동작은 이 두 필드와 세 가지 재정의가 전부다. 나머지는 상속한 그래프 노드의 실행 경로를 그대로 쓴다.</p>
 
-<h2>3. 부모의 포즈가 레이어로 들어가는 길</h2>
+<h2>5. 부모의 포즈가 레이어로 들어가는 길</h2>
 
 <p>레이어는 빈 상태에서 시작하지 않는다. 부모 그래프가 만들던 포즈를 입력으로 받는다. 그 통로가 <code>FAnimNode_LinkedInputPose</code> 다(<code>AnimNode_LinkedInputPose.h:13</code>). 주요 멤버는 <code>CachedInputPose</code>(h:46~48), <code>DynamicLink</code>(h:74), <code>InputProxy</code>(h:81)다.</p>
 
@@ -112,7 +156,7 @@
 <figcaption>부모 AnimInstance 의 Linked Anim Graph 노드가 레이어 인스턴스의 Linked Input Pose 와 연결된다. 연결되면 부모 그래프가 만들던 포즈가 레이어의 입력으로 들어간다.</figcaption>
 </figure>
 
-<h2>4. 레이어의 실체 — 별도 객체다</h2>
+<h2>6. 레이어의 실체 — 별도 객체다</h2>
 
 <p>가장 흔한 오해는 레이어를 <b>같은 AnimInstance 안의 그래프 조각</b>으로 보는 것이다. 아니다. 레이어는 <code>NewObject&lt;UAnimInstance&gt;(MeshComp, ClassToSet)</code> 로 만든 <b>별도 <code>UAnimInstance</code> 객체</b>다(<code>AnimInstance.cpp:4054</code>).</p>
 
@@ -134,7 +178,7 @@
 
 <p>비용을 볼 때는 그래프 노드 수가 아니라 인스턴스 수를 봐야 한다. 레이어를 하나 추가하면 런타임에 <code>UAnimInstance</code> 객체 하나와 그 프록시 하나가 더 생긴다. 그룹을 쓰면 이 수가 그룹 단위로 줄어든다.</p>
 
-<h2>5. 본 단위로 섞기</h2>
+<h2>7. 본 단위로 섞기</h2>
 
 <p>레이어가 상반신 ABP 를 통째로 갈아끼우는 장치라면, 그 결과를 부모 포즈와 <b>본 단위로 섞는</b> 노드는 <code>FAnimNode_LayeredBoneBlend</code> 다(<code>AnimNode_LayeredBoneBlend.h:21</code>).</p>
 
@@ -149,7 +193,7 @@
 
 <p><code>bMeshSpaceRotationBlend</code>(h:94) 주석은 "Whether to blend bone rotations in mesh space or in local space" 다. 실제 섞기는 본별 가중치 배열(<code>CurrentBoneBlendWeights</code>)을 만든 뒤 <code>FAnimationRuntime::BlendPosesPerBoneFilter</code> 에 넘기는 방식이다(<code>AnimNode_LayeredBoneBlend.cpp:322</code>).</p>
 
-<h2>6. 레이어와 스레드</h2>
+<h2>8. 레이어와 스레드</h2>
 
 <p>링크된 인스턴스는 <b>항상 병렬 업데이트가 강제된다.</b> <code>USkeletalMeshComponent::TickAnimInstances</code> 가 링크된 인스턴스를 <code>ForceParallelUpdate</code> 로 업데이트하고, 코드 주석도 "Sub anim instances are always forced to do a parallel update" 라고 적고 있다(<code>SkeletalMeshComponent.cpp:1770~1774</code>).</p>
 
@@ -161,7 +205,23 @@
 
 <p>레이어를 몇 개 끼우든 <b>그 캐릭터의 애니메이션 작업은 여전히 워커 하나에서 돈다.</b> 병렬은 캐릭터 사이에서 생긴다. 이 내용은 <a href="animbp-one-frame.html">AnimBP는 한 프레임에 무엇을 하나</a> 페이지에서 자세히 다룬다.</p>
 
-<h2>7. 런타임에 갈아끼우기</h2>
+<h2>9. 이렇게 하면 어긋난다</h2>
+
+<h3>레이어를 끼우기만 하고 되돌리지 않는다</h3>
+
+<p>무기를 바꿀 때마다 새 클래스를 링크하면 <b>덮어쓰기</b> 라 보통은 문제가 없다. 다만 "무기를 내려놓고 맨손으로 돌아가는" 경우처럼 <b>기본 상태로 되돌려야 할 때</b> 링크만 반복하면 마지막 무기의 상반신이 남는다. 이때 쓰는 것이 <code>UnlinkAnimClassLayers</code> 이고, 이 함수는 해당 클래스가 돌리던 레이어 노드들을 <b>기본값으로 되돌린다.</b></p>
+
+<h3>인터페이스 없이 Linked Anim Graph 만 쓴다</h3>
+
+<p><code>Linked Anim Graph</code> 는 노드 하나에 ABP 하나를 통째로 꽂는 방식이다. 바꿔 끼울 수는 있지만 <b>"그래프의 어느 부분을 교체한다"는 약속이 없다.</b> <code>Linked Anim Layer</code> 는 인터페이스가 정한 <b>레이어 단위</b>로 갈아끼운다. 그래서 여러 레이어를 각각 다른 ABP 로 채우는 구성이 가능하다. 두 노드의 코드상 차이는 4절에 있다.</p>
+
+<h3>레이어를 늘리면 조용히 비용이 는다</h3>
+
+<p>레이어 하나는 런타임 객체 하나다(6절). 그래프에 노드를 하나 더 놓는 느낌이지만 실제로는 <code>UAnimInstance</code> 와 그 프록시가 하나씩 늘어난다. <b>그룹으로 묶으면 그룹당 하나</b>로 줄어드니, 함께 갈리는 레이어들은 같은 그룹에 두는 편이 낫다.</p>
+
+<p>다만 레이어를 몇 개 끼우든 <b>그 캐릭터의 애니메이션 작업 자체는 여전히 워커 하나에서 돈다</b>(8절). 레이어를 늘린다고 계산이 여러 코어로 갈리지는 않는다.</p>
+
+<h2>10. 런타임에 갈아끼우기</h2>
 
 <p>런타임 교체는 <code>UAnimInstance</code> 의 함수로 한다. 선언은 <code>AnimInstance.h</code>, 구현은 <code>AnimInstance.cpp</code> 다.</p>
 
@@ -180,7 +240,17 @@
 
 <p>태그 계열은 그래프 인스턴스를 찾거나 링크하고, 클래스 계열은 레이어를 링크·언링크하며, 그룹 계열은 레이어 인스턴스를 찾는다. <code>LinkAnimClassLayers</code> 와 <code>UnlinkAnimClassLayers</code> 는 내부적으로 <code>PerformLinkedLayerOverlayOperation</code> 에 클래스 선택 람다를 넘겨 실제 링크를 수행한다.</p>
 
-<h2>8. 소스 위치</h2>
+<h2>11. 더 읽을 것 (공식 문서)</h2>
+
+<p>이 페이지는 "안에서 무슨 일이 일어나는가"를 다뤘다. 에디터에서 실제로 설정하는 순서는 공식 문서가 자세하다.</p>
+
+<ul>
+<li><a href="https://dev.epicgames.com/documentation/unreal-engine/animation-blueprint-linking-in-unreal-engine" target="_blank" rel="noopener">Animation Blueprint Linking in Unreal Engine</a> — 링크드 애님 그래프와 레이어의 개념, 어느 쪽을 언제 쓰는지</li>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/using-animation-blueprint-linking-in-unreal-engine" target="_blank" rel="noopener">Using Animation Blueprint Linking</a> — 인터페이스 생성부터 런타임 링크까지의 실제 설정 순서</li>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/animation-in-lyra-sample-game-in-unreal-engine" target="_blank" rel="noopener">Animation in Lyra Sample Game</a> — 공식 무료 샘플에서 무기마다 자식 ABP 를 두는 구성을 볼 수 있다</li>
+</ul>
+
+<h2>12. 소스 위치</h2>
 
 <p class="note">줄 번호는 UE 5.8 소스에서 확인한 값이다. 경로는 엔진 루트 기준이다.</p>
 
@@ -223,7 +293,7 @@
 </article>
 
 <footer class="site-foot">
-<p>이 페이지는 링크드 애님 그래프·레이어 노드, 부모 포즈 전달, 인스턴스 생성, 본 단위 블렌딩, 스레드 규칙, 런타임 교체 함수만 다뤘다. 에디터에서 레이어를 설정하는 순서나 애님 인터페이스 구현 방법은 다루지 않았다.</p>
+<p>이 페이지는 레이어를 쓸지 판단하는 기준, 네 단계 설정, 링크드 애님 그래프·레이어 노드, 부모 포즈 전달, 인스턴스 생성, 본 단위 블렌딩, 스레드 규칙, 흔한 실수, 런타임 교체 함수를 다뤘다. 에디터에서 레이어를 설정하는 자세한 순서는 3절에 요약했고, 더 자세한 내용은 11절의 공식 문서 링크를 참고하라.</p>
 </footer>
 
 </div>

@@ -60,7 +60,7 @@
 
 <p>오른쪽으로 가면 Direction 이 <b>+</b>, 왼쪽으로 가면 <b>−</b> 다. 정면이 0, 뒤가 ±180 이다. 그림의 <b>+</b> 와 <b>−</b> 표시가 그 규칙을 보여 준다.</p>
 
-<p>이 값이 BlendSpace 의 가로축(Direction)·세로축(Speed)으로 들어간다. 그림 오른쪽(좁은 화면에서는 아래)의 사각형은 두 값을 축에 놓아 본 것이다. 실제 샘플 배치와 삼각분할은 8절에서 다룬다.</p>
+<p>이 값이 BlendSpace 의 가로축(Direction)·세로축(Speed)으로 들어간다. 그림 오른쪽(좁은 화면에서는 아래)의 사각형은 두 값을 축에 놓아 본 것이다. 실제 샘플 배치와 삼각분할은 10절에서 다룬다.</p>
 
 <p class="note">캐릭터는 가운데에서 정면(위쪽)을 본다. 중심에서 가장자리까지가 Speed 0~600 이고, 가장자리를 넘겨 끌면 600 에서 멈춘다. 좁은 화면에서는 평면도가 위, BlendSpace 가 아래로 재배치된다.</p>
 
@@ -77,7 +77,33 @@
 
 <p>구버전 <code>UAnimInstance::CalculateDirection</code> 은 deprecated 다.</p>
 
-<h2>3. 이동 값의 엔진 기본값</h2>
+<h2>3. AnimBP 에서 실제로 이렇게 쓴다</h2>
+
+<p>2절의 Speed·Direction 은 개념이 아니라 <b>AnimBP 가 매 프레임 실제로 계산해 변수에 담는 값</b>이다. 블루프린트와 C++ 어느 쪽으로도 같은 일을 한다.</p>
+
+<h3>블루프린트 (Event Blueprint Update Animation 안)</h3>
+
+<pre><code>Try Get Pawn Owner  ─ 유효성 검사
+   ├→ Get Velocity ─→ Vector Length XY ──────────→ [Speed]  변수에 저장
+   └→ Get Velocity ─┐
+      Get Actor Rotation ─┴→ Calculate Direction ─→ [Direction] 변수에 저장</code></pre>
+
+<h3>C++ (같은 일)</h3>
+
+<pre><code>APawn* Owner = TryGetPawnOwner();
+if (Owner)
+{
+    const FVector Velocity = Owner-&gt;GetVelocity();
+    Speed = Velocity.Size2D();
+    Direction = UKismetAnimationLibrary::CalculateDirection(Velocity, Owner-&gt;GetActorRotation());
+}</code></pre>
+
+<ul>
+<li>저장한 <code>Speed</code> 와 <code>Direction</code> 을 <b>BlendSpace 노드의 두 축 입력에 연결</b>한다. 세로축이 Speed, 가로축이 Direction 인 구성이 흔하다.</li>
+<li>액터(<code>Pawn</code>)를 직접 읽으므로 이 계산은 <b>게임 스레드 단계</b>에서 해야 한다. 워커 스레드 단계에서 액터를 읽으면 안 된다 — 같은 사이트의 <a href="animbp-one-frame.html">AnimBP는 한 프레임에 무엇을 하나</a> 페이지에 그 이유가 있다.</li>
+</ul>
+
+<h2>4. 이동 값의 엔진 기본값</h2>
 
 <p>이동을 담당하는 <code>UCharacterMovementComponent</code> 생성자의 기본값이다. 생성자는 <code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code> 의 653줄에서 시작한다.</p>
 
@@ -100,7 +126,7 @@
 
 <p>그림의 가장자리 600 은 <code>MaxWalkSpeed</code> 기본값과 같은 숫자다.</p>
 
-<h2>4. 캐릭터는 어느 쪽을 보는가</h2>
+<h2>5. 캐릭터는 어느 쪽을 보는가</h2>
 
 <p>캐릭터의 몸이 어느 쪽을 향하느냐에 따라 Direction 의 쓰임이 달라진다. 회전 속도 값인 <code>RotationRate</code> 의 기본값은 <code>FRotator(0, 360, 0)</code> 로, Yaw 만 초당 360 도다. 방향을 정하는 스위치는 두 개다.</p>
 
@@ -114,9 +140,34 @@
 
 <p>그래서 <b>스트레이프가 필요한 게임은 후자</b>를 쓰고, 이때는 Direction 축이 실제로 쓰이므로 <b>BlendSpace 도 2D</b> 가 필요해진다. 전자는 Direction 이 거의 0 이라 가로축이 거의 쓰이지 않는다.</p>
 
-<h2>5. 발이 미끄러지는 이유</h2>
+<h2>6. 상황 하나로 따라가 보기</h2>
+
+<p><b>"소총을 들고 적을 조준한 채, 왼쪽으로 게걸음친다."</b></p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>무엇</th><th>값</th><th>왜</th></tr></thead>
+<tbody>
+<tr><td>몸이 보는 방향</td><td>적 쪽으로 고정</td><td><code>bUseControllerDesiredRotation</code> 이 켜져 있다. 조준 중이므로 몸이 진행 방향을 따라 돌면 안 된다</td></tr>
+<tr><td><code>Velocity</code></td><td>캐릭터 기준 왼쪽</td><td>입력이 왼쪽이다</td></tr>
+<tr><td><code>Direction</code></td><td><b>-90°</b></td><td><code>CalculateDirection</code> 이 전방축 기준으로 각을 재고, 우측축 내적이 음수라 부호가 뒤집힌다</td></tr>
+<tr><td><code>Speed</code></td><td>걷기 속도 (예: 300)</td><td>조준 중이라 최대 속도로 달리지 않는다</td></tr>
+<tr><td>BlendSpace 좌표</td><td>(-90, 300)</td><td>가로축 Direction, 세로축 Speed</td></tr>
+<tr><td>섞이는 샘플</td><td>좌측 이동 계열 샘플들</td><td>그 좌표를 둘러싼 샘플들이 무게중심 비율로 섞인다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>만약 <code>bOrientRotationToMovement</code> 쪽이 켜져 있었다면 <b>몸이 왼쪽을 향해 돌아버려서</b> Direction 은 곧 0 에 수렴하고, 게걸음이 아니라 "왼쪽으로 몸을 틀어 앞으로 걷기"가 된다. <b>조준 자세가 유지되지 않는다.</b> 두 스위치의 차이가 눈에 보이는 지점이 여기다.</p>
+
+<h2>7. 발이 미끄러지는 이유</h2>
 
 <p>원인은 하나다. <b>애니메이션이 전제한 이동량과 실제 이동량이 다르다.</b> 달리기 애니메이션은 한 사이클에 특정 거리만큼 나아가는 것을 전제하는데, 캡슐은 그와 다른 속도로 움직인다. 남는 차이만큼 발이 지면을 미끄러진다.</p>
+
+<blockquote>
+<p><b>숫자로 보면.</b> 걷기 애니메이션이 한 사이클에 <b>150cm</b> 나아가도록 만들어졌다고 하자. 이 애니메이션을 그대로 틀면서 캡슐은 <code>MaxWalkSpeed</code> 기본값인 <b>600cm/s</b> 로 움직인다. 발은 150, 몸은 600 — <b>매초 450cm 만큼 지면이 발 밑에서 흘러간다.</b> 이것이 미끄러짐의 정체다.</p>
+<p>재생 속도를 4배로 올리면 거리는 맞는다. 대신 다리가 4배로 빨리 움직여 사람이 아니라 감긴 필름처럼 보인다. <b>거리를 맞추는 것과 자연스러움을 지키는 것이 서로 당긴다.</b> 아래 세 축은 이 둘을 어떻게 나눠 가질지의 선택이다.</p>
+</blockquote>
 
 <p>엔진이 주는 해결 축은 세 개다.</p>
 
@@ -128,7 +179,21 @@
 
 <p><b>"foot sliding" 이라는 이름의 노드나 함수는 엔진에 없다.</b> 증상의 이름일 뿐이다. 그래서 이름으로 검색해도 안 나오고, 엔진이 주는 것은 위 2·3 같은 도구다.</p>
 
-<h2>6. 길이가 다른 애니메이션을 맞추기 (동기화 그룹)</h2>
+<h3>언제 무엇을 쓰나</h3>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>상황</th><th>쓸 것</th></tr></thead>
+<tbody>
+<tr><td>속도가 걷기·달리기처럼 <b>몇 단계로 고정</b>된다</td><td>속도별 샘플을 BlendSpace 에 두는 것으로 충분하다. 추가 기법이 필요 없다</td></tr>
+<tr><td>속도가 <b>연속적으로</b> 변한다 (가속·감속이 잦다)</td><td><b>Stride Warping</b> — 보폭 자체를 속도에 맞춰 늘리고 줄인다. 속도마다 샘플을 만들지 않아도 된다</td></tr>
+<tr><td><b>출발·정지·착지</b> 순간에 발이 뜨거나 미끄러진다</td><td><b>Distance Matching</b> — 시간이 아니라 <b>이동한 거리</b>로 애니메이션을 전진시킨다</td></tr>
+<tr><td>둘 다 필요하다</td><td>공식 문서의 Lyra 설명처럼, 출발 구간은 Distance Matching 으로 시작해 달리기 상태에 가까워지면 Stride Warping 을 섞는 방식이 있다</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>8. 길이가 다른 애니메이션을 맞추기 (동기화 그룹)</h2>
 
 <p>걷기와 달리기는 한 사이클의 길이가 다르다. 그냥 섞으면 발이 어긋난다. 동기화 그룹은 애니메이션마다 <b>리더</b>와 <b>팔로워</b> 역할을 정해 이 문제를 푼다.</p>
 
@@ -150,7 +215,7 @@
 
 <p>역할만 정한다고 위치가 저절로 맞는 것은 아니다. 리더와 팔로워 모두 <code>FMarkerTickRecord</code> 의 이전/다음 마커 쌍을 기준으로 자기 위치를 맞춘다. 마커 인덱스를 찾는 함수가 <code>UAnimSequenceBase::GetMarkerIndicesForPosition</code> 이고(선언 <code>Engine/Source/Runtime/Engine/Classes/Animation/AnimSequenceBase.h:205</code>), 팔로워는 <code>AnimSequenceBase.cpp:602</code>, 리더는 <code>:621</code> 에서 이 함수를 호출한다.</p>
 
-<h2>7. 위치를 누가 정하는가 (루트 모션)</h2>
+<h2>9. 위치를 누가 정하는가 (루트 모션)</h2>
 
 <p>평소 이동은 캡슐이 옮기고, 공격·구르기 같은 동작은 애니메이션이 위치를 옮기는 편이 자연스럽다. 어느 쪽을 쓸지 정하는 값이 <code>ERootMotionMode</code> 다.</p>
 
@@ -170,7 +235,7 @@
 
 <p>기본값은 <code>RootMotionFromMontagesOnly</code> 다. <code>UAnimInstance</code> 생성자가 <code>Engine/Source/Runtime/Engine/Private/Animation/AnimInstance.cpp:202</code> 에서 이 값을 넣는다. 그래서 평소 이동은 캡슐이 옮기고, 공격·구르기 같은 몽타주만 루트 모션으로 움직이는 구성이 기본이다.</p>
 
-<h2>8. BlendSpace 가 샘플을 고르는 방식</h2>
+<h2>10. BlendSpace 가 샘플을 고르는 방식</h2>
 
 <p><code>UBlendSpace</code> 는 입력 좌표를 받아 재생할 샘플과 가중치를 고른다.</p>
 
@@ -185,7 +250,19 @@
 
 <p>2D 에서는 입력 점을 품은 삼각형의 세 꼭짓점 가중치가 계산되고, 그중 문턱을 넘는 샘플만 그 프레임에 재생된다. 그림의 점을 움직여 보면 Direction 과 Speed 가 축 위에서 어디로 가는지 확인할 수 있다.</p>
 
-<h2>9. 소스 위치</h2>
+<h2>11. 더 읽을 것 (공식 문서)</h2>
+
+<p>이 페이지는 "무엇이 무엇을 정하는가"를 다뤘다. 에디터에서 실제로 만드는 순서는 공식 문서가 자세하다.</p>
+
+<ul>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/locomotion-in-unreal-engine" target="_blank" rel="noopener">Locomotion in Unreal Engine</a> — 이동 애니메이션 전반의 공식 안내</li>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/blend-spaces-in-unreal-engine" target="_blank" rel="noopener">Blend Spaces in Unreal Engine</a> — 샘플 배치와 축 설정. 발 움직임으로 속도를 추정해 샘플을 자동 배치하는 기능도 여기 있다</li>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/pose-warping-in-unreal-engine" target="_blank" rel="noopener">Pose Warping in Unreal Engine</a> — Stride·Orientation·Slope Warping 의 설정 방법</li>
+<li><a href="https://dev.epicgames.com/documentation/en-us/unreal-engine/animation-in-lyra-sample-game-in-unreal-engine" target="_blank" rel="noopener">Animation in Lyra Sample Game</a> — 공식 무료 샘플에서 이 기법들을 실제로 조합한 예. 출발·정지·착지에 Distance Matching 을 쓴다고 적혀 있다</li>
+<li><a href="https://dev.epicgames.com/documentation/unreal-engine/game-animation-sample-project-in-unreal-engine?lang=en-US" target="_blank" rel="noopener">Game Animation Sample Project</a> — 모션 매칭 기반의 공식 샘플 프로젝트</li>
+</ul>
+
+<h2>12. 소스 위치</h2>
 
 <div class="tablewrap">
 <table>
