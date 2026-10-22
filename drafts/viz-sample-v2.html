@@ -17,6 +17,7 @@ canvas{display:block;width:100%;height:auto}
 .verdict.ok{color:var(--accent)}
 .verdict.bad{color:var(--warn)}
 .try{border-left:3px solid var(--accent);padding:2px 0 2px 12px;margin:14px 0;font-size:.9rem}
+.small{font-size:.78rem;color:var(--text-dim)}
 @media (max-width:460px){ .sl{grid-template-columns:auto 1fr;grid-auto-rows:auto}
   .sl output{grid-column:2;text-align:left} }
 </style>
@@ -43,14 +44,19 @@ canvas{display:block;width:100%;height:auto}
     <input type="range" id="sSpeed" min="0" max="600" step="10" value="600">
     <output id="oSpeed">600 cm/s</output>
   </div>
-  <p class="hint">캡슐이 1초에 나아가는 거리. 이동 컴포넌트가 가진 값이다.</p>
+  <p class="hint">캡슐이 1초에 나아가는 거리.
+    <b>어디 있나</b> — <code>UCharacterMovementComponent</code> 의 프로퍼티.
+    에디터에서는 캐릭터 BP → <b>CharacterMovement</b> 컴포넌트 선택 → 디테일 패널
+    <b>Character Movement: Walking</b> 항목.</p>
 
   <div class="sl">
     <label for="sRate">Play Rate</label>
     <input type="range" id="sRate" min="0.5" max="4" step="0.05" value="1">
     <output id="oRate">1.00 배</output>
   </div>
-  <p class="hint">애니메이션 재생 속도. 이 걷기 애니메이션은 1배일 때 1초에 150cm 나아가도록 만들어졌다.</p>
+  <p class="hint">애니메이션 재생 속도. 이 걷기 애니메이션은 1배일 때 1초에 150cm 나아가도록 만들어졌다.
+    <b>어디 있나</b> — 애님 그래프의 시퀀스 재생 노드가 가진 입력 핀. 노드를 고르면 디테일 패널에
+    <b>Play Rate</b> 로 나온다. 값을 고정하지 않고 핀에 변수를 연결해 매 프레임 바꾸는 쓰임이 많다.</p>
 
   <div class="stage"><canvas id="cv" aria-label="캐릭터가 제자리에서 달리고 지면이 흐른다. MaxWalkSpeed 는 지면이 흐르는 속도를, Play Rate 는 다리가 도는 속도를 정한다. 두 값이 어긋나면 발 밑에 미끄러짐 화살표가 나타난다."></canvas></div>
 
@@ -66,6 +72,31 @@ canvas{display:block;width:100%;height:auto}
 <li>재생 속도를 올리면 거리는 맞출 수 있다. 대신 <b>다리가 그만큼 빨리 돈다</b></li>
 <li>엔진이 주는 도구들은 이 둘 사이에서 타협점을 찾는 방법이다. <code>Play Rate</code> 를 자동으로 맞추되 <b>0.75~1.25 안으로 제한</b>하고(Distance Matching), 모자란 몫은 <b>보폭 자체를 늘려</b>(Stride Warping) 메운다</li>
 </ul>
+
+<h2>이 변수들이 어디에 있나</h2>
+
+<p>설명에 나오는 값들이 <b>어느 클래스에 있고 에디터 어디에서 보이는지</b>를 모으면 이렇다. 카테고리 이름은 엔진 소스의 <code>UPROPERTY</code> 에 적힌 그대로이고, 그것이 디테일 패널에 뜨는 항목 이름이 된다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>변수</th><th>어느 클래스·구조체</th><th>디테일 패널 항목</th></tr></thead>
+<tbody>
+<tr><td><code>MaxWalkSpeed</code></td><td rowspan="5"><code>UCharacterMovementComponent</code><br><span class="small">캐릭터 BP → CharacterMovement 컴포넌트</span></td><td>Character Movement: Walking</td></tr>
+<tr><td><code>BrakingDecelerationWalking</code></td><td>Character Movement: Walking</td></tr>
+<tr><td><code>GroundFriction</code></td><td>Character Movement: Walking</td></tr>
+<tr><td><code>MaxAcceleration</code></td><td>Character Movement (General Settings)</td></tr>
+<tr><td><code>RotationRate</code></td><td>Character Movement (Rotation Settings)</td></tr>
+<tr><td><code>bOrientRotationToMovement</code><br><code>bUseControllerDesiredRotation</code></td><td><code>UCharacterMovementComponent</code></td><td>Character Movement (Rotation Settings)<br><span class="small">에디터 표시 이름은 <b>Orient Rotation to Movement</b> / <b>Use Controller Desired Rotation</b></span></td></tr>
+<tr><td><code>RootMotionMode</code></td><td><code>UAnimInstance</code></td><td>RootMotion<br><span class="small"><code>EditDefaultsOnly</code> 다 — 배치한 인스턴스가 아니라 <b>ABP 클래스 기본값</b>에서만 바꾼다</span></td></tr>
+<tr><td><code>Play Rate</code></td><td>시퀀스 재생 계열 애님 노드</td><td>노드를 고르면 나오는 입력 핀</td></tr>
+<tr><td><code>BlendMode</code>, <code>LayerSetup</code>, <code>BlendMasks</code>, <code>bMeshSpaceRotationBlend</code></td><td><code>FAnimNode_LayeredBoneBlend</code><br><span class="small">Layered blend per bone 노드</span></td><td>Config</td></tr>
+<tr><td><code>BoneName</code>, <code>BlendDepth</code></td><td><code>FBranchFilter</code><br><span class="small">위 노드의 Layer Setup 안에 들어가는 항목</span></td><td>Branch</td></tr>
+<tr><td><code>Layer</code></td><td><code>FAnimNode_LinkedAnimLayer</code><br><span class="small">Linked Anim Layer 노드</span></td><td>Settings</td></tr>
+</tbody>
+</table>
+</div>
+
+<blockquote><b>주석에서 같이 나온 것.</b> 두 회전 스위치는 동등하지 않다. 엔진 주석이 <code>bOrientRotationToMovement</code> 쪽에 "Overrides UseControllerDesiredRotation" 이라고 적고 있다 — <b>둘 다 켜면 가는 쪽을 보는 동작이 이긴다.</b> 그리고 두 주석 모두 캐릭터 쪽의 <code>bUseControllerRotationYaw</code> 같은 설정을 꺼 두라고 덧붙인다. "스트레이프를 켰는데 안 된다"의 흔한 원인이 이 셋의 충돌이다.</blockquote>
 
 <h2>이 형식으로 나머지도 만든다</h2>
 
