@@ -415,6 +415,20 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 
 <h2>10. BlendSpace 가 샘플을 고르는 방식</h2>
 
+<h3>그림 읽는 법</h3>
+
+<p>가로가 <b>Direction</b>, 세로가 <b>Speed</b> 인 평면이고, 동그라미가 <b>배치해 둔 애니메이션(샘플)</b>이다. 평면을 <b>누르거나 끌면</b> 그 자리가 현재 입력값이 된다. 입력이 떨어진 자리를 둘러싼 <b>삼각형 하나가 밝아지고</b>, 그 세 꼭짓점이 섞여 최종 포즈가 된다. 각 꼭짓점 옆 숫자가 섞이는 비율이다.</p>
+
+<div class="panel">
+  <div class="stage"><canvas id="cvBS" aria-label="Direction과 Speed를 축으로 하는 평면에 애니메이션 샘플이 놓여 있다. 입력 좌표를 끌면 그 좌표를 포함하는 삼각형이 밝아지고 세 꼭짓점의 가중치가 표시된다."></canvas></div>
+  <p class="verdict" id="bsVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 샘플 동그라미 <b>바로 위</b>로 끌어가 보라. 그 샘플 하나만 가중치 1.00 이 되고 나머지는 사라진다. 삼각형의 <b>한가운데</b>로 가면 셋이 고르게 섞인다. 그리고 <b>세로축 맨 아래(Speed 0)</b> 로 내려가면 Direction 을 아무리 바꿔도 결과가 같다 &mdash; 멈춰 있을 때는 방향이 의미가 없기 때문이고, 그래서 BlendSpace 아래쪽에는 보통 Idle 하나만 둔다.</p>
+
+<p>엔진이 하는 일이 정확히 이것이다. 샘플들을 삼각형으로 나눠 두고, 입력 좌표가 든 삼각형을 찾아 <b>무게중심 좌표</b>로 세 꼭짓점의 비율을 구한다. 격자로 칸칸이 나누는 방식이 아니다.</p>
+
+
 <p><code>UBlendSpace</code> 는 입력 좌표를 받아 재생할 샘플과 가중치를 고른다.</p>
 
 <ul>
@@ -1478,6 +1492,138 @@ function initRootFigure(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRootFigure);
 else initRootFigure();
+</script>
+
+
+<script>
+/* BlendSpace — 삼각분할과 무게중심 가중치. 엔진은 격자가 아니라 삼각형으로 나눈다. */
+function initBSFigure(){
+  if (!window.Viz) return;
+  var DIRS = [-180, -90, 0, 90, 180];
+  var SPEEDS = [0, 150, 600];
+  var NAMES = ['Idle', 'Walk', 'Run'];
+  var SUF = ['_B', '_L', '_F', '_R', '_B'];
+  var THRESH = 0.00001;              // ZERO_ANIMWEIGHT_THRESH
+  var input = { dir: 0, speed: 420 };
+
+  function sampleName(di, si){
+    if (si === 0) return 'Idle';
+    return NAMES[si] + SUF[di];
+  }
+
+  var v = Viz.view('cvBS', function(w){ return w < 520 ? 300 : 280; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var padL = 44, padR = 16, padT = 26, padB = 34;
+    var gw = w - padL - padR, gh = h - padT - padB;
+    if (!(gw > 0) || !(gh > 0)) return;
+
+    function X(d){ return padL + ((d + 180) / 360) * gw; }
+    function Y(sp){ return padT + gh - (sp / 600) * gh; }
+
+    // 축
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.strokeRect(padL, padT, gw, gh);
+    Viz.text(ctx, 'Speed', padL - 6, padT - 12, c.dim, 10, 'right');
+    Viz.text(ctx, '600', padL - 6, Y(600), c.dim, 10, 'right');
+    Viz.text(ctx, '0', padL - 6, Y(0), c.dim, 10, 'right');
+    for (var k = 0; k < DIRS.length; k++){
+      Viz.text(ctx, String(DIRS[k]), X(DIRS[k]), padT + gh + 14, c.dim, 10, 'center');
+    }
+    Viz.text(ctx, 'Direction', padL + gw, padT + gh + 28, c.dim, 10, 'right');
+
+    // 입력이 든 칸과 삼각형 찾기
+    var di = 0, si = 0;
+    for (var i = 0; i < DIRS.length - 1; i++){ if (input.dir >= DIRS[i]) di = i; }
+    for (var j = 0; j < SPEEDS.length - 1; j++){ if (input.speed >= SPEEDS[j]) si = j; }
+    var d0 = DIRS[di], d1 = DIRS[di + 1], s0 = SPEEDS[si], s1 = SPEEDS[si + 1];
+    var u = (input.dir - d0) / (d1 - d0);
+    var vv = (input.speed - s0) / (s1 - s0);
+    u = Math.max(0, Math.min(1, u)); vv = Math.max(0, Math.min(1, vv));
+
+    // 사각형을 두 삼각형으로 나눈다 (엔진의 삼각분할을 단순화한 것)
+    var tri, wts;
+    if (u + vv <= 1){
+      tri = [[di, si], [di + 1, si], [di, si + 1]];
+      wts = [1 - u - vv, u, vv];
+    } else {
+      tri = [[di + 1, si + 1], [di + 1, si], [di, si + 1]];
+      wts = [u + vv - 1, 1 - vv, 1 - u];
+    }
+
+    // 활성 삼각형
+    ctx.fillStyle = c.accent; ctx.globalAlpha = 0.14;
+    ctx.beginPath();
+    for (var t = 0; t < 3; t++){
+      var px = X(DIRS[tri[t][0]]), py = Y(SPEEDS[tri[t][1]]);
+      if (t === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // 샘플 점
+    for (var a = 0; a < DIRS.length; a++){
+      for (var b = 0; b < SPEEDS.length; b++){
+        var sx = X(DIRS[a]), sy = Y(SPEEDS[b]);
+        var wi = -1;
+        for (var t2 = 0; t2 < 3; t2++){ if (tri[t2][0] === a && tri[t2][1] === b) wi = t2; }
+        var active = wi >= 0 && wts[wi] > THRESH;
+        ctx.beginPath(); ctx.arc(sx, sy, active ? 7 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = active ? c.accent : c.line; ctx.fill();
+        if (active){
+          Viz.text(ctx, sampleName(a, b) + '  ' + wts[wi].toFixed(2), sx + 11, sy - 10, c.text, 11);
+        }
+      }
+    }
+
+    // 입력 좌표
+    var ix = X(input.dir), iy = Y(input.speed);
+    ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(ix, iy, 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ix - 10, iy); ctx.lineTo(ix + 10, iy);
+    ctx.moveTo(ix, iy - 10); ctx.lineTo(ix, iy + 10); ctx.stroke();
+    Viz.text(ctx, '(' + Math.round(input.dir) + ', ' + Math.round(input.speed) + ')', ix, iy + 22, c.warn, 11, 'center');
+
+    v.__tri = tri; v.__wts = wts;
+  });
+
+  if (!v) return;
+
+  function verdict(){
+    var el = document.getElementById('bsVerdict');
+    if (!el || !v.__tri) return;
+    var parts = [];
+    for (var i = 0; i < 3; i++){
+      if (v.__wts[i] > THRESH) parts.push(sampleName(v.__tri[i][0], v.__tri[i][1]) + ' ' + v.__wts[i].toFixed(2));
+    }
+    var dropped = 3 - parts.length;
+    el.className = 'verdict';
+    el.textContent = '섞이는 샘플: ' + parts.join('  +  ') +
+      (dropped > 0 ? '   (가중치가 0.00001 이하인 샘플 ' + dropped + '개는 아예 재생 목록에서 빠진다)' : '');
+  }
+
+  function pick(e){
+    var r = v.cv.getBoundingClientRect();
+    if (!(r.width > 0)) return;
+    var padL = 44, padR = 16, padT = 26, padB = 34;
+    var gw = v.w - padL - padR, gh = v.h - padT - padB;
+    if (!(gw > 0) || !(gh > 0)) return;
+    var x = (e.clientX - r.left) * (v.w / r.width);
+    var y = (e.clientY - r.top) * (v.h / r.height);
+    input.dir = Math.max(-180, Math.min(180, ((x - padL) / gw) * 360 - 180));
+    input.speed = Math.max(0, Math.min(600, (1 - (y - padT) / gh) * 600));
+    v.render(); verdict();
+  }
+  var dragging = false;
+  v.cv.addEventListener('pointerdown', function(e){ dragging = true; pick(e); e.preventDefault(); });
+  v.cv.addEventListener('pointermove', function(e){ if (dragging) pick(e); });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+  v.cv.style.touchAction = 'none';
+  v.cv.style.cursor = 'crosshair';
+
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBSFigure);
+else initBSFigure();
 </script>
 
 </body>
