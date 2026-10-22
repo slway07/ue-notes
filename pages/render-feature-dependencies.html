@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen · Nanite · VSM — 무엇이 무엇 없이 돌아가나</title>
+<meta name="note-title" content="Lumen · Nanite · VSM — 무엇이 무엇 없이 돌아가나">
+<meta name="note-summary" content="UE5 에서 같이 소개된 기능들이라 한 묶음처럼 보이지만 대부분 서로 독립적이다. 딱 한 군데만 진짜 의존이 있다.">
+<meta name="note-tags" content="Rendering, Nanite, Lumen, Virtual Shadow Maps">
+<meta name="note-order" content="10">
+<meta name="note-category" content="렌더링">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none;cursor:pointer}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Lumen · Nanite · VSM — 무엇이 무엇 없이 돌아가나</h1>
+<p>UE5 에서 같이 소개된 기능들이라 한 묶음처럼 보이지만 대부분 서로 독립적이다. 딱 한 군데만 진짜 의존이 있다.</p>
+</header>
+
+<article>
+
+<h2>1. 왜 헷갈리는가</h2>
+
+<p>Lumen, Nanite, Virtual Shadow Maps, TSR, World Partition, HLOD. 이 여섯은 UE5 소개 자료에 늘 함께 나온다. 그래서 <b>하나를 끄면 다른 것도 못 쓰는 것 아닌가</b> 하는 인상을 받기 쉽다.</p>
+
+<p>실제로는 <b>대부분 서로를 모른다.</b> 코드를 열어 보면 include 조차 하지 않는 조합이 많다. 다만 <b>딱 한 쌍</b>에 진짜 의존이 있고, 그것이 가장 자주 오해되는 쌍이기도 하다.</p>
+
+<h2>2. 의존 지도</h2>
+
+<h3>그림 읽는 법</h3>
+
+<p>동그라미 여섯 개가 각 기능이다. <b>누르면 그 기능을 껐다 켰다</b> 할 수 있다. 선이 있으면 의존 관계가 있다는 뜻이고, 두 종류다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>굵은 실선</b></td><td><b>필수 의존.</b> 가리키는 쪽이 꺼지면 이쪽도 <b>같이 꺼진다</b></td></tr>
+<tr><td><b>가는 점선</b></td><td><b>선택적 활용.</b> 있으면 더 빠르거나 품질이 좋아지지만, 없어도 <b>다른 경로로 동작한다</b></td></tr>
+<tr><td><b>흐려진 동그라미</b></td><td>꺼진 기능. 직접 껐거나, 의존하던 것이 꺼져서 끌려 내려간 것</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+  <div class="stage"><canvas id="cvDeps" aria-label="여섯 기능의 의존 관계 지도. Virtual Shadow Maps 에서 Nanite 로만 굵은 실선이 있고, 나머지는 점선이거나 선이 없다. Nanite 를 끄면 Virtual Shadow Maps 도 같이 꺼진다."></canvas></div>
+  <p class="verdict" id="depsVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>Nanite 를 눌러 꺼 보라.</b> Virtual Shadow Maps 가 같이 흐려진다. 이것이 이 그림에서 유일한 연쇄다. 반대로 <b>World Partition 을 꺼 보면</b> 아무것도 따라 꺼지지 않는다 &mdash; 렌더링 기능들은 World Partition 을 전혀 모른다.</p>
+
+<h2>3. VSM 과 Nanite — 유일한 진짜 의존</h2>
+
+<p>가장 많이 오해되는 쌍이다. "Virtual Shadow Maps 는 Nanite 와 상관없다" 는 말도 돌고, "Nanite 가 있어야 쓴다" 는 말도 돈다. <b>둘 다 반쯤 맞다.</b> 질문을 둘로 나눠야 답이 갈린다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>질문</th><th>답</th></tr></thead>
+<tbody>
+<tr><td>VSM 을 쓰려면 <b>메시가 Nanite 여야</b> 하나?</td><td class="yn ok">아니다</td></tr>
+<tr><td>VSM 을 쓰려면 <b>Nanite 기능이 켜져 있어야</b> 하나?</td><td class="yn dep">그렇다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>엔진 코드가 그대로 말해 준다. VSM 사용 여부를 정하는 함수는 조건 세 개를 <b>모두</b> 요구한다.</p>
+
+<pre><code>bool UseVirtualShadowMaps(EShaderPlatform ShaderPlatform)
+{
+    return bVirtualShadowMapsEnabled                       // r.Shadow.Virtual.Enable
+        &amp;&amp; DoesPlatformSupportVirtualShadowMaps(ShaderPlatform)
+        &amp;&amp; DoesRuntimeSupportNanite(ShaderPlatform, true, true);
+}</code></pre>
+
+<p>그리고 가운데의 <code>DoesPlatformSupportVirtualShadowMaps</code> 안에 <b>또 Nanite 검사가 들어 있다.</b></p>
+
+<pre><code>return bIsProjectEnable                 // r.Shadow.Virtual.ProjectEnabled
+    &amp;&amp; DoesPlatformSupportNanite(Platform);</code></pre>
+
+<p>그래서 <b><code>r.Nanite.ProjectEnabled</code> 를 0 으로 두면 VSM 은 아예 켜지지 않는다.</b> 프로젝트 설정에서 Nanite 지원을 끄는 것과 같다.</p>
+
+<p>그런데도 "메시가 Nanite 일 필요는 없다" 가 동시에 참인 이유는, <b>일반 메시를 VSM 에 그려 넣는 경로가 따로 있기 때문</b>이다. <code>r.Shadow.Virtual.NonNanite.ProjectEnabled</code> 로 켜지는 이 경로 덕분에 Nanite 가 아닌 스태틱 메시·스켈레탈 메시도 그림자를 드리운다. VSM 코드에 <b>non-Nanite 전용 설정이 여러 개</b> 있는 것이 그 증거다.</p>
+
+<blockquote><b>정리.</b> VSM 이 요구하는 것은 <b>Nanite 라는 기능이 플랫폼·프로젝트에서 켜져 있을 것</b>이지, <b>장면의 메시가 Nanite 일 것</b>이 아니다. "Nanite 를 안 쓰는 프로젝트" 와 "Nanite 지원을 끈 프로젝트" 는 다르다.</blockquote>
+
+<h2>4. Lumen 과 Nanite — 선택적 활용</h2>
+
+<p>Lumen 은 Nanite 없이 동작한다. Lumen 의 플랫폼 지원을 판정하는 <code>DoesPlatformSupportLumenGI</code> 는 Nanite 를 전혀 검사하지 않는다.</p>
+
+<p>둘이 만나는 곳은 <b>Surface Cache 의 카드 캡처</b> 한 군데다. Lumen 은 장면을 작은 카드들로 찍어 두고 그걸로 간접광을 계산하는데, 이때</p>
+
+<ul>
+<li><b>Nanite 가 아닌 메시</b>는 일반 메시 드로우 커맨드로 카드에 그려진다 (<code>!Proxy-&gt;IsNaniteMesh()</code> 인 것들을 모아서 처리)</li>
+<li><b>Nanite 메시</b>는 따로 모아 Nanite 래스터 경로로 캡처한다. 이 경로는 <code>UseNanite(...) &amp;&amp; bAnyNaniteMeshes</code> 일 때만 돈다</li>
+</ul>
+
+<p>즉 Nanite 는 <b>빠른 길이 하나 더 생기는 것</b>이지 없으면 안 되는 것이 아니다.</p>
+
+<h2>5. Nanite 와 World Partition — 서로 모른다</h2>
+
+<p>이 둘 사이에는 <b>코드 의존이 양방향 모두 없다.</b> Nanite 렌더러 폴더 전체에서 <code>WorldPartition</code> 이라는 문자열이 한 번도 나오지 않고, World Partition 의 스트리밍 코어에도 Nanite 호출이 없다.</p>
+
+<p>둘이 스치는 곳은 <b>HLOD 쪽</b>뿐이다. HLOD 메시를 미리 데워 둘 때(<code>HLODRuntimeSubsystem</code>) Nanite 가 켜져 있으면 Nanite 리소스도 함께 웜업하고, HLOD 통계에 Nanite 삼각형 수를 적는 정도다. 전부 <b>있으면 하고 없으면 마는</b> 코드다.</p>
+
+<p>Nanite 는 <b>메시 하나를 어떻게 그릴지</b>의 문제이고, World Partition 은 <b>레벨의 어느 조각을 메모리에 올릴지</b>의 문제다. 다루는 층이 다르다.</p>
+
+<h2>6. HLOD 는 두 종류다</h2>
+
+<p>"HLOD 가 World Partition 에 의존하는가" 라는 질문에 하나로 답할 수 없다. <b>구현이 둘이기 때문이다.</b></p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th></th><th>레거시 HLOD</th><th>World Partition HLOD</th></tr></thead>
+<tbody>
+<tr><td>액터 클래스</td><td><code>ALODActor</code></td><td><code>AWorldPartitionHLOD</code></td></tr>
+<tr><td>어디 있나</td><td><code>Engine/Classes/Engine/LODActor.h</code></td><td><code>Engine/Public/WorldPartition/HLOD/HLODActor.h</code></td></tr>
+<tr><td>WP 의존</td><td class="yn ok">없다</td><td class="yn dep">있다</td></tr>
+<tr><td>설정 위치</td><td>World Settings 의 <code>HierarchicalLODSetup</code> 등</td><td><code>UHLODLayer</code> 에셋 + <code>UWorldPartition::DefaultHLODLayer</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>둘이 섞이지 않도록 엔진이 막아 두기까지 했다. World Settings 의 레거시 HLOD 설정들에는 <code>EditCondition = "WorldPartition == nullptr"</code> 이 붙어 있어서, <b>World Partition 맵에서는 아예 편집되지 않는다.</b></p>
+
+<h2>7. TSR 은 아무것도 요구하지 않는다</h2>
+
+<p>TSR 구현 파일은 Nanite·Lumen·VSM 헤더를 하나도 포함하지 않는다. 유일하게 Nanite 를 언급하는 곳은 <code>r.Nanite.Foliage</code> 값을 읽어 얇은 지오메트리 판정의 기본값을 정하는 부분과, 디버그 표시 플래그를 보는 부분뿐이다.</p>
+
+<p>TSR 은 <b>이미 그려진 화면을 받아 해상도를 올리는 단계</b>라서, 그 앞에서 무엇이 어떻게 그려졌는지는 알 필요가 없다.</p>
+
+<h2>8. 기본값은 어떻게 되어 있나</h2>
+
+<p>엔진 코드에 적힌 기본값이다. <b>새 프로젝트를 만들 때의 기본값은 템플릿이 따로 정하므로</b> 아래와 다를 수 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>기능</th><th>설정</th><th>엔진 기본값</th></tr></thead>
+<tbody>
+<tr><td>Lumen (GI)</td><td><code>r.DynamicGlobalIlluminationMethod</code></td><td>0 (없음)</td></tr>
+<tr><td>Lumen (반사)</td><td><code>r.ReflectionMethod</code></td><td>2 (화면 공간 반사)</td></tr>
+<tr><td>Virtual Shadow Maps</td><td><code>r.Shadow.Virtual.Enable</code><br><code>r.Shadow.Virtual.ProjectEnabled</code></td><td>0<br>1</td></tr>
+<tr><td>TSR</td><td><code>r.AntiAliasingMethod</code></td><td>4 (TSR)</td></tr>
+<tr><td>Nanite</td><td><code>r.Nanite.ProjectEnabled</code><br><code>r.Nanite</code></td><td>1<br>1</td></tr>
+<tr><td>World Partition</td><td><code>bNewMapsEnableWorldPartition</code></td><td>false</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>9. Nanite 를 끄면 메시는 어떻게 그려지나</h2>
+
+<p>Nanite 로 만든 스태틱 메시라도 Nanite 가 꺼져 있으면 <b>폴백 메시</b>로 그려진다. 엔진이 프록시를 만들 때 Nanite 사용 가능 여부를 보고, 안 되면 일반 <code>FStaticMeshSceneProxy</code> 를 만든다. 그래서 Nanite 를 끄는 것만으로 메시가 사라지지는 않는다 &mdash; 디테일이 줄어들 뿐이다.</p>
+
+<h2>10. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>UseVirtualShadowMaps</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1520~1527</td></tr>
+<tr><td><code>DoesPlatformSupportVirtualShadowMaps</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1498~1505</td></tr>
+<tr><td><code>DoesPlatformSupportNonNaniteVirtualShadowMaps</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1507~1514</td></tr>
+<tr><td><code>DoesRuntimeSupportNanite</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1425~1434</td></tr>
+<tr><td>Lumen 카드 캡처의 non-Nanite 경로</td><td><code>Engine/Source/Runtime/Renderer/Private/Lumen/LumenSceneCardCapture.cpp</code></td><td>776~784</td></tr>
+<tr><td>Lumen 카드 캡처의 Nanite 경로 조건</td><td><code>Engine/Source/Runtime/Renderer/Private/Lumen/LumenSceneRendering.cpp</code></td><td>2934</td></tr>
+<tr><td>HLOD Nanite 웜업 (선택적)</td><td><code>Engine/Source/Runtime/Engine/Private/WorldPartition/HLOD/HLODRuntimeSubsystem.cpp</code></td><td>211~215</td></tr>
+<tr><td><code>AWorldPartitionHLOD</code> 선언</td><td><code>Engine/Source/Runtime/Engine/Public/WorldPartition/HLOD/HLODActor.h</code></td><td>69</td></tr>
+<tr><td><code>ALODActor</code> 선언 (레거시)</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/LODActor.h</code></td><td>69</td></tr>
+<tr><td>레거시 HLOD 설정의 <code>EditCondition</code></td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/WorldSettings.h</code></td><td>706~724</td></tr>
+<tr><td>TSR 구현</td><td><code>Engine/Source/Runtime/Renderer/Private/PostProcess/TemporalSuperResolution.cpp</code></td><td>&mdash;</td></tr>
+<tr><td>Nanite 폴백 프록시</td><td><code>Engine/Source/Runtime/Engine/Private/StaticMeshSceneProxy.cpp</code></td><td>2967~2978</td></tr>
+<tr><td>안티앨리어싱 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/SceneView.cpp</code></td><td>237~244</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 — 위 표의 파일과 줄 번호 (UE 5.8).</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 여섯 기능이 서로를 필요로 하는지만 다뤘다. 각 기능이 내부에서 어떻게 동작하는지는 다루지 않았다.</p>
+</footer>
+
+</div>
+
+<script>
+/* 의존 지도 — 기능을 끄면 그것에 필수로 기대던 기능이 같이 꺼진다. */
+function initDepsFigure(){
+  if (!window.Viz) return;
+
+  // id, 이름, 화면 위치(0~1), 이 기능이 필수로 요구하는 것, 선택적으로 활용하는 것
+  var NODES = [
+    { id:'nanite', name:'Nanite',           sub:'메시 디테일',   x:0.50, y:0.26, needs:[],         uses:[] },
+    { id:'vsm',    name:'Virtual Shadow Maps', sub:'동적 그림자', x:0.18, y:0.26, needs:['nanite'], uses:[] },
+    { id:'lumen',  name:'Lumen',            sub:'간접광 · 반사',  x:0.82, y:0.26, needs:[],         uses:['nanite'] },
+    { id:'tsr',    name:'TSR',              sub:'업스케일',      x:0.18, y:0.74, needs:[],         uses:[] },
+    { id:'wp',     name:'World Partition',  sub:'레벨 스트리밍',  x:0.82, y:0.74, needs:[],         uses:[] },
+    { id:'hlod',   name:'HLOD (WP)',        sub:'원경 대체 메시', x:0.50, y:0.74, needs:['wp'],     uses:['nanite'] }
+  ];
+  var IDX = {};
+  for (var i = 0; i < NODES.length; i++) IDX[NODES[i].id] = NODES[i];
+
+  var off = {};   // 사용자가 직접 끈 것
+
+  // 직접 껐거나, 필수로 기대던 것이 꺼졌으면 꺼진 것으로 친다
+  function isOn(id){
+    if (off[id]) return false;
+    var n = IDX[id];
+    for (var k = 0; k < n.needs.length; k++){
+      if (!isOn(n.needs[k])) return false;
+    }
+    return true;
+  }
+
+  var v = Viz.view('cvDeps', function(w){ return w < 520 ? 400 : 330; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var pad = 16;
+    function X(n){ return pad + n.x * (w - pad * 2); }
+    function Y(n){ return pad + n.y * (h - pad * 2); }
+    var r = Math.max(24, Math.min(40, w / 16));
+
+    // 선 먼저
+    for (var i = 0; i < NODES.length; i++){
+      var n = NODES[i];
+      var lists = [[n.needs, true], [n.uses, false]];
+      for (var L = 0; L < 2; L++){
+        var arr = lists[L][0], required = lists[L][1];
+        for (var j = 0; j < arr.length; j++){
+          var t = IDX[arr[j]];
+          var live = isOn(n.id) && isOn(t.id);
+          ctx.strokeStyle = required ? (live ? c.warn : c.line) : c.line;
+          ctx.lineWidth = required ? 3 : 1.5;
+          if (!required) ctx.setLineDash([5, 5]);
+          ctx.beginPath();
+          ctx.moveTo(X(n), Y(n)); ctx.lineTo(X(t), Y(t));
+          ctx.stroke();
+          ctx.setLineDash([]);
+          if (required){
+            var mx = (X(n) + X(t)) / 2, my = (Y(n) + Y(t)) / 2;
+            Viz.text(ctx, '필수', mx, my - 10, live ? c.warn : c.dim, 10, 'center');
+          }
+        }
+      }
+    }
+
+    // 노드
+    for (var k = 0; k < NODES.length; k++){
+      var nd = NODES[k];
+      var on = isOn(nd.id);
+      var forced = !off[nd.id] && !on;      // 끌려 내려간 것
+      ctx.beginPath(); ctx.arc(X(nd), Y(nd), r, 0, Math.PI * 2);
+      ctx.fillStyle = on ? c.sf2 : c.sf;
+      ctx.globalAlpha = on ? 1 : 0.45;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = on ? c.accent : (forced ? c.warn : c.line);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      var col = on ? c.text : c.dim;
+      Viz.text(ctx, nd.name, X(nd), Y(nd) - 5, col, 11, 'center');
+      Viz.text(ctx, nd.sub, X(nd), Y(nd) + 10, c.dim, 9, 'center');
+      if (!on){
+        Viz.text(ctx, forced ? '같이 꺼짐' : '꺼짐', X(nd), Y(nd) + r + 13,
+                 forced ? c.warn : c.dim, 10, 'center');
+      }
+    }
+
+    v.__hit = NODES.map(function(n){ return { id:n.id, x:X(n), y:Y(n), r:r }; });
+  });
+
+  if (!v) return;
+
+  function verdict(){
+    var el = document.getElementById('depsVerdict');
+    if (!el) return;
+    var offList = [], forcedList = [];
+    for (var i = 0; i < NODES.length; i++){
+      var n = NODES[i];
+      if (off[n.id]) offList.push(n.name);
+      else if (!isOn(n.id)) forcedList.push(n.name);
+    }
+    if (offList.length === 0){
+      el.className = 'verdict';
+      el.textContent = '전부 켜진 상태다. 동그라미를 눌러 꺼 보면 무엇이 같이 꺼지는지 볼 수 있다.';
+    } else if (forcedList.length === 0){
+      el.className = 'verdict ok';
+      el.textContent = offList.join(', ') + ' 를 껐지만 따라 꺼진 것이 없다. 이 기능에 필수로 기대는 기능이 없다는 뜻이다.';
+    } else {
+      el.className = 'verdict bad';
+      el.textContent = offList.join(', ') + ' 를 끄자 ' + forcedList.join(', ') +
+        ' 도 같이 꺼졌다. 필수 의존이라 선택지가 없다.';
+    }
+  }
+
+  v.cv.addEventListener('pointerdown', function(e){
+    if (!v.__hit) return;
+    var rect = v.cv.getBoundingClientRect();
+    if (!(rect.width > 0)) return;
+    var x = (e.clientX - rect.left) * (v.w / rect.width);
+    var y = (e.clientY - rect.top) * (v.h / rect.height);
+    for (var i = 0; i < v.__hit.length; i++){
+      var hcell = v.__hit[i];
+      var dx = x - hcell.x, dy = y - hcell.y;
+      if (dx * dx + dy * dy <= hcell.r * hcell.r){
+        off[hcell.id] = !off[hcell.id];
+        v.render(); verdict();
+        break;
+      }
+    }
+    e.preventDefault();
+  });
+
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initDepsFigure);
+else initDepsFigure();
+</script>
+
+</body>
+</html>
