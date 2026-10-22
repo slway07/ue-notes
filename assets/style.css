@@ -357,3 +357,67 @@ details.cat .toc a {
 }
 
 details.cat .toc a:active { background: var(--surface-2); }
+
+/* ── 그림 패널: 변수 슬라이더 + 캔버스 (assets/viz.js 와 짝) ── */
+.panel {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin: 0 0 22px;
+  background: var(--surface);
+}
+.sl {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 8px;
+}
+.sl label {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.82rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.sl output {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.92rem;
+  color: var(--text);
+  min-width: 5.4em;
+  text-align: right;
+}
+.sl input[type=range] { width: 100%; }
+.hint {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: -2px 0 12px;
+}
+.verdict {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  background: var(--surface-2);
+}
+.verdict.ok { color: var(--accent); }
+.verdict.bad { color: var(--warn); }
+.try {
+  border-left: 3px solid var(--accent);
+  padding: 2px 0 2px 12px;
+  margin: 14px 0;
+  font-size: 0.9rem;
+}
+.small { font-size: 0.78rem; color: var(--text-dim); }
+.nextprev {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+@media (max-width: 460px) {
+  .sl { grid-template-columns: auto 1fr; }
+  .sl output { grid-column: 2; text-align: left; }
+}

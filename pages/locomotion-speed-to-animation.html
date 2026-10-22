@@ -23,6 +23,7 @@
 .tablewrap{overflow-x:auto;margin:0 0 16px}
 .tablewrap table{margin:0;min-width:520px}
 </style>
+<script src="../assets/viz.js" defer></script>
 </head>
 <body>
 <div class="wrap">
@@ -139,6 +140,22 @@ if (Owner)
 <p>이 값을 켜면 캐릭터가 <b>컨트롤러가 원하는 쪽</b>을 본다. 몸은 그 방향을 유지한 채 옆이나 뒤로도 갈 수 있으므로 Direction 이 -180~180 을 오간다. 옆걸음과 뒷걸음이 여기서 생긴다.</p>
 
 <p>그래서 <b>스트레이프가 필요한 게임은 후자</b>를 쓰고, 이때는 Direction 축이 실제로 쓰이므로 <b>BlendSpace 도 2D</b> 가 필요해진다. 전자는 Direction 이 거의 0 이라 가로축이 거의 쓰이지 않는다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sRot">RotationRate (Yaw)</label>
+    <input type="range" id="sRot" min="45" max="900" step="15" value="360">
+    <output id="oRot">360 &deg;/s</output>
+  </div>
+  <p class="hint">몸이 1초에 돌 수 있는 각도. <b>어디 있나</b> &mdash; <code>UCharacterMovementComponent</code> 의 프로퍼티. 캐릭터 BP → <b>CharacterMovement</b> 컴포넌트 → 디테일 패널 <b>Character Movement (Rotation Settings)</b>. 기본값은 <code>FRotator(0, 360, 0)</code> 으로 Yaw 만 360 이다.</p>
+
+  <div class="stage"><canvas id="cvRot" aria-label="위에서 본 캐릭터 둘. 같은 입력 방향이 천천히 돌 때, 왼쪽은 몸이 가는 쪽을 따라 돌아 Direction 이 0 에 수렴하고, 오른쪽은 몸이 조준 방향을 유지해 Direction 이 입력 각도를 그대로 따라간다."></canvas></div>
+
+  <p class="verdict" id="rotVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <code>RotationRate</code> 를 45 까지 내려 봐라. 왼쪽 캐릭터의 Direction 이 0 에 붙어 있지 못하고 출렁인다. <b>몸이 입력을 따라잡지 못하는 동안에는 왼쪽도 Direction 이 0 이 아니다</b> &mdash; 급선회할 때 옆걸음 애니메이션이 잠깐 섞이는 이유가 이것이다.</p>
+
 
 <h2>6. 상황 하나로 따라가 보기</h2>
 
@@ -727,6 +744,99 @@ if (Owner)
 
   refresh();
   view.resize();
+})();
+</script>
+
+
+<script>
+/* 캐릭터가 도는 두 방식 — 같은 입력을 두 모드에 동시에 넣어 비교한다. */
+(function(){
+  if (!window.Viz) return;
+  var rate = 360;                      // RotationRate (deg/s)
+  var bodyA = 0, bodyB = 0;            // 각 모드의 현재 몸 방향 (deg, 0 = 위)
+  var AIM = 0;                         // 컨트롤러가 원하는 방향 = 위쪽 고정
+
+  function approach(cur, target, maxStep){
+    var d = Viz.wrap180(target - cur);
+    if (Math.abs(d) <= maxStep) return target;
+    return cur + (d > 0 ? maxStep : -maxStep);
+  }
+
+  var v = Viz.view('cvRot', function(w){ return w < 560 ? 420 : 250; }, function(v){
+    var c = v.c, ctx = v.ctx;
+    var narrow = v.w < 560;
+    var inputDeg = Viz.wrap180(v.t * 55);        // 입력 방향이 천천히 한 바퀴 돈다
+
+    var cells = narrow
+      ? [{x:0, y:0, w:v.w, h:v.h/2}, {x:0, y:v.h/2, w:v.w, h:v.h/2}]
+      : [{x:0, y:0, w:v.w/2, h:v.h}, {x:v.w/2, y:0, w:v.w/2, h:v.h}];
+
+    var info = [
+      { title: 'bOrientRotationToMovement', body: bodyA, color: c.accent },
+      { title: 'bUseControllerDesiredRotation', body: bodyB, color: c.warn }
+    ];
+
+    for (var i = 0; i < 2; i++){
+      var cell = cells[i], o = info[i];
+      var cx = cell.x + cell.w / 2;
+      var cy = cell.y + cell.h / 2 + 8;
+      var r = Math.min(cell.w, cell.h) * 0.17;
+      if (!(r > 0)) return;
+
+      // 칸 구분선
+      if (i === 1){
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (narrow){ ctx.moveTo(8, cell.y); ctx.lineTo(v.w - 8, cell.y); }
+        else { ctx.moveTo(cell.x, 8); ctx.lineTo(cell.x, v.h - 8); }
+        ctx.stroke();
+      }
+
+      Viz.text(ctx, o.title, cx, cell.y + 16, o.color, 11, 'center');
+
+      // 입력 방향 (점선 화살표)
+      var ia = (inputDeg - 90) * Math.PI / 180;
+      ctx.setLineDash([4, 4]);
+      Viz.arrow(ctx, cx, cy, cx + Math.cos(ia) * (r + 42), cy + Math.sin(ia) * (r + 42), c.dim, 1.5);
+      ctx.setLineDash([]);
+      Viz.text(ctx, '입력', cx + Math.cos(ia) * (r + 56), cy + Math.sin(ia) * (r + 56), c.dim, 11, 'center');
+
+      // 몸
+      Viz.topDownBody(ctx, cx, cy, r, o.body, c, o.color);
+
+      // Direction = 입력과 몸이 벌어진 각
+      var dir = Viz.wrap180(inputDeg - o.body);
+      var dtxt = (dir > 0 ? '+' : '') + Math.round(dir) + '°';
+      Viz.text(ctx, 'Direction ' + dtxt, cx, cell.y + cell.h - 16, o.color, 13, 'center');
+    }
+  });
+
+  if (!v) return;
+
+  Viz.animate(v, function(v){
+    var step = rate / 60;
+    var inputDeg = Viz.wrap180(v.t * 55);
+    bodyA = approach(bodyA, inputDeg, step);     // 가는 쪽을 본다
+    bodyB = approach(bodyB, AIM, step);          // 컨트롤러가 원하는 쪽을 본다
+    var dirA = Math.abs(Viz.wrap180(inputDeg - bodyA));
+    var el = document.getElementById('rotVerdict');
+    if (el){
+      if (dirA < 6){
+        el.className = 'verdict ok';
+        el.textContent = '왼쪽: 몸이 입력을 따라잡아 Direction 이 0 근처다. 앞으로 걷는 애니메이션만 쓰면 된다.  /  오른쪽: 몸이 조준 방향에 고정돼 Direction 이 입력 각도를 그대로 따라간다. 옆걸음·뒷걸음 애니메이션이 필요하다.';
+      } else {
+        el.className = 'verdict bad';
+        el.textContent = '왼쪽: 지금 몸이 입력을 ' + Math.round(dirA) + '° 만큼 못 따라가고 있다. RotationRate 가 낮을수록 이 각이 커지고, 그동안은 옆걸음 애니메이션이 섞인다.  /  오른쪽: 몸은 조준 방향 그대로다.';
+      }
+    }
+  });
+
+  var sl = document.getElementById('sRot');
+  if (sl) sl.addEventListener('input', function(e){
+    rate = Number(e.target.value) || 360;
+    var out = document.getElementById('oRot');
+    if (out) out.textContent = rate + ' °/s';
+  });
 })();
 </script>
 
