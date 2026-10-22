@@ -127,6 +127,60 @@ if (Owner)
 
 <p>그림의 가장자리 600 은 <code>MaxWalkSpeed</code> 기본값과 같은 숫자다.</p>
 
+<h3>그림 읽는 법</h3>
+
+<p>가로가 시간, 세로가 속도인 <b>그래프</b>다. 입력을 2초 넣었다가 2초 떼는 것을 반복한다. 올라가는 구간이 가속, 내려가는 구간이 감속이다. 아래 세 값은 엔진이 실제로 쓰는 계산식에 그대로 들어간다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sAcc">MaxAcceleration</label>
+    <input type="range" id="sAcc" min="128" max="4096" step="64" value="2048">
+    <output id="oAcc">2048</output>
+  </div>
+  <div class="sl">
+    <label for="sBrk">BrakingDecelerationWalking</label>
+    <input type="range" id="sBrk" min="0" max="4096" step="64" value="2048">
+    <output id="oBrk">2048</output>
+  </div>
+  <div class="sl">
+    <label for="sFri">GroundFriction</label>
+    <input type="range" id="sFri" min="0" max="16" step="0.5" value="8">
+    <output id="oFri">8.0</output>
+  </div>
+  <p class="hint">셋 다 <code>UCharacterMovementComponent</code> 의 프로퍼티다. 디테일 패널에서 <code>MaxAcceleration</code> 은 <b>Character Movement (General Settings)</b>, 나머지 둘은 <b>Character Movement: Walking</b> 에 있다.</p>
+
+  <div class="stage"><canvas id="cvAccel" aria-label="시간에 따른 속도 그래프. 입력을 넣으면 직선으로 올라가고, 떼면 가파른 곡선으로 떨어진다. 가속 시간과 정지 시간이 숫자로 표시된다."></canvas></div>
+
+  <p class="verdict" id="accelVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 세 값을 기본값(2048 / 2048 / 8)에 두고 올라가는 선과 내려가는 선을 비교해 봐라. <b>가속과 감속 숫자가 같은데도 내려오는 쪽이 훨씬 가파르다.</b> 이제 <code>GroundFriction</code> 만 0 으로 내려 보면 두 선의 기울기가 같아진다. 왜 그런지는 아래에 있다.</p>
+
+<h3>왜 멈출 때가 더 빠른가</h3>
+
+<p>가속과 감속은 <b>서로 다른 함수</b>에서 처리된다. 가속은 단순하다.</p>
+
+<pre><code>Velocity += Acceleration * DeltaTime;        // 일정한 가속
+Velocity = Velocity.GetClampedToMaxSize(MaxInputSpeed);</code></pre>
+
+<p>가속 중에도 마찰이 쓰이기는 하지만 <b>속도의 크기를 줄이지 않는다.</b> 엔진 주석이 그 이유를 적어 두었다 &mdash; 마찰은 <b>방향을 바꾸는 능력</b>에만 관여한다. 그래서 직선으로 달리는 동안 <code>GroundFriction</code> 을 올려도 최고 속도에 닿는 시간은 그대로다.</p>
+
+<p>감속은 다르다. <code>ApplyVelocityBraking</code> 안에서 <b>두 힘이 동시에</b> 걸린다.</p>
+
+<pre><code>Friction = Friction * BrakingFrictionFactor;                  // 기본 8.0 x 2.0 = 16
+Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
+
+<ul>
+<li><code>RevAccel</code> 은 <code>BrakingDecelerationWalking</code> 만큼의 <b>일정한</b> 감속이다 (기본 2048)</li>
+<li>거기에 <b>속도에 비례하는</b> <code>-Friction x Velocity</code> 가 더해진다. 빠를수록 더 세게 잡아당긴다</li>
+<li><code>BrakingFrictionFactor</code> 기본값이 <b>2.0</b> 이라 <code>GroundFriction</code> 8.0 은 실제로 <b>16</b> 으로 쓰인다. 엔진 주석은 이 값을 "historical value" 라고 적고 있다</li>
+</ul>
+
+<p>600cm/s 로 달리다 입력을 떼는 순간을 숫자로 보면 이렇다. 마찰 항이 <code>16 x 600 = 9600</code>, 여기에 고정 감속 2048 을 더해 <b>합이 11,648cm/s²</b> 다. 가속은 2048 뿐이었다. <b>같은 숫자를 넣어도 멈추는 쪽이 대여섯 배 강하다.</b></p>
+
+<p class="note">속도가 <b>10cm/s</b>(<code>BRAKE_TO_STOP_VELOCITY</code>) 아래로 내려오면 엔진이 속도를 0 으로 끊는다. 아주 느리게 영원히 미끄러지는 일이 없도록 하는 장치다.</p>
+
+
 <h2>5. 캐릭터는 어느 쪽을 보는가</h2>
 
 <p>캐릭터의 몸이 어느 쪽을 향하느냐에 따라 Direction 의 쓰임이 달라진다. 회전 속도 값인 <code>RotationRate</code> 의 기본값은 <code>FRotator(0, 360, 0)</code> 로, Yaw 만 초당 360 도다. 방향을 정하는 스위치는 두 개다.</p>
@@ -873,6 +927,135 @@ function initRotFigure(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRotFigure);
 else initRotFigure();
+</script>
+
+
+<script>
+/* 가속과 감속 — UCharacterMovementComponent 의 계산식을 그대로 옮겼다.
+   가속: Velocity += Acceleration * dt   (마찰은 크기를 줄이지 않는다)
+   감속: ApplyVelocityBraking — Velocity += (-Friction*BrakingFrictionFactor*Velocity + RevAccel) * dt */
+function initAccelFigure(){
+  if (!window.Viz) return;
+  var MAX_SPEED = 600;          // MaxWalkSpeed 기본값
+  var BRAKE_FACTOR = 2.0;       // BrakingFrictionFactor 기본값
+  var SUB_STEP = 1 / 33;        // BrakingSubStepTime 기본값
+  var STOP_V = 10;              // BRAKE_TO_STOP_VELOCITY
+
+  var P = { accel: 2048, brake: 2048, friction: 8 };
+  var sim = { v: 0, phase: 0, hist: [], tAccel: null, tBrake: null, mark: 0 };
+
+  var SPAN = 4.0;               // 그래프에 보이는 시간 (초)
+  var ON = 2.0;                 // 입력을 넣는 시간
+
+  function stepSim(dt, nowOn){
+    if (nowOn){
+      sim.v += P.accel * dt;
+      if (sim.v > MAX_SPEED) sim.v = MAX_SPEED;
+    } else {
+      var f = Math.max(0, P.friction * BRAKE_FACTOR);
+      var rem = dt;
+      for (var i = 0; i < 8; i++){            // 루프 경계는 상수
+        if (rem <= 0) break;
+        var step = (rem > SUB_STEP && f > 0) ? Math.min(SUB_STEP, rem * 0.5) : rem;
+        rem -= step;
+        sim.v = sim.v + (-f * sim.v - P.brake) * step;
+        if (sim.v <= 0){ sim.v = 0; break; }
+      }
+      if (sim.v <= STOP_V) sim.v = 0;
+    }
+  }
+
+  var v = Viz.view('cvAccel', function(w){ return w < 520 ? 230 : 200; }, function(v){
+    var c = v.c, ctx = v.ctx;
+    var padL = 46, padR = 12, padT = 26, padB = 26;
+    var gw = v.w - padL - padR, gh = v.h - padT - padB;
+    if (!(gw > 0) || !(gh > 0)) return;
+
+    // 축
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padL, padT); ctx.lineTo(padL, padT + gh); ctx.lineTo(padL + gw, padT + gh); ctx.stroke();
+    Viz.text(ctx, String(MAX_SPEED), padL - 6, padT + 2, c.dim, 10, 'right');
+    Viz.text(ctx, '0', padL - 6, padT + gh, c.dim, 10, 'right');
+    Viz.text(ctx, '속도', padL - 6, padT - 14, c.dim, 10, 'right');
+    Viz.text(ctx, '시간 →', padL + gw, padT + gh + 14, c.dim, 10, 'right');
+
+    // 입력이 켜진 구간을 바탕색으로
+    var n = sim.hist.length;
+    if (n > 1){
+      for (var i = 1; i < n; i++){
+        var h0 = sim.hist[i - 1], h1 = sim.hist[i];
+        if (!h0.on) continue;
+        var x0 = padL + (h0.t / SPAN) * gw, x1 = padL + (h1.t / SPAN) * gw;
+        ctx.fillStyle = c.sf2;
+        ctx.fillRect(x0, padT, Math.max(1, x1 - x0), gh);
+      }
+      // 속도 곡선
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 2; ctx.beginPath();
+      for (var k = 0; k < n; k++){
+        var h = sim.hist[k];
+        var x = padL + (h.t / SPAN) * gw;
+        var y = padT + gh - (h.v / MAX_SPEED) * gh;
+        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    Viz.text(ctx, '배경이 진한 구간 = 입력을 넣고 있는 동안', padL, padT - 14, c.dim, 10);
+    Viz.text(ctx, Math.round(sim.v) + ' cm/s', padL + gw, padT - 14, c.text, 12, 'right');
+  });
+
+  if (!v) return;
+
+  Viz.animate(v, function(v){
+    var dt = 1 / 60;
+    var cycle = (v.t % (ON * 2));
+    var nowOn = cycle < ON;
+    var prevOn = sim.phase;
+
+    // 구간이 바뀌는 순간 시간 재기 시작
+    if (nowOn && !prevOn){ sim.mark = v.t; sim.tAccel = null; }
+    if (!nowOn && prevOn){ sim.mark = v.t; sim.tBrake = null; }
+    sim.phase = nowOn;
+
+    var before = sim.v;
+    stepSim(dt, nowOn);
+    if (nowOn && sim.tAccel === null && sim.v >= MAX_SPEED - 0.5) sim.tAccel = v.t - sim.mark;
+    if (!nowOn && sim.tBrake === null && before > 0 && sim.v === 0) sim.tBrake = v.t - sim.mark;
+
+    sim.hist.push({ t: cycle, v: sim.v, on: nowOn });
+    if (cycle < 0.02) sim.hist = [{ t: cycle, v: sim.v, on: nowOn }];
+    if (sim.hist.length > 400) sim.hist.shift();     // 길이 상한
+
+    var el = document.getElementById('accelVerdict');
+    if (el){
+      var a = sim.tAccel, b = sim.tBrake;
+      var fr = (P.friction * BRAKE_FACTOR);
+      var pull = Math.round(fr * MAX_SPEED + P.brake);
+      el.className = 'verdict' + (b !== null && a !== null && b < a ? ' bad' : '');
+      el.textContent =
+        '0 → ' + MAX_SPEED + ' 가속 ' + (a === null ? '측정 중' : a.toFixed(2) + '초') +
+        '   /   ' + MAX_SPEED + ' → 0 정지 ' + (b === null ? '측정 중' : b.toFixed(2) + '초') +
+        '   — 최고속에서 멈출 때 걸리는 힘은 ' +
+        '마찰 ' + fr + '×' + MAX_SPEED + ' + 감속 ' + P.brake + ' = ' + pull + ' cm/s², ' +
+        '가속은 ' + P.accel + ' 뿐이다.';
+    }
+  });
+
+  function bind(id, outId, key, fmt){
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function(e){
+      P[key] = Number(e.target.value) || 0;
+      var o = document.getElementById(outId);
+      if (o) o.textContent = fmt ? fmt(P[key]) : String(P[key]);
+    });
+  }
+  bind('sAcc', 'oAcc', 'accel');
+  bind('sBrk', 'oBrk', 'brake');
+  bind('sFri', 'oFri', 'friction', function(x){ return x.toFixed(1); });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initAccelFigure);
+else initAccelFigure();
 </script>
 
 </body>
