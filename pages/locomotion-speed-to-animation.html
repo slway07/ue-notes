@@ -375,6 +375,28 @@ Velocity = Velocity + ((-Friction) * Velocity + RevAccel) * dt;</code></pre>
 
 <p>평소 이동은 캡슐이 옮기고, 공격·구르기 같은 동작은 애니메이션이 위치를 옮기는 편이 자연스럽다. 어느 쪽을 쓸지 정하는 값이 <code>ERootMotionMode</code> 다.</p>
 
+<h3>그림 읽는 법</h3>
+
+<p>두 캐릭터에게 <b>같은 공격 동작</b>을 같은 시점에 시킨다. 왼쪽은 캡슐이 옮기고, 오른쪽은 애니메이션이 옮긴다. 바닥의 <b>흐린 자취</b>가 지나온 길이고, 위의 띠는 <b>공격 몽타주가 재생되는 구간</b>이다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sLunge">공격 동작에 담긴 전진량</label>
+    <input type="range" id="sLunge" min="0" max="250" step="10" value="150">
+    <output id="oLunge">150 cm</output>
+  </div>
+  <p class="hint">애니메이터가 공격 모션을 만들 때 루트 본을 얼마나 앞으로 뺐는지. 이 값은 <b>애니메이션 에셋 안에</b> 들어 있고 코드에 없다.</p>
+
+  <div class="stage"><canvas id="cvRoot" aria-label="같은 공격 동작을 하는 두 캐릭터. 왼쪽은 캡슐이 일정 속도로 옮겨 공격 중에도 미끄러지듯 나아가고, 오른쪽은 애니메이션에 담긴 전진량만큼 훅 나아갔다 멈춘다."></canvas></div>
+
+  <p class="verdict" id="rootVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 전진량을 0 으로 내려 보라. 오른쪽 캐릭터는 공격 중에 <b>제자리에 선다.</b> 애니메이션이 위치를 정하기 때문에, 에셋에 전진이 없으면 아무리 입력을 넣어도 안 움직인다. 반대로 왼쪽은 전진량과 무관하게 늘 같은 속도로 나아간다 &mdash; <b>애니메이션이 무엇이든 코드가 정한 대로 간다.</b></p>
+
+<p>그래서 둘을 섞어 쓴다. 평소 이동은 캡슐이 맡고, 공격·구르기처럼 <b>동작마다 이동 거리가 달라야 하는 것</b>만 루트 모션으로 맡긴다. 기본값 <code>RootMotionFromMontagesOnly</code> 가 정확히 그 구성이다 &mdash; 몽타주로 재생되는 것만 루트 모션을 꺼내 쓴다.</p>
+
+
 <div class="tablewrap">
 <table>
 <thead><tr><th>값</th><th>줄</th><th>주석의 뜻</th></tr></thead>
@@ -1285,7 +1307,7 @@ function initSyncFigure(){
       ctx.beginPath(); ctx.ellipse(fx, fy, 7, 3.5, 0, 0, Math.PI * 2);
       ctx.fillStyle = c.accent; ctx.fill();
     }
-    Viz.text(ctx, '섯인 결과', pad, groundY - 66, c.dim, 11);
+    Viz.text(ctx, '섞인 결과', pad, groundY - 66, c.dim, 11);
     Viz.text(ctx, '발 벌림 ' + Math.round(reach * 2), w - pad, groundY - 66, reach * 2 < 30 ? c.warn : c.dim, 11, 'right');
   });
 
@@ -1304,7 +1326,7 @@ function initSyncFigure(){
     } else {
       el.className = 'verdict bad';
       el.textContent = '두 애니메이션이 각자 흐른다. 접지 시점이 계속 어긋나므로 ' +
-        '섯은 결과의 발 벌림이 좌아들고, 걸음이 아니라 제자리에서 떨리는 모양이 된다.';
+        '섞은 결과의 발 벌림이 줄어들고, 걸음이 아니라 제자리에서 떨리는 모양이 된다.';
     }
   }
 
@@ -1329,6 +1351,133 @@ function initSyncFigure(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSyncFigure);
 else initSyncFigure();
+</script>
+
+
+<script>
+/* 루트 모션 — 같은 공격 동작을 캡슐이 옮길 때와 애니메이션이 옮길 때. */
+function initRootFigure(){
+  if (!window.Viz) return;
+  var P = { lunge: 150 };
+  var CYCLE = 3.0;          // 3초마다 공격
+  var ATTACK = 0.8;         // 공격 몽타주 길이
+  var WALK_SPEED = 180;     // 캡슐 구동 쪽의 이동 속도 (cm/s)
+  var PX = 0.5;
+
+  // 공격 동작 안에서의 전진 진행률 (0~1). 앞쪽에서 빠르게, 끝에서 멈춘다.
+  function lungeCurve(u){
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    return 1 - Math.pow(1 - u, 3);
+  }
+
+  var v = Viz.view('cvRoot', function(w){ return w < 560 ? 330 : 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var narrow = w < 560;
+    var cells = narrow
+      ? [{x:0,y:0,w:w,h:h/2}, {x:0,y:h/2,w:w,h:h/2}]
+      : [{x:0,y:0,w:w/2,h:h}, {x:w/2,y:0,w:w/2,h:h}];
+
+    var cyc = v.t % CYCLE;
+    var attacking = cyc < ATTACK;
+    var u = attacking ? (cyc / ATTACK) : 1;
+
+    for (var i = 0; i < 2; i++){
+      var cell = cells[i];
+      var isRoot = (i === 1);
+      var title = isRoot ? '루트 모션이 옮긴다' : '캡슐이 옮긴다';
+      var sub = isRoot ? 'RootMotionFromMontagesOnly' : 'Acceleration / Velocity';
+      var col = isRoot ? c.warn : c.accent;
+
+      if (i === 1){
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (narrow){ ctx.moveTo(8, cell.y); ctx.lineTo(w - 8, cell.y); }
+        else { ctx.moveTo(cell.x, 8); ctx.lineTo(cell.x, h - 8); }
+        ctx.stroke();
+      }
+
+      Viz.text(ctx, title, cell.x + 12, cell.y + 16, col, 12);
+      Viz.text(ctx, sub, cell.x + 12, cell.y + 32, c.dim, 10);
+
+      // 몽타주 재생 구간 띠
+      var tx = cell.x + 12, tw = cell.w - 24;
+      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, tx, cell.y + 44, tw, 8, 4); ctx.fill();
+      ctx.fillStyle = attacking ? col : c.line;
+      Viz.roundRect(ctx, tx, cell.y + 44, tw * (ATTACK / CYCLE), 8, 4); ctx.fill();
+      var px = tx + tw * (cyc / CYCLE);
+      ctx.strokeStyle = c.text; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(px, cell.y + 40); ctx.lineTo(px, cell.y + 56); ctx.stroke();
+      Viz.text(ctx, attacking ? '공격 중' : '대기', tx + tw, cell.y + 36, attacking ? col : c.dim, 10, 'right');
+
+      // 이동 거리 계산
+      var dist;
+      if (isRoot){
+        dist = P.lunge * lungeCurve(u);          // 애니메이션이 정한다
+      } else {
+        dist = WALK_SPEED * Math.min(cyc, ATTACK); // 코드가 정한 속도로 간다
+      }
+
+      var groundY = cell.y + cell.h - 34;
+      var x0 = cell.x + 34;
+      var maxD = Math.max(60, cell.w - 90);
+      var scale = Math.min(PX, maxD / Math.max(1, Math.max(P.lunge, WALK_SPEED * ATTACK)));
+
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cell.x + 12, groundY); ctx.lineTo(cell.x + cell.w - 12, groundY); ctx.stroke();
+
+      // 지나온 자취
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.35; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x0, groundY - 2); ctx.lineTo(x0 + dist * scale, groundY - 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // 캐릭터 (공격 중에는 팔을 뻗은 모양)
+      var cx2 = x0 + dist * scale;
+      var hip = groundY - 42;
+      ctx.strokeStyle = c.text; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2, hip - 22); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx2 + 2, hip - 30, 6, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+      // 다리
+      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2 - 9, groundY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx2, hip); ctx.lineTo(cx2 + 9, groundY); ctx.stroke();
+      // 팔 — 공격 중이면 앞으로
+      ctx.strokeStyle = attacking ? col : c.dim;
+      ctx.beginPath(); ctx.moveTo(cx2, hip - 16);
+      if (attacking) ctx.lineTo(cx2 + 22, hip - 20); else ctx.lineTo(cx2 + 6, hip - 2);
+      ctx.stroke();
+
+      Viz.text(ctx, '이동 ' + Math.round(dist) + 'cm', cell.x + cell.w - 12, groundY + 18, c.dim, 11, 'right');
+    }
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var el = document.getElementById('rootVerdict');
+    if (!el) return;
+    var capsule = Math.round(WALK_SPEED * ATTACK);
+    if (P.lunge === 0){
+      el.className = 'verdict bad';
+      el.textContent = '전진량이 0 이라 오른쪽은 공격 중에 제자리에 선다. 애니메이션이 위치를 정하므로, ' +
+        '에셋에 전진이 없으면 코드가 무엇을 하든 움직이지 않는다. 왼쪽은 여전히 ' + capsule + 'cm 나아간다.';
+    } else {
+      el.className = 'verdict';
+      el.textContent = '공격 한 번에 왼쪽은 ' + capsule + 'cm (속도 × 시간), 오른쪽은 ' + P.lunge + 'cm (애니메이션에 담긴 값) 나아간다. ' +
+        '오른쪽은 동작마다 거리가 다를 수 있고, 왼쪽은 어떤 동작이든 같은 속도로 간다.';
+    }
+  }
+
+  var sl = document.getElementById('sLunge');
+  if (sl) sl.addEventListener('input', function(e){
+    P.lunge = Number(e.target.value) || 0;
+    document.getElementById('oLunge').textContent = P.lunge + ' cm';
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initRootFigure);
+else initRootFigure();
 </script>
 
 </body>
