@@ -445,3 +445,16 @@ details.cat .toc a:active { background: var(--surface-2); }
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* 그림이 올라가는 자리. 모든 페이지가 함께 쓴다 (assets/viz.js 와 짝) */
+.stage {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin: 0 0 12px;
+}
+.stage canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}

@@ -93,6 +93,26 @@ Get Mesh → Get Anim Instance → Link Anim Class Layers
 
 <p>되돌릴 때는 <code>UnlinkAnimClassLayers</code> 를 쓴다. 자세한 시그니처는 10절 표에 있다.</p>
 
+<h3>그림 읽는 법</h3>
+
+<p>버튼으로 <b>들고 있는 것</b>을 바꾼다. 왼쪽은 화면에 나오는 캐릭터이고, <b>하반신은 바뀌지 않고 상반신만</b> 바뀌는 것을 보면 된다. 오른쪽은 그때 메모리에 올라와 있는 <code>UAnimInstance</code> 객체들이다 &mdash; 레이어를 끼울 때마다 상자가 하나씩 생긴다.</p>
+
+<div class="panel">
+  <div class="ctl" id="wpTabs">
+    <button type="button" data-w="0" aria-pressed="true">맨손</button>
+    <button type="button" data-w="1" aria-pressed="false">소총</button>
+    <button type="button" data-w="2" aria-pressed="false">도끼</button>
+  </div>
+  <p class="hint">무기를 바꾸는 코드가 하는 일은 <code>LinkAnimClassLayers(해당 ABP 클래스)</code> 호출 하나다.</p>
+
+  <div class="stage"><canvas id="cvSwap" aria-label="왼쪽에 캐릭터, 오른쪽에 메모리에 올라온 AnimInstance 객체 목록. 무기를 바꾸면 상반신 포즈와 레이어 인스턴스가 바뀐다."></canvas></div>
+
+  <p class="verdict" id="swapVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 버튼을 눌러 가며 오른쪽 상자 개수를 보라. <b>메인 ABP 는 그대로 하나</b> 이고, 레이어 쪽만 교체된다. 레이어를 쓰지 않으면 상자는 하나뿐이지만, 상반신 동작 전부가 그 하나 안에 들어간다. 레이어를 쓰면 <b>상자가 하나 늘어나는 대신</b> 쓰지 않는 무기의 로직은 메모리에 올라오지 않는다. 이것이 6절에서 말한 비용과 이득의 맞바꿈이다.</p>
+
+
 <h2>4. 두 가지 노드: Linked Anim Graph 와 Linked Anim Layer</h2>
 
 <p>에디터의 애님 그래프에는 이름이 비슷한 노드가 둘 있다. <code>Linked Anim Graph</code> 와 <code>Linked Anim Layer</code> 다. 둘은 별개의 노드가 아니라 <b>상속 관계</b>다. 레이어 노드는 그래프 노드를 그대로 상속하고, 필드를 <b>두 개만</b> 더한다.</p>
@@ -457,6 +477,134 @@ function initBoneFigure(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBoneFigure);
 else initBoneFigure();
+</script>
+
+
+<script>
+/* 레이어 교체 — 상반신만 바뀌고, 그때마다 UAnimInstance 객체가 하나 교체된다. */
+function initSwapFigure(){
+  if (!window.Viz) return;
+  var WEAPONS = [
+    { name: '맨손',  cls: null,              arm: 'relax' },
+    { name: '소총',  cls: 'ABP_Rifle_Layer', arm: 'aim'   },
+    { name: '도끼',  cls: 'ABP_Axe_Layer',   arm: 'hold'  }
+  ];
+  var P = { w: 0 };
+
+  var v = Viz.view('cvSwap', function(w){ return w < 560 ? 360 : 265; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var narrow = w < 560;
+    var left  = narrow ? {x:0, y:0, w:w, h:h*0.52} : {x:0, y:0, w:w*0.46, h:h};
+    var right = narrow ? {x:0, y:h*0.52, w:w, h:h*0.48} : {x:w*0.46, y:0, w:w*0.54, h:h};
+    var wp = WEAPONS[P.w];
+
+    // ── 왼쪽: 캐릭터
+    var groundY = left.y + left.h - 28;
+    var cx = left.x + left.w * 0.5;
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(left.x + 14, groundY); ctx.lineTo(left.x + left.w - 14, groundY); ctx.stroke();
+
+    var phase = v.t * 1.1;
+    var hip = groundY - 52;
+
+    // 하반신 — 무기와 무관하게 늘 같은 걷기
+    ctx.lineWidth = 3; ctx.lineCap = 'round';
+    for (var i = 0; i < 2; i++){
+      var t = ((phase + i * 0.5) % 1) * Math.PI * 2;
+      var fx = cx + Math.sin(t) * 17;
+      var fy = groundY - Math.max(0, Math.cos(t)) * 13;
+      ctx.strokeStyle = c.dim;
+      ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(fx, fy); ctx.stroke();
+    }
+    // 몸통·머리
+    ctx.strokeStyle = c.text;
+    ctx.beginPath(); ctx.moveTo(cx, hip); ctx.lineTo(cx, hip - 30); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, hip - 38, 7, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+
+    // 상반신 — 무기마다 다르다
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 3;
+    var sy = hip - 24;
+    if (wp.arm === 'relax'){
+      ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx - 13, sy + 22); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx + 13, sy + 22); ctx.stroke();
+    } else if (wp.arm === 'aim'){
+      ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx + 30, sy - 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx + 18, sy + 6); ctx.stroke();
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(cx + 14, sy - 2); ctx.lineTo(cx + 44, sy - 6); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx + 16, sy - 20); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, sy); ctx.lineTo(cx + 22, sy - 10); ctx.stroke();
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(cx + 18, sy - 24); ctx.lineTo(cx + 24, sy + 2); ctx.stroke();
+    }
+
+    Viz.text(ctx, '상반신 = 레이어', left.x + 14, left.y + 18, c.accent, 11);
+    Viz.text(ctx, '하반신 = 메인 ABP (안 바뀐다)', left.x + 14, left.y + 34, c.dim, 11);
+
+    // ── 오른쪽: 메모리에 올라온 인스턴스
+    if (!narrow){
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(right.x, 10); ctx.lineTo(right.x, h - 10); ctx.stroke();
+    }
+    var bx = right.x + 16, bw = right.w - 32;
+    if (!(bw > 0)) return;
+    Viz.text(ctx, 'USkeletalMeshComponent 가 들고 있는 것', bx, right.y + 18, c.dim, 11);
+
+    var by = right.y + 36;
+    ctx.fillStyle = c.sf2; Viz.roundRect(ctx, bx, by, bw, 44, 8); ctx.fill();
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.stroke();
+    Viz.text(ctx, 'AnimScriptInstance', bx + 12, by + 17, c.text, 12);
+    Viz.text(ctx, 'ABP_Character  (메인 · 하반신)', bx + 12, by + 33, c.dim, 10);
+
+    by += 56;
+    if (wp.cls){
+      ctx.fillStyle = c.sf2; Viz.roundRect(ctx, bx, by, bw, 44, 8); ctx.fill();
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 2; ctx.stroke();
+      Viz.text(ctx, 'LinkedInstances[0]', bx + 12, by + 17, c.accent, 12);
+      Viz.text(ctx, wp.cls + '  (레이어 · 상반신)', bx + 12, by + 33, c.dim, 10);
+      by += 56;
+      Viz.text(ctx, 'bCreatedByLinkedAnimGraph = true', bx + 12, by + 6, c.dim, 10);
+    } else {
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      Viz.roundRect(ctx, bx, by, bw, 44, 8); ctx.stroke();
+      ctx.setLineDash([]);
+      Viz.text(ctx, '링크된 레이어 없음', bx + 12, by + 23, c.dim, 11);
+    }
+
+    Viz.text(ctx, 'UAnimInstance 객체 ' + (wp.cls ? 2 : 1) + '개',
+             right.x + right.w - 16, right.y + 18, wp.cls ? c.accent : c.dim, 11, 'right');
+  });
+
+  if (!v) return;
+  Viz.animate(v);
+
+  function verdict(){
+    var el = document.getElementById('swapVerdict');
+    if (!el) return;
+    var wp = WEAPONS[P.w];
+    el.className = 'verdict';
+    if (!wp.cls){
+      el.textContent = '레이어를 끼우지 않은 상태다. 인스턴스는 메인 ABP 하나뿐이다.';
+    } else {
+      el.textContent = 'LinkAnimClassLayers(' + wp.cls + ') 를 부른 상태. ' +
+        '메인 ABP 는 그대로이고 레이어 인스턴스 하나가 교체됐다. 하반신 포즈는 전혀 건드리지 않는다.';
+    }
+  }
+
+  var tabs = document.getElementById('wpTabs');
+  if (tabs) tabs.addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    P.w = Number(b.getAttribute('data-w')) || 0;
+    var bs = tabs.querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', bs[i] === b ? 'true' : 'false');
+    verdict(); v.render();
+  });
+  verdict();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSwapFigure);
+else initSwapFigure();
 </script>
 
 </body>
