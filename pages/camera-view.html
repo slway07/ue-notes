@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera — View는 누가 결정하나</title>
+<meta name="note-title" content="Camera — View는 누가 결정하나">
+<meta name="note-summary" content="CameraComponent는 제안만 하고, PlayerCameraManager가 최종 POV를 만든다. ViewTarget·전환·CalcCamera·모디파이어, 그리고 액터 틱이 끝난 뒤 카메라가 갱신되는 순서.">
+<meta name="note-tags" content="Camera, PlayerCameraManager, ViewTarget, CameraComponent, POV">
+<meta name="note-order" content="17">
+<meta name="note-category" content="카메라">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 14px}
+.fstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.fstep b{display:block;font-size:.8rem}
+.fstep span{display:block;font-size:.7rem;color:var(--text-dim);line-height:1.4;margin-top:2px}
+@media (max-width:560px){.flow{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Camera — View는 누가 결정하나</h1>
+<p><code>CameraComponent</code> 는 "여기서 보라"는 <b>제안</b>이고, 최종 POV는 <code>PlayerCameraManager</code> 가 만든다. ViewTarget·전환·<code>CalcCamera</code>·모디파이어, 그리고 카메라가 갱신되는 순서.</p>
+</header>
+
+<nav class="series" aria-label="Camera 시리즈">
+<a href="camera-view.html" aria-current="page">View</a>
+<a href="camera-spring-arm.html">SpringArm</a>
+<a href="camera-effects.html">효과</a>
+</nav>
+
+<article>
+
+<h2>1. 뷰의 주인은 CameraComponent가 아니다</h2>
+
+<p>카메라를 붙였다고 그 컴포넌트가 화면을 결정하지 않는다. 구조는 이렇다.</p>
+
+<pre><code>APlayerController
+  └── APlayerCameraManager        ← 최종 POV를 계산하는 주체
+        └── ViewTarget (보통 Pawn)
+              └── UCameraComponent  ← "여기서 이런 각도로 보라"는 제안</code></pre>
+
+<p><code>UCameraComponent::GetCameraView</code> 는 위치·회전·FOV·종횡비·투영 모드·포스트 프로세스를 <code>FMinimalViewInfo</code> 에 채운다. 하지만 그 값은 <b>제안</b>일 뿐이고, <code>APlayerCameraManager::UpdateCamera</code> 가 ViewTarget의 POV를 모아 최종 뷰를 만든다. 그 위에 카메라 모디파이어·셰이크·페이드·전환이 얹힌다.</p>
+
+<p>그래서 카메라를 바꾸는 지점도 둘로 나뉜다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>어디</th><th>무엇에 적합</th></tr></thead>
+<tbody>
+<tr><td><code>CameraComponent</code> · <code>SpringArm</code> (Pawn 쪽)</td><td>기본 배치, 거리, 충돌 회피, FOV, 포스트 프로세스</td></tr>
+<tr><td><code>PlayerCameraManager</code> (PC 쪽)</td><td>ViewTarget 전환, 모디파이어·셰이크, 페이드, 최종 POV 제한</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>2. 한 프레임의 갱신 순서</h2>
+
+<p>카메라는 <b>액터 틱이 모두 끝난 뒤</b> 갱신된다. 캐릭터가 먼저 움직여야 카메라가 그 최종 위치를 따라갈 수 있기 때문이다. <code>UWorld::Tick</code> 은 액터 틱과 주요 틱 매니저가 끝난 뒤, 네트워크 업데이트와 <code>TG_PostUpdateWork</code> 전에 플레이어 컨트롤러의 카메라를 갱신한다.</p>
+
+<div class="flow">
+  <div class="fstep"><b>UWorld::Tick</b><span>액터 틱 종료</span></div>
+  <div class="fstep"><b>PC::UpdateCameraManager</b><span>컨트롤러가 매니저 호출</span></div>
+  <div class="fstep"><b>PCM::UpdateCamera</b><span>DoUpdateCamera</span></div>
+  <div class="fstep"><b>UpdateViewTarget</b><span>ViewTarget POV</span></div>
+  <div class="fstep"><b>CalcCamera</b><span>CameraComponent</span></div>
+  <div class="fstep"><b>ApplyCameraModifiers</b><span>셰이크·보정</span></div>
+</div>
+
+<p><code>DoUpdateCamera</code> 는 현재 <code>ViewTarget</code> 을 갱신하고, <code>PendingViewTarget</code> 이 있으면 전환 블렌드를 계산한다. 그다음 페이드·포스트 프로세스·렌즈 효과를 얹고, 마지막에 <code>FillCameraCache</code> 로 이번 프레임 POV를 저장한다.</p>
+
+<h2>3. POV — FMinimalViewInfo</h2>
+
+<p>최종 뷰는 <code>FMinimalViewInfo</code> 하나로 표현된다. 카메라가 화면에 대해 알아야 할 거의 모든 값이 여기에 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>필드</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>Location</code> · <code>Rotation</code></td><td>뷰의 월드 위치와 회전</td></tr>
+<tr><td><code>FOV</code> · <code>DesiredFOV</code></td><td>수평 시야각. 종횡비 보정 전/후</td></tr>
+<tr><td><code>AspectRatio</code> · <code>bConstrainAspectRatio</code></td><td>종횡비와 고정 여부</td></tr>
+<tr><td><code>ProjectionMode</code> · <code>OrthoWidth</code></td><td>원근/직교, 직교 폭</td></tr>
+<tr><td><code>PostProcessSettings</code> · <code>PostProcessBlendWeight</code></td><td>카메라가 제안하는 포스트 프로세스</td></tr>
+<tr><td><code>FirstPersonFOV</code> · <code>FirstPersonScale</code></td><td>1인칭 전용 파라미터</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>PlayerCameraManager</code> 의 기본값은 <code>DefaultFOV = 90</code>, <code>DefaultAspectRatio = 1.33333</code>, <code>ViewPitchMin/Max = -89.9/89.9</code> 다. ViewTarget이 POV를 다 채우지 못하면 이 기본값이 바탕이 된다.</p>
+
+<h2>4. ViewTarget과 전환</h2>
+
+<p><code>FTViewTarget</code> 은 "지금 보고 있는 대상"이다. 보통 Pawn이지만 <code>ACameraActor</code> 나 다른 액터도 될 수 있다. 전환은 <code>SetViewTarget</code> 또는 <code>SetViewTargetWithBlend</code> 로 시작한다.</p>
+
+<pre><code>FViewTargetTransitionParams Params;
+Params.BlendTime = 0.5f;
+Params.BlendFunction = VTBlend_Cubic;
+Params.BlendExp = 2.0f;
+Params.bLockOutgoing = false;
+PC-&gt;SetViewTarget(NewTarget, Params);</code></pre>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>BlendTime</code></td><td>전환 시간. 0이면 즉시</td></tr>
+<tr><td><code>BlendFunction</code></td><td>Linear · Cubic · EaseIn · EaseOut · EaseInOut · PreBlended</td></tr>
+<tr><td><code>BlendExp</code></td><td>Ease 계열의 곡선 지수</td></tr>
+<tr><td><code>bLockOutgoing</code></td><td>전환 중 이전 ViewTarget을 마지막 POV에 고정</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>BlendTime &gt; 0</code> 이면 새 대상은 <code>PendingViewTarget</code> 으로 들어가고, 매 틱 <code>ViewTarget.POV</code> 와 <code>PendingViewTarget.POV</code> 를 <code>BlendViewInfo</code> 로 섞는다. 시간이 끝나면 <code>PendingViewTarget</code> 이 <code>ViewTarget</code> 으로 승격되고 <code>OnBlendComplete</code> 가 나간다.</p>
+
+<p><code>bLockOutgoing</code> 은 이전 대상을 텔레포트하거나 바꿔도 전환 화면이 흔들리지 않게 한다. 이전 ViewTarget의 POV를 마지막 프레임 값으로 고정하기 때문이다.</p>
+
+<h2>5. ViewTarget의 POV는 어떻게 채워지나</h2>
+
+<p><code>UpdateViewTarget</code> 은 POV를 기본값으로 리셋한 뒤 대상에 따라 계산한다.</p>
+
+<ol>
+<li><b>ACameraActor</b> — 그 액터의 <code>CameraComponent</code> 에서 <code>GetCameraView</code>.</li>
+<li><b>일반 액터</b> — <code>AActor::CalcCamera</code>. <code>bFindCameraComponentWhenViewTarget</code> 이 켜져 있으면 <b>첫 번째 활성 CameraComponent</b> 를 쓰고, 없으면 <code>GetActorEyesViewPoint</code> 로 눈 위치를 쓴다.</li>
+<li><b>블루프린트</b> — <code>BlueprintUpdateCamera</code> 가 true를 반환하면 그 위치·회전·FOV가 POV가 된다.</li>
+<li><b>디버그 카메라 스타일</b> — <code>CameraStyle</code> 이 <code>Fixed</code>·<code>ThirdPerson</code>·<code>FirstPerson</code>·<code>FreeCam</code> 이면 별도 계산을 한다.</li>
+</ol>
+
+<p>POV가 정해지면 <code>ApplyCameraModifiers</code> 가 마지막으로 모디파이어를 적용한다. 셰이크가 여기서 들어가고, <code>SetActorLocationAndRotation</code> 으로 카메라 매니저 액터를 최종 POV에 맞춘다.</p>
+
+<h2>6. 모디파이어와 셰이크</h2>
+
+<p><code>UCameraModifier</code> 는 POV를 바꾸는 작은 오브젝트다. <code>Priority</code>(0이 가장 높음, 기본 127), <code>Alpha</code>(0~1), <code>bExclusive</code>, <code>ModifyCamera</code>·<code>BlueprintModifyCamera</code> 를 갖는다. <code>AddNewCameraModifier</code> 로 클래스에서 생성하거나, 이미 만든 인스턴스를 <code>AddCameraModifierToList</code> 로 붙이고, <code>ApplyCameraModifiers</code> 가 우선순위대로 적용한다.</p>
+
+<p>셰이크는 <code>UCameraModifier_CameraShake</code> 라는 기본 모디파이어가 담당한다. <code>StartCameraShake</code> 는 이 모디파이어에 <code>UCameraShakeBase</code> 인스턴스를 추가하고, <code>StopCameraShake</code> 는 제거한다. 자세한 내용은 <a href="camera-effects.html">Camera — Modifiers · Shake · Fade</a> 에서 다룬다.</p>
+
+<h2>7. 디버깅</h2>
+
+<ul>
+<li><code>showdebug Camera</code> — <code>APlayerController::DisplayDebug</code> 가 <code>"Camera"</code> 를 확인하고 <code>PlayerCameraManager::DisplayDebug</code> 를 호출한다. CameraStyle, 현재/대기 ViewTarget, CamLoc·CamRot·FOV, AspectRatio, 전환 진행률, 모디파이어 목록이 나온다.</li>
+<li><code>ToggleDebugCamera</code> — 자유 카메라로 전환. <code>CameraStyle</code> 의 <code>FreeCam</code> 경로를 쓴다.</li>
+<li><code>show Collision</code> — 카메라 충돌 프로브가 보는 형상은 <a href="camera-spring-arm.html">SpringArm</a> 페이지에서.</li>
+</ul>
+
+<h2>8. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>APlayerController::UpdateCameraManager</code> · <code>SetViewTarget</code> · <code>SetViewTargetWithBlend</code></td><td><code>Engine/Source/Runtime/Engine/Private/PlayerController.cpp</code></td></tr>
+<tr><td>카메라 갱신 호출 위치</td><td><code>Engine/Source/Runtime/Engine/Private/LevelTick.cpp</code></td></tr>
+<tr><td><code>APlayerCameraManager::UpdateCamera</code> · <code>DoUpdateCamera</code> · <code>UpdateViewTarget</code> · <code>ApplyCameraModifiers</code></td><td><code>Engine/Source/Runtime/Engine/Private/PlayerCameraManager.cpp</code></td></tr>
+<tr><td><code>FMinimalViewInfo</code> · <code>FViewTargetTransitionParams</code> · <code>EViewTargetBlendFunction</code></td><td><code>Classes/Camera/CameraTypes.h</code> · <code>Classes/Camera/PlayerCameraManager.h</code></td></tr>
+<tr><td><code>AActor::CalcCamera</code> · <code>GetActorEyesViewPoint</code></td><td><code>Private/Actor.cpp</code> · <code>Private/Pawn.cpp</code></td></tr>
+<tr><td><code>UCameraComponent::GetCameraView</code></td><td><code>Private/Camera/CameraComponent.cpp</code></td></tr>
+<tr><td><code>UCameraModifier</code> · <code>UCameraModifier_CameraShake</code></td><td><code>Classes/Camera/CameraModifier.h</code> · <code>Private/Camera/CameraModifier.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 카메라 뷰의 결정 구조를 다뤘다. 거리·회전·충돌은 <a href="camera-spring-arm.html">SpringArm</a>, 셰이크·페이드는 <a href="camera-effects.html">Camera — Modifiers · Shake · Fade</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpringArm — 카메라의 거리·회전·충돌</title>
+<meta name="note-title" content="SpringArm — 카메라의 거리·회전·충돌">
+<meta name="note-summary" content="SpringArm이 카메라를 어디에 두고 어떻게 돌리는지. TargetArmLength, bUsePawnControlRotation, bInheritPitch/Yaw/Roll, ProbeChannel 충돌 스윕, 카메라 랙까지.">
+<meta name="note-tags" content="SpringArm, CameraComponent, Camera Collision, Camera Lag, Control Rotation">
+<meta name="note-order" content="18">
+<meta name="note-category" content="카메라">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.sl{grid-template-columns:auto 1fr auto}
+.sl output{grid-column:auto;text-align:right}
+.note{border-left:3px solid var(--line);padding:2px 0 2px 12px;margin:14px 0;font-size:.88rem;color:var(--text-dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>SpringArm — 카메라의 거리·회전·충돌</h1>
+<p><code>SpringArm</code> 은 카메라를 <b>캐릭터 뒤 어디에 둘지</b> 정한다. 거리, 컨트롤 회전, 축 상속, 벽에 닿았을 때의 충돌 스윕, 부드러운 랙까지.</p>
+</header>
+
+<nav class="series" aria-label="Camera 시리즈">
+<a href="camera-view.html">View</a>
+<a href="camera-spring-arm.html" aria-current="page">SpringArm</a>
+<a href="camera-effects.html">효과</a>
+</nav>
+
+<article>
+
+<h2>1. SpringArm이 하는 일</h2>
+
+<p>전형적인 3인칭 카메라는 이렇게 붙는다.</p>
+
+<pre><code>Pawn
+ └── SpringArm   (TargetArmLength = 300)
+       └── Camera</code></pre>
+
+<p><code>SpringArm</code> 은 자기 위치에서 <b>회전 방향의 반대쪽</b>으로 <code>TargetArmLength</code> 만큼 떨어진 지점을 계산하고, 그 끝에 자식 카메라를 둔다. 카메라 자체는 <code>GetCameraView</code> 로 POV를 제안할 뿐이고, 실제 위치는 SpringArm의 소켓이 정한다.</p>
+
+<p>SpringArm이 하는 일은 세 가지다. <b>거리</b>(<code>TargetArmLength</code>), <b>회전</b>(컨트롤 회전·축 상속), <b>충돌</b>(벽에 닿으면 팔을 줄임)이다. 랙은 여기에 덧붙는 선택 기능이다.</p>
+
+<h2>2. 값</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>기본</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>TargetArmLength</code></td><td>300</td><td>카메라까지의 거리</td></tr>
+<tr><td><code>SocketOffset</code> · <code>TargetOffset</code></td><td>0</td><td><code>SocketOffset</code>은 붐 회전 기준 로컬, <code>TargetOffset</code>은 월드 오프셋</td></tr>
+<tr><td><code>bUsePawnControlRotation</code></td><td>false</td><td>붐의 목표 회전을 폰의 컨트롤 회전으로</td></tr>
+<tr><td><code>bInheritPitch/Yaw/Roll</code></td><td>true</td><td>부모의 어느 축을 상속할지. Absolute Rotation이면 무효</td></tr>
+<tr><td><code>bDoCollisionTest</code></td><td>true</td><td>벽에 닿으면 팔을 줄일지</td></tr>
+<tr><td><code>ProbeSize</code></td><td>12</td><td>충돌 스윕 구체 반지름</td></tr>
+<tr><td><code>ProbeChannel</code></td><td><code>ECC_Camera</code></td><td>충돌 스윕이 보는 채널</td></tr>
+<tr><td><code>bEnableCameraLag</code></td><td>false</td><td>위치 랙 사용</td></tr>
+<tr><td><code>CameraLagSpeed</code></td><td>10</td><td>위치 랙 속도. 낮을수록 느리다</td></tr>
+<tr><td><code>bEnableCameraRotationLag</code></td><td>false</td><td>회전 랙 사용</td></tr>
+<tr><td><code>CameraRotationLagSpeed</code></td><td>10</td><td>회전 랙 속도</td></tr>
+<tr><td><code>CameraLagMaxDistance</code></td><td>0</td><td>랙 최대 거리. 0이면 무제한</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>3. 회전 — 붐과 카메라 중 누가 컨트롤을 따르나</h2>
+
+<p>여기가 가장 헷갈리는 지점이다. <code>bUsePawnControlRotation</code> 이 <b>붐에도 있고 카메라에도</b> 있다. 둘은 같은 이름이지만 하는 일이 다르다.</p>
+
+<ul>
+<li><b>SpringArm</b> — <code>GetTargetRotation</code> 에서 <code>Pawn-&gt;GetViewRotation()</code> 을 목표 회전으로 쓴다. 즉 <b>붐이 어느 방향으로 뻗을지</b>가 바뀐다. 카메라의 <b>위치</b>가 바뀐다.</li>
+<li><b>CameraComponent</b> — <code>GetCameraView</code> 에서 카메라의 월드 회전을 <code>Pawn-&gt;GetViewRotation()</code> 으로 덮는다. 카메라의 <b>시선</b>이 바뀐다. 위치는 붐이 정한 그대로다.</li>
+</ul>
+
+<p>그래서 조합에 따라 결과가 갈린다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>붐</th><th>카메라</th><th>결과</th></tr></thead>
+<tbody>
+<tr><td>true</td><td>false</td><td>붐이 컨트롤을 따라가고, 카메라는 붐 회전을 상속 → <b>위치와 시선이 같이 돈다</b> (표준 3인칭)</td></tr>
+<tr><td>true</td><td>true</td><td>둘 다 컨트롤을 따라간다. 랙·축 제한이 없으면 거의 같은 결과. 랙이 있으면 <b>위치는 늦게, 시선은 즉시</b> → 어긋남</td></tr>
+<tr><td>false</td><td>true</td><td>붐은 고정, 카메라만 컨트롤을 따라간다 → <b>위치는 그대로, 시선만 돈다</b></td></tr>
+<tr><td>false</td><td>false</td><td>둘 다 컨트롤을 안 따른다. 부모가 컨트롤 회전으로 돌지 않는 한 <b>카메라가 고정</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+  <div class="ctl" id="rotTabs">
+    <button type="button" data-target="boom" aria-pressed="true">붐 컨트롤 회전</button>
+    <button type="button" data-target="cam" aria-pressed="false">카메라 컨트롤 회전</button>
+  </div>
+  <div class="sl">
+    <label for="yaw">컨트롤 Yaw</label>
+    <input type="range" id="yaw" min="0" max="360" value="35" step="1">
+    <output id="yawO">35</output>
+  </div>
+  <div class="stage"><canvas id="armRotCv" aria-label="붐과 카메라가 각각 컨트롤 회전을 따를 때 카메라 위치와 시선이 어떻게 달라지는지 보여 준다."></canvas></div>
+  <p class="verdict" id="armRotOut"></p>
+</div>
+
+<p class="note">그림은 부모(Pawn)가 컨트롤 회전으로 돌지 않는 상황을 단순화했다. <code>bInheritYaw</code> 가 켜져 있고 Pawn이 <code>bUseControllerRotationYaw</code> 로 돌면, 붐도 부모를 통해 같이 돈다.</p>
+
+<h2>4. 충돌 — 벽에 닿으면 팔이 줄어든다</h2>
+
+<p>SpringArm은 카메라를 원하는 위치에 그냥 두지 않는다. <b>원점에서 원하는 카메라 위치까지 구체를 스윕</b>하고, 막히면 카메라를 <b>충돌 지점</b>으로 당긴다.</p>
+
+<pre><code>ArmOrigin = GetComponentLocation() + TargetOffset;
+DesiredLoc = ArmOrigin - DesiredRot.Vector() * TargetArmLength + SocketOffset;
+
+SweepSingleByChannel(..., ProbeChannel, FCollisionShape::MakeSphere(ProbeSize), ...);</code></pre>
+
+<ul>
+<li><code>bDoCollisionTest</code> 가 true이고 <code>TargetArmLength != 0</code> 일 때만 스윕한다.</li>
+<li>스윕은 <b>자기 액터를 무시</b>한다(<code>FCollisionQueryParams(..., GetOwner())</code>).</li>
+<li>막히면 <code>Result.Location</code> 이 카메라 위치가 된다. <code>BlendLocations</code> 은 5.8에서 그냥 히트 위치를 돌려준다 — 충돌 시 <b>즉시 당긴다</b>. C++ virtual이라 블루프린트에서 오버라이드할 수는 없다.</li>
+<li><code>ProbeChannel</code> 기본값은 <code>ECC_Camera</code> 다. 캐릭터·기물이 <code>Camera</code> 를 Ignore 하면 카메라가 그들을 통과한다.</li>
+<li><code>bIsCameraFixed</code>·<code>GetUnfixedCameraPosition()</code> 로 "지금 카메라가 충돌로 당겨졌는가"를 확인할 수 있다.</li>
+</ul>
+
+<div class="panel">
+  <div class="ctl" id="colTabs">
+    <button type="button" data-target="collision" aria-pressed="true">bDoCollisionTest</button>
+  </div>
+  <div class="sl">
+    <label for="armLen">TargetArmLength</label>
+    <input type="range" id="armLen" min="100" max="400" value="300" step="10">
+    <output id="armLenO">300</output>
+  </div>
+  <div class="sl">
+    <label for="wallD">벽 거리</label>
+    <input type="range" id="wallD" min="80" max="400" value="260" step="10">
+    <output id="wallDO">260</output>
+  </div>
+  <div class="stage"><canvas id="armColCv" aria-label="TargetArmLength와 벽 거리에 따라 카메라가 벽 앞으로 당겨지거나 벽을 뚫고 끝까지 가는지 보여 준다."></canvas></div>
+  <p class="verdict" id="armColOut"></p>
+</div>
+
+<p class="note">충돌 채널 설계는 <a href="collision-preset-channel.html">Collision — Preset · Channel · Trace</a> 로 이어진다. "카메라만 통과시키는 벽"은 <code>Camera</code> 응답을 Ignore로 두는 프로필로 만든다.</p>
+
+<h2>5. 랙 — 부드럽게 따라오기</h2>
+
+<p>랙은 <b>카메라 위치가 아니라 원점(따라갈 대상)</b> 에 적용된다. 그래서 마우스로 붐을 돌릴 때는 위치 랙이 걸리지 않고, 캐릭터가 움직일 때만 카메라가 살짝 늦게 따라온다.</p>
+
+<ul>
+<li><code>bEnableCameraLag</code> — 위치 랙. <code>CameraLagSpeed</code> 가 낮을수록 느리게 따라온다.</li>
+<li><code>bEnableCameraRotationLag</code> — 회전 랙. <code>CameraRotationLagSpeed</code>.</li>
+<li><code>CameraLagMaxDistance</code> — 랙이 벌어질 수 있는 최대 거리. 0이면 무제한.</li>
+<li><code>bUseCameraLagSubstepping</code> — 큰 delta를 <code>CameraLagMaxTimeStep</code>(기본 1/60)으로 쪼개 랙을 계산한다.</li>
+</ul>
+
+<p>랙이 켜져 있으면 <code>bEnableCameraLag</code>·<code>CameraLagSpeed</code>·<code>CameraLagMaxDistance</code>를 함께 봐야 한다. 속도만 만지면 최대 거리 때문에 갑자기 멈추는 것처럼 보일 수 있다.</p>
+
+<h2>6. CameraComponent — POV를 채우는 쪽</h2>
+
+<p>SpringArm이 위치를 정하면, 자식 <code>UCameraComponent</code> 가 <code>GetCameraView</code> 로 POV를 채운다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>기본</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>FieldOfView</code></td><td>90</td><td>수평 FOV</td></tr>
+<tr><td><code>AspectRatio</code> · <code>bConstrainAspectRatio</code></td><td>1.7778 · false</td><td>종횡비와 고정 여부</td></tr>
+<tr><td><code>ProjectionMode</code> · <code>OrthoWidth</code></td><td>Perspective · 1536</td><td>원근/직교</td></tr>
+<tr><td><code>PostProcessSettings</code> · <code>PostProcessBlendWeight</code></td><td>· 1</td><td>카메라가 제안하는 포스트 프로세스</td></tr>
+<tr><td><code>bUsePawnControlRotation</code></td><td>false</td><td>로컬 컨트롤러일 때 카메라 회전을 폰 시선으로 덮음</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>bUsePawnControlRotation</code> 은 <b>로컬 플레이어 컨트롤러</b>일 때만 동작한다. 시뮬레이티드 프록시에서는 이 경로가 아니므로, 원격 캐릭터의 카메라 회전은 다른 방식으로 맞춰야 한다.</p>
+
+<h2>7. 디버깅</h2>
+
+<ul>
+<li><code>show Collision</code> — SpringArm의 <code>ProbeSize</code> 구체가 어디를 스윕하는지, 어떤 벽에 막히는지 본다.</li>
+<li><code>bDrawDebugLagMarkers</code> — 랙이 켜져 있을 때 원점(초록)과 지연된 목표(노랑), 최대 거리 클램프(빨강)를 그린다.</li>
+<li><code>showdebug Camera</code> — 최종 POV와 ViewTarget, 모디파이어 목록. SpringArm 자체 값은 디테일 패널에서 본다.</li>
+</ul>
+
+<h2>8. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>USpringArmComponent</code> · <code>GetTargetRotation</code> · <code>UpdateDesiredArmLocation</code> · <code>BlendLocations</code></td><td><code>Engine/Source/Runtime/Engine/Private/GameFramework/SpringArmComponent.cpp</code> · <code>Classes/GameFramework/SpringArmComponent.h</code></td></tr>
+<tr><td><code>UCameraComponent::GetCameraView</code></td><td><code>Engine/Source/Runtime/Engine/Private/Camera/CameraComponent.cpp</code></td></tr>
+<tr><td><code>APlayerCameraManager::UpdateViewTarget</code></td><td><code>Engine/Source/Runtime/Engine/Private/PlayerCameraManager.cpp</code></td></tr>
+<tr><td><code>ECollisionChannel::ECC_Camera</code></td><td><code>Classes/Engine/EngineTypes.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 SpringArm의 거리·회전·충돌을 다뤘다. 최종 POV 구조는 <a href="camera-view.html">Camera — View는 누가 결정하나</a>, 셰이크·페이드는 <a href="camera-effects.html">Camera — Modifiers · Shake · Fade</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* SpringArm 회전 — 붐과 카메라가 각각 컨트롤 회전을 따를 때 */
+function initArmRotate(){
+  if (!window.Viz) return;
+  var yaw = document.getElementById('yaw');
+  var yawO = document.getElementById('yawO');
+  var tabs = document.getElementById('rotTabs');
+  var out = document.getElementById('armRotOut');
+  if (!yaw || !tabs || !out) return;
+
+  var boomCtrl = true, camCtrl = false;
+  var v = Viz.view('armRotCv', function(){ return 300; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cx = w / 2, cy = h / 2 + 8;
+    var arm = Math.min(112, w * 0.30);
+    var yawRad = parseFloat(yaw.value) * Math.PI / 180;
+    var boomAng = boomCtrl ? yawRad + Math.PI : Math.PI;
+    var camX = cx + Math.cos(boomAng) * arm;
+    var camY = cy + Math.sin(boomAng) * arm;
+    var viewAng = camCtrl ? yawRad : boomAng + Math.PI;
+
+    // 컨트롤 전방
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(yawRad) * 66, cy + Math.sin(yawRad) * 66); ctx.stroke();
+    Viz.text(ctx, 'Control', cx + Math.cos(yawRad) * 78, cy + Math.sin(yawRad) * 78, c.dim, 9, 'center');
+
+    // 붐
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(camX, camY); ctx.stroke();
+    ctx.setLineDash([]);
+    Viz.text(ctx, 'SpringArm', (cx + camX) / 2, (cy + camY) / 2 - 8, c.accent, 9, 'center');
+
+    // Pawn
+    ctx.fillStyle = c.sf2; ctx.strokeStyle = c.text; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, 13, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    Viz.text(ctx, 'Pawn', cx, cy + 24, c.text, 9, 'center');
+
+    // Camera
+    ctx.save();
+    ctx.translate(camX, camY);
+    ctx.rotate(viewAng);
+    ctx.fillStyle = c.sf2; ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+    ctx.fillRect(-9, -6, 18, 12); ctx.strokeRect(-9, -6, 18, 12);
+    ctx.beginPath(); ctx.moveTo(9, -4); ctx.lineTo(14, 0); ctx.lineTo(9, 4); ctx.stroke();
+    ctx.restore();
+    Viz.text(ctx, 'Camera', camX, camY + 22, c.accent, 9, 'center');
+
+    // View cone
+    ctx.globalAlpha = 0.12; ctx.fillStyle = c.accent;
+    ctx.beginPath();
+    ctx.moveTo(camX, camY);
+    ctx.lineTo(camX + Math.cos(viewAng - 0.35) * 84, camY + Math.sin(viewAng - 0.35) * 84);
+    ctx.lineTo(camX + Math.cos(viewAng + 0.35) * 84, camY + Math.sin(viewAng + 0.35) * 84);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    Viz.text(ctx, 'View', camX + Math.cos(viewAng) * 96, camY + Math.sin(viewAng) * 96, c.dim, 9, 'center');
+
+    Viz.text(ctx, '붐 ' + (boomCtrl ? '컨트롤 O' : '컨트롤 X') + ' · 카메라 ' + (camCtrl ? '컨트롤 O' : '컨트롤 X'),
+      w / 2, 18, c.text, 10, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    yawO.value = yaw.value;
+    var btns = tabs.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      var t = btns[i].getAttribute('data-target');
+      var on = (t === 'boom' && boomCtrl) || (t === 'cam' && camCtrl);
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (boomCtrl && !camCtrl){
+      out.className = 'verdict ok';
+      out.textContent = '붐이 컨트롤을 따라가고 카메라가 붐을 상속한다 → 위치와 시선이 같이 돈다. 표준 3인칭.';
+    } else if (boomCtrl && camCtrl){
+      out.className = 'verdict';
+      out.textContent = '둘 다 컨트롤을 따라간다. 랙·축 상속이 없으면 거의 같지만, 붐에 랙이 있으면 위치는 늦고 시선은 즉시라 어긋난다.';
+    } else if (!boomCtrl && camCtrl){
+      out.className = 'verdict bad';
+      out.textContent = '붐은 고정, 카메라만 컨트롤을 따라간다 → 카메라 위치는 그대로, 시선만 돈다.';
+    } else {
+      out.className = 'verdict bad';
+      out.textContent = '둘 다 컨트롤을 안 따른다. 부모가 컨트롤 회전으로 돌지 않는 한 카메라가 고정된다.';
+    }
+    v.render();
+  }
+
+  var btns = tabs.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      var t = this.getAttribute('data-target');
+      if (t === 'boom') boomCtrl = !boomCtrl;
+      if (t === 'cam') camCtrl = !camCtrl;
+      update();
+    });
+  }
+  yaw.addEventListener('input', update);
+  update();
+}
+
+/* SpringArm 충돌 — 벽에 닿으면 팔이 줄어든다 */
+function initArmCollision(){
+  if (!window.Viz) return;
+  var arm = document.getElementById('armLen');
+  var wall = document.getElementById('wallD');
+  var armO = document.getElementById('armLenO');
+  var wallO = document.getElementById('wallDO');
+  var tabs = document.getElementById('colTabs');
+  var out = document.getElementById('armColOut');
+  if (!arm || !wall || !out) return;
+
+  var collision = true;
+  var v = Viz.view('armColCv', function(){ return 260; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ground = h - 30;
+    var pawnX = 50;
+    var scale = 0.45;
+    var armV = parseFloat(arm.value);
+    var wallV = parseFloat(wall.value);
+    var desiredX = pawnX + armV * scale;
+    var wallX = pawnX + wallV * scale;
+    var hit = collision && wallV > 0 && wallX < desiredX;
+    var camX = hit ? wallX - 6 : desiredX;
+    var camY = ground - 88;
+
+    // 바닥
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(14, ground + 1); ctx.lineTo(w - 14, ground + 1); ctx.stroke();
+
+    // 벽
+    ctx.fillStyle = c.sf2; ctx.fillRect(wallX, ground - 150, 10, 150);
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1; ctx.strokeRect(wallX + .5, ground - 150 + .5, 9, 149);
+    Viz.text(ctx, 'Wall', wallX + 5, ground - 158, c.dim, 9, 'center');
+
+    // Pawn
+    Viz.roundRect(ctx, pawnX - 14, ground - 64, 28, 64, 14);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.text; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'Pawn', pawnX, ground + 16, c.text, 9, 'center');
+
+    // 붐
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(pawnX, ground - 58); ctx.lineTo(camX, camY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 원하는 위치 표시
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(desiredX, camY - 18); ctx.lineTo(desiredX, camY + 18); ctx.stroke();
+    Viz.text(ctx, '원하는 위치', desiredX, camY - 24, c.dim, 8, 'center');
+
+    // 카메라
+    Viz.roundRect(ctx, camX - 13, camY - 9, 26, 18, 4);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2.5; ctx.stroke();
+    Viz.text(ctx, 'Camera', camX, camY + 24, c.accent, 9, 'center');
+
+    Viz.text(ctx, 'TargetArmLength ' + armV + ' · 벽 ' + wallV + (hit ? ' · 충돌' : ' · 충돌 없음'),
+      w / 2, 18, hit ? c.warn : c.text, 10, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    armO.value = arm.value;
+    wallO.value = wall.value;
+    var btns = tabs.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      btns[i].setAttribute('aria-pressed', collision ? 'true' : 'false');
+    }
+    var armV = parseFloat(arm.value), wallV = parseFloat(wall.value);
+    if (!collision){
+      out.className = 'verdict bad';
+      out.textContent = 'bDoCollisionTest false → 카메라가 벽을 뚫고 TargetArmLength 끝에 그대로 있다.';
+    } else if (wallV < armV){
+      out.className = 'verdict ok';
+      out.textContent = '벽 ' + wallV + ' < TargetArmLength ' + armV + ' → 구체 스윕이 벽에 맞아 카메라가 벽 앞으로 당겨진다. ProbeSize ' + 12 + '.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = '벽 ' + wallV + ' ≥ TargetArmLength ' + armV + ' → 스윕이 벽에 닿지 않아 카메라가 끝까지 간다.';
+    }
+    v.render();
+  }
+
+  var btns = tabs.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){ collision = !collision; update(); });
+  }
+  arm.addEventListener('input', update);
+  wall.addEventListener('input', update);
+  update();
+}
+
+if (document.readyState === 'loading'){
+  document.addEventListener('DOMContentLoaded', function(){ initArmRotate(); initArmCollision(); });
+} else {
+  initArmRotate(); initArmCollision();
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera — Modifiers · Shake · Fade</title>
+<meta name="note-title" content="Camera — Modifiers · Shake · Fade">
+<meta name="note-summary" content="카메라 POV 위에 얹히는 것들. UCameraModifier의 우선순위와 Alpha, UCameraShakeBase의 플레이 스페이스, 카메라 페이드, 포스트 프로세스와 렌즈 효과까지.">
+<meta name="note-tags" content="Camera Modifier, Camera Shake, Camera Fade, Post Process, Camera Lens Effect">
+<meta name="note-order" content="19">
+<meta name="note-category" content="카메라">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.sl{grid-template-columns:auto 1fr auto}
+.sl output{grid-column:auto;text-align:right}
+.note{border-left:3px solid var(--line);padding:2px 0 2px 12px;margin:14px 0;font-size:.88rem;color:var(--text-dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Camera — Modifiers · Shake · Fade</h1>
+<p>ViewTarget이 POV를 만들고 나면, 그 위에 <b>모디파이어</b>가 얹힌다. 셰이크·페이드·포스트 프로세스·렌즈 효과가 최종 화면을 바꾸는 방식.</p>
+</header>
+
+<nav class="series" aria-label="Camera 시리즈">
+<a href="camera-view.html">View</a>
+<a href="camera-spring-arm.html">SpringArm</a>
+<a href="camera-effects.html" aria-current="page">효과</a>
+</nav>
+
+<article>
+
+<h2>1. 모디파이어 — POV 위에 얹히는 작은 오브젝트</h2>
+
+<p><code>UCameraModifier</code> 는 카메라의 최종 POV를 바꾸는 <code>UObject</code> 다. 카메라 액터에 붙는 컴포넌트가 아니라, <code>PlayerCameraManager</code> 가 관리하는 목록의 항목이다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>Priority</code></td><td>적용 순서. <b>0이 가장 높고</b> 255가 가장 낮다. 기본 127</td></tr>
+<tr><td><code>bExclusive</code></td><td>같은 우선순위의 다른 모디파이어를 허용하지 않는다</td></tr>
+<tr><td><code>Alpha</code> · <code>AlphaInTime</code> · <code>AlphaOutTime</code></td><td>블렌드 강도와 진입/퇴장 시간</td></tr>
+<tr><td><code>ModifyCamera</code> · <code>BlueprintModifyCamera</code></td><td>POV의 위치·회전·FOV를 바꾸는 지점</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>붙이는 방법은 두 가지다.</p>
+
+<ul>
+<li><code>AddNewCameraModifier(ModifierClass)</code> — 클래스로 새 인스턴스를 만들어 목록에 넣는다.</li>
+<li><code>AddCameraModifierToList(Modifier)</code> — 이미 만든 인스턴스를 목록에 넣는다(protected).</li>
+</ul>
+
+<p><code>ApplyCameraModifiers</code> 가 <b>우선순위 순서</b>로 각 모디파이어의 <code>ModifyCamera</code> 를 호출한다. <code>ModifyCamera</code> 가 true를 반환하면 거기서 멈춘다 — 높은 우선순위가 "내가 마지막"이라고 선언할 수 있다. 기본 <code>DefaultModifiers</code> 에는 <code>UCameraModifier_CameraShake</code> 가 들어 있다.</p>
+
+<p>모디파이어는 <code>UpdateViewTarget</code> 의 <b>마지막</b>에 적용된다. <code>CameraStyle</code> 이 <code>Fixed</code>·<code>FreeCam</code>·<code>FirstPerson</code> 같은 디버그 카메라일 때는 기본적으로 건너뛰고, <code>bAlwaysApplyModifiers</code> 로 강제할 수 있다.</p>
+
+<h2>2. 셰이크 — 모디파이어 중 하나</h2>
+
+<p>셰이크는 별도 시스템이 아니라 <b>카메라 모디파이어</b>다. <code>UCameraModifier_CameraShake</code> 가 기본 목록에 들어 있고, <code>StartCameraShake</code> 가 그 안에 <code>UCameraShakeBase</code> 인스턴스를 추가한다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>API</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>StartCameraShake(ShakeClass, Scale, PlaySpace, UserPlaySpaceRot)</code></td><td>셰이크 인스턴스 생성·시작</td></tr>
+<tr><td><code>StartCameraShakeFromSource(...)</code></td><td>셰이크 소스 컴포넌트 위치 기준</td></tr>
+<tr><td><code>StopCameraShake(Instance, bImmediately)</code></td><td>특정 인스턴스 정지</td></tr>
+<tr><td><code>StopAllCameraShakes(bImmediately)</code></td><td>전부 정지</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>UCameraShakeBase</code> 는 <code>ShakeScale</code> 과 <code>PlaySpace</code> 를 갖는다. 플레이 스페이스는 <b>CameraLocal</b>(카메라 기준), <b>World</b>(월드 기준), <b>UserDefined</b>(사용자 행렬) 세 가지다. 같은 셰이크라도 어느 공간에 적용하느냐에 따라 화면이 다르게 흔들린다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="shakeAmp">진폭</label>
+    <input type="range" id="shakeAmp" min="0" max="24" value="10" step="1">
+    <output id="shakeAmpO">10</output>
+  </div>
+  <div class="sl">
+    <label for="shakeFreq">주파수</label>
+    <input type="range" id="shakeFreq" min="1" max="15" value="8" step="1">
+    <output id="shakeFreqO">8</output>
+  </div>
+  <div class="ctl" id="shakeCtl">
+    <button type="button" aria-pressed="true">재생</button>
+  </div>
+  <div class="stage"><canvas id="shakeCv" aria-label="진폭과 주파수에 따라 카메라 화면이 흔들리는 모습을 보여 준다. 십자선은 고정되어 있다."></canvas></div>
+  <p class="verdict" id="shakeOut"></p>
+</div>
+
+<p class="note">그림은 개념용이다. 실제 셰이크는 <code>UCameraShakeBase</code> 의 패턴이 POV에 적용되고, <code>CameraLocal</code> 이면 카메라 축 기준으로 흔들린다.</p>
+
+<h2>3. 페이드 — 화면 전체를 덮는다</h2>
+
+<p>페이드는 POV를 바꾸지 않고 <b>화면 전체에 색을 덮는다</b>. 암전, 피격 연출, 지역 전환에 쓴다.</p>
+
+<pre><code>StartCameraFade(FromAlpha, ToAlpha, Duration, Color, bShouldFadeAudio, bHoldWhenFinished);
+StopCameraFade();</code></pre>
+
+<ul>
+<li><code>FromAlpha</code>·<code>ToAlpha</code> — 0(투명)~1(불투명).</li>
+<li><code>Duration</code> — 페이드 시간.</li>
+<li><code>bShouldFadeAudio</code> — 오디오도 같이 줄일지.</li>
+<li><code>bHoldWhenFinished</code> — 끝난 뒤 <code>ToAlpha</code> 를 유지할지.</li>
+<li><code>SetManualCameraFade(Alpha, Color, bFadeAudio)</code> — 시간 없이 즉시 값으로 고정.</li>
+</ul>
+
+<p><code>DoUpdateCamera</code> 는 <code>bEnableFading</code> 일 때 <code>FadeAmount</code> 를 계산한다. <code>bAutoAnimateFade</code> 면 <code>FadeTimeRemaining</code> 을 줄이며 <code>FadeAlpha.X → FadeAlpha.Y</code> 로 보간하고, <code>bHoldFadeWhenFinished</code> 가 false면 끝났을 때 <code>StopCameraFade</code> 를 부른다.</p>
+
+<p>페이드는 <b>포스트 프로세스가 아니다</b>. 카메라 POV의 일부가 아니라 화면 위에 덮는 별도 레이어라서, POV를 바꾸는 모디파이어와 독립적으로 동작한다.</p>
+
+<h2>4. 포스트 프로세스와 렌즈 효과</h2>
+
+<p><code>CameraComponent</code> 는 <code>PostProcessSettings</code> 와 <code>PostProcessBlendWeight</code> 를 POV에 넣는다. <code>PlayerCameraManager</code> 는 이 값을 <code>PostProcessBlendCache</code> 에 모아 뷰타깃 전환 중에도 겹쳐 블렌드한다. ViewTarget 전환 중에는 <code>PendingViewTarget</code> 의 포스트 프로세스가 <code>VTBlendOrder_Override</code> 로 얹힌다.</p>
+
+<p>렌즈 효과는 카메라에 붙는 별도 액터다. <code>AddGenericCameraLensEffect</code>·<code>RemoveGenericCameraLensEffect</code>·<code>ClearCameraLensEffects</code> 로 관리하고, <code>UpdateCameraLensEffects</code> 가 매 프레임 POV에 맞춰 갱신한다. 총구 화염·물방울·피격 잔상처럼 <b>화면에 붙는</b> 연출이다.</p>
+
+<h2>5. CameraAnim은 5.8 코어에 없다</h2>
+
+<p>4.x 자료에는 <code>UCameraAnim</code>·<code>PlayCameraAnim</code> 이 자주 나온다. 5.8 <code>Engine/Source</code> 코어에는 그 클래스와 함수가 <b>없다</b>. 남아 있는 것은 <code>FCameraAnimationHelper</code> 정도이고, 이는 주로 셰이크 내부에서 POV 오프셋을 계산하는 데 쓰인다.</p>
+
+<p>그래서 "카메라를 커브로 연출"하려면 4.x의 CameraAnim을 찾지 말고, <b>CameraShake</b>·<b>CameraModifier</b>·<b>Sequencer(Level Sequence)</b> 같은 현재 경로를 쓴다. 버전이 다른 자료를 그대로 옮기면 컴파일이 안 된다.</p>
+
+<h2>6. 디버깅</h2>
+
+<ul>
+<li><code>showdebug Camera</code> — <code>PlayerCameraManager::DisplayDebug</code> 가 <code>Modifiers:</code> 목록과 각 모디파이어의 상태를 출력한다. <code>bDebug</code> 가 켜진 모디파이어는 추가 정보를 그린다.</li>
+<li><code>UCameraModifier::DisplayDebug</code> — 모디파이어가 직접 디버그 문자열을 추가하는 지점.</li>
+<li><code>showdebug Camera</code> 의 CamLoc·CamRot·FOV와 모디파이어 적용 전/후를 비교하면 어느 모디파이어가 화면을 바꾸는지 찾기 쉽다.</li>
+</ul>
+
+<h2>7. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UCameraModifier</code> · <code>ModifyCamera</code> · <code>BlueprintModifyCamera</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Camera/CameraModifier.h</code> · <code>Private/Camera/CameraModifier.cpp</code></td></tr>
+<tr><td><code>AddNewCameraModifier</code> · <code>ApplyCameraModifiers</code> · <code>StartCameraShake</code> · <code>StartCameraFade</code></td><td><code>Classes/Camera/PlayerCameraManager.h</code> · <code>Private/PlayerCameraManager.cpp</code></td></tr>
+<tr><td><code>UCameraShakeBase</code> · <code>ECameraShakePlaySpace</code></td><td><code>Classes/Camera/CameraShakeBase.h</code> · <code>Classes/Camera/CameraTypes.h</code></td></tr>
+<tr><td><code>UCameraModifier_CameraShake</code></td><td><code>Classes/Camera/CameraModifier_CameraShake.h</code> · <code>Private/Camera/CameraModifier_CameraShake.cpp</code></td></tr>
+<tr><td><code>UCameraComponent</code> 포스트 프로세스</td><td><code>Classes/Camera/CameraComponent.h</code> · <code>Private/Camera/CameraComponent.cpp</code></td></tr>
+<tr><td><code>FCameraAnimationHelper</code></td><td><code>Classes/Camera/CameraAnimationHelper.h</code> · <code>Private/Camera/CameraAnimationHelper.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 카메라 POV 위에 얹히는 효과를 다뤘다. POV 구조는 <a href="camera-view.html">Camera — View는 누가 결정하나</a>, 거리·회전·충돌은 <a href="camera-spring-arm.html">SpringArm</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* Camera Shake — 진폭·주파수에 따른 화면 흔들림 (개념용) */
+function initShake(){
+  if (!window.Viz) return;
+  var amp = document.getElementById('shakeAmp');
+  var freq = document.getElementById('shakeFreq');
+  var ampO = document.getElementById('shakeAmpO');
+  var freqO = document.getElementById('shakeFreqO');
+  var ctl = document.getElementById('shakeCtl');
+  var out = document.getElementById('shakeOut');
+  if (!amp || !freq || !out) return;
+
+  var running = true;
+  var phase = 0;
+  var v = Viz.view('shakeCv', function(){ return 260; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var a = parseFloat(amp.value);
+    var f = parseFloat(freq.value);
+    var t = phase;
+    var ox = Math.sin(t * f * 2 * Math.PI) * a;
+    var oy = Math.cos(t * f * 2 * Math.PI * 1.3) * a * 0.6;
+    var rot = Math.sin(t * f * 2 * Math.PI * 0.7) * a * 0.0015;
+
+    // 월드(흔들리는 쪽)
+    ctx.save();
+    ctx.translate(w / 2 + ox, h / 2 + oy);
+    ctx.rotate(rot);
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    for (var i = -4; i <= 4; i++){
+      ctx.beginPath(); ctx.moveTo(i * 40, -h); ctx.lineTo(i * 40, h); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-w, i * 40); ctx.lineTo(w, i * 40); ctx.stroke();
+    }
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-w, 30); ctx.lineTo(w, 30); ctx.stroke();
+    Viz.text(ctx, 'World', 0, 50, c.accent, 9, 'center');
+    ctx.restore();
+
+    // 십자선(고정)
+    ctx.strokeStyle = c.text; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(w / 2 - 10, h / 2); ctx.lineTo(w / 2 + 10, h / 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(w / 2, h / 2 - 10); ctx.lineTo(w / 2, h / 2 + 10); ctx.stroke();
+    Viz.text(ctx, 'Crosshair (고정)', w / 2, h / 2 + 22, c.dim, 9, 'center');
+
+    Viz.text(ctx, '진폭 ' + a + ' · 주파수 ' + f, w / 2, 18, c.text, 10, 'center');
+  });
+
+  if (!v) return;
+  Viz.animate(v, function(v, t){
+    if (running) phase = t;
+  });
+
+  function update(){
+    ampO.value = amp.value;
+    freqO.value = freq.value;
+    var btn = ctl.querySelector('button');
+    if (btn){ btn.setAttribute('aria-pressed', running ? 'true' : 'false'); btn.textContent = running ? '일시정지' : '재생'; }
+    out.className = 'verdict';
+    out.textContent = '진폭 ' + amp.value + ' · 주파수 ' + freq.value + ' → 월드는 흔들리고 십자선은 고정된다. 실제 셰이크는 CameraLocal/World/UserDefined 공간 중 하나에 적용된다.';
+    v.render();
+  }
+
+  ctl.querySelector('button').addEventListener('click', function(){
+    running = !running;
+    update();
+  });
+  amp.addEventListener('input', update);
+  freq.addEventListener('input', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initShake);
+else initShake();
+</script>
+
+</body>
+</html>
