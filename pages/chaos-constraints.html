@@ -104,7 +104,7 @@
 <li><b>ForceLimit</b> — 드라이브가 낼 수 있는 최대 힘. 0이면 무제한에 가깝다.</li>
 </ul>
 
-<p>각도 드라이브는 <code>EAngularDriveMode</code> 로 <b>SLERP</b> 와 <b>TwistAndSwing</b> 중 하나를 고른다. SLERP는 하나의 목표 회전으로 부드럽게 보간하고, TwistAndSwing은 Twist와 Swing을 분리해 제어한다. 랙돌의 관절을 "애니메이션 자세로 되돌리고 싶다"면 PhysicalAnimation이 이 드라이브를 대신 설정한다.</p>
+<p>각도 드라이브는 <code>EAngularDriveMode</code> 로 <b>SLERP</b> 와 <b>TwistAndSwing</b> 중 하나를 고른다. SLERP는 하나의 목표 회전으로 부드럽게 보간하고, TwistAndSwing은 Twist와 Swing을 분리해 제어한다. SLERP은 각도 리밋 중 하나라도 <b>Locked</b> 면 동작하지 않는다. 랙돌의 관절을 "애니메이션 자세로 되돌리고 싶다"면 PhysicalAnimation이 이 드라이브를 대신 설정한다.</p>
 
 <h2>4. Physics Asset — 바디와 관절의 묶음</h2>
 
@@ -129,7 +129,7 @@
 <li><code>WakeAllRigidBodies()</code> — 잠든 바디를 깨운다.</li>
 </ol>
 
-<p>복구는 반대로 블렌드 가중치를 0으로 내리고 시뮬레이션을 끈다. <code>bBlendPhysics</code> 는 "이번 틱에 물리 결과를 섞을지"를 나타내는 상태라, 랙돌 진입/복구 타이밍을 잡을 때 같이 본다.</p>
+<p>복구는 반대로 블렌드 가중치를 0으로 내리고 시뮬레이션을 끈다. <code>bBlendPhysics</code> 가 켜지면 블렌드 가중치를 무시하고 <b>물리 결과를 강제로</b> 쓴다. 그래서 랙돌 진입/복구 타이밍을 잡을 때 <code>bBlendPhysics</code> 와 <code>PhysicsBlendWeight</code> 를 같이 본다.</p>
 
 <p>관절이 없으면 바디가 흩어진다. Physics Asset에서 <b>연결된 본끼리 Constraint</b> 가 있어야 팔이 어깨에 붙어 있다. 연결된 바디끼리의 충돌은 보통 <code>SetDisableCollision(true)</code> 로 꺼서 관절이 파고들지 않게 한다.</p>
 

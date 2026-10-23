@@ -63,7 +63,7 @@
 <table>
 <thead><tr><th>API / 값</th><th>하는 일</th></tr></thead>
 <tbody>
-<tr><td><code>DamageThreshold</code></td><td>클러스터 레벨별 파괴 임계값 배열</td></tr>
+<tr><td><code>DamageThreshold</code></td><td>클러스터 레벨별 파괴 임계값 배열. 컴포넌트 기본값은 {500000, 50000, 5000}</td></tr>
 <tr><td><code>bUseSizeSpecificDamageThreshold</code></td><td>조각 크기에 따라 임계값을 보정</td></tr>
 <tr><td><code>SetDamageThreshold()</code></td><td>런타임에 임계값 교체</td></tr>
 <tr><td><code>ApplyExternalStrain()</code></td><td>위치·반경·전파 깊이로 변형을 준다</td></tr>
@@ -78,7 +78,7 @@
 <p>파괴가 일어나면 이벤트가 나간다.</p>
 
 <ul>
-<li><code>OnChaosBreakEvent</code> — 조각이 깨졌다. <code>FChaosBreakEvent</code> 에 컴포넌트·위치·회전·속도·각속도·바운즈·질량·인덱스가 들어 있다.</li>
+<li><code>OnChaosBreakEvent</code> — 조각이 깨졌다. <code>FChaosBreakEvent</code> 에 컴포넌트·위치·회전·속도·각속도·바운즈·질량·인덱스·<code>bFromCrumble</code> 이 들어 있다.</li>
 <li><code>OnRootBreakEvent</code> — 루트 클러스터가 깨졌다.</li>
 <li><code>OnChaosCrumblingEvent</code> — 크럼블(서서히 부서짐) 이벤트.</li>
 <li><code>SetNotifyBreaks(true)</code> — 브레이크 이벤트를 켠다.</li>
@@ -92,7 +92,7 @@
 <table>
 <thead><tr><th>API</th><th>하는 일</th></tr></thead>
 <tbody>
-<tr><td><code>ApplyStrainField(...)</code></td><td>위치·반경·세기·클러스터 레벨로 변형 필드</td></tr>
+<tr><td><code>ApplyStrainField(...)</code></td><td>위치·반경·세기로 변형 필드. <code>Iterations</code> 인자는 5.8 구현에서 쓰이지 않는다</td></tr>
 <tr><td><code>ApplyPhysicsField(Enabled, Target, MetaData, Field)</code></td><td>일회성 물리 필드</td></tr>
 <tr><td><code>AddPersistentField(...)</code></td><td>계속 남는 필드</td></tr>
 <tr><td><code>AddConstructionField(...)</code></td><td>건설 단계에서 앵커 등을 설정</td></tr>
@@ -112,7 +112,7 @@
 <li><code>UCullingField</code> — 다른 필드의 결과를 조건으로 자른다.</li>
 </ul>
 
-<p><code>UFieldSystemMetaDataIteration</code> 은 반복 횟수, <code>UFieldSystemMetaDataProcessingResolution</code> 은 처리 해상도, <code>UFieldSystemMetaDataFilter</code> 는 대상 필터를 정한다. 같은 RadialFalloff라도 메타데이터에 따라 비용과 결과가 달라진다.</p>
+<p><code>UFieldSystemMetaDataProcessingResolution</code> 은 처리 해상도, <code>UFieldSystemMetaDataFilter</code> 는 대상 필터를 정한다. <code>UFieldSystemMetaDataIteration</code> 은 남아 있지만 5.8에서는 더 이상 쓰이지 않는다(헤더 주석). 같은 RadialFalloff라도 해상도·필터에 따라 비용과 결과가 달라진다.</p>
 
 <div class="panel">
   <div class="sl">
@@ -150,7 +150,7 @@
 
 <ul>
 <li><code>show Collision</code> — 조각·클러스터의 콜리전 형상.</li>
-<li><code>stat physics</code> — 파괴 시뮬레이션 비용.</li>
+<li><code>stat Chaos</code> · <code>stat physics</code> — 파괴 시뮬레이션 비용.</li>
 <li><code>p.Chaos.*</code> — Chaos CVar. 파괴·필드 세부 조정.</li>
 <li>Visual Logger — 파괴 이벤트와 바디 상태를 시간축으로 기록.</li>
 </ul>
