@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Collision — Preset · Channel · ObjectType</title>
-<meta name="note-title" content="Collision — Preset · Channel · ObjectType">
-<meta name="note-summary" content="프리셋 하나를 고르면 64개 채널의 응답이 한꺼번에 정해진다. ObjectType·Channel·Response가 각각 무엇을 정하고, 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지.">
-<meta name="note-tags" content="Collision, Collision Channel, Collision Preset, Physics">
+<title>Collision — Preset · Channel · Trace</title>
+<meta name="note-title" content="Collision — Preset · Channel · Trace">
+<meta name="note-summary" content="프리셋·채널·응답으로 충돌을 거르는 법과, Line·Sweep·Overlap 트레이스를 고르는 법. 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지도.">
+<meta name="note-tags" content="Collision, Collision Channel, Collision Preset, Trace, Physics">
 <meta name="note-order" content="11">
 <meta name="note-category" content="충돌과 물리">
 <link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
@@ -27,6 +27,12 @@
 select{font:inherit;font-size:.88rem;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text)}
 .matrix td{text-align:center}
 .range td:first-child{white-space:nowrap}
+.axis td:first-child{white-space:nowrap}
+.api td:first-child{white-space:nowrap}
+.cmp td:first-child{white-space:nowrap}
+.params{list-style:none;margin:0 0 16px;padding:0;display:grid;gap:8px}
+.params li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.params .small{margin-left:4px}
 .matrix td:first-child{text-align:left;font-family:ui-monospace,Consolas,monospace;white-space:nowrap;font-size:.85rem}
 .matrix .dot{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid var(--line);vertical-align:-1px}
 .matrix .dot.on{background:var(--accent);border-color:var(--accent)}
@@ -53,8 +59,8 @@ select{font:inherit;font-size:.88rem;padding:7px 9px;border:1px solid var(--line
 <p><a class="back" href="../index.html">&larr; 목차</a></p>
 
 <header class="site-head">
-<h1>Collision — Preset · Channel · ObjectType</h1>
-<p>프리셋 하나를 고르면 채널 64개의 응답이 한꺼번에 정해진다. ObjectType·Channel·Response가 각각 무엇을 정하는지, 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지.</p>
+<h1>Collision — Preset · Channel · Trace</h1>
+<p>프리셋·채널·응답으로 충돌을 거르는 법과, Line·Sweep·Overlap 트레이스를 고르는 법. 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지도.</p>
 </header>
 
 <article>
@@ -256,7 +262,187 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <p>기본 <code>Pawn</code> 프리셋이 <b>Visibility 만 Ignore</b> 인 이유가 여기 있다. 캐릭터 캡슐은 물리로는 단단히 막히지만, 카메라·조준 트레이스는 그 캡슐을 통과한다. 조준선이 캐릭터 몸에 걸리면 불편하기 때문이다.</p>
 
-<h2>7. Collision Enabled — 쿼리 트리와 시뮬레이션 트리</h2>
+<h2>7. 트레이스의 모양과 개수</h2>
+
+<p>트레이스 함수 이름은 길지만 규칙이 있다. <code>LineTraceSingleByChannel</code> 을 쪼개면 <b>모양</b>(Line) · <b>개수</b>(Single) · <b>필터</b>(ByChannel)다. 이 세 축만 알면 이름이 외워진다.</p>
+
+<div class="tablewrap">
+<table class="axis">
+<thead><tr><th>축</th><th>값</th><th>이름에 이렇게 나온다</th></tr></thead>
+<tbody>
+<tr><td><b>모양</b></td><td>Line · Sweep · Overlap</td><td><code>LineTrace…</code> · <code>Sweep…</code> · <code>Overlap…</code></td></tr>
+<tr><td><b>개수</b></td><td>Single · Multi · Test</td><td><code>…Single…</code> · <code>…Multi…</code> · <code>…Test…</code></td></tr>
+<tr><td><b>필터</b></td><td>Channel · ObjectType</td><td><code>…ByChannel</code> · <code>…ByObjectType</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>모양 — 라인은 부피가 없고, 스윕은 있다</h3>
+
+<p><b>Line</b> 은 점에서 점으로 가는 선이다. 부피가 없다. <b>Sweep</b> 은 구·캡슐·박스를 끌고 가는 것이라, 선이 지나갈 수 있는 틈도 막힌다. <b>Overlap</b> 은 이동 없이 어떤 위치에 모양을 겹쳐 보는 것이다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="sweepR">스윕 반지름</label>
+    <input type="range" id="sweepR" min="0" max="40" value="28">
+    <output id="sweepROut">28</output>
+  </div>
+  <div class="stage"><canvas id="sweepCv" aria-label="벽에 뚫린 구멍을 향해 트레이스를 쏜다. 반지름 0인 라인은 구멍을 지나가고, 구멍 반폭보다 큰 반지름의 스윕은 벽 모서리에 걸린다."></canvas></div>
+  <p class="verdict" id="sweepOut"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 반지름을 <b>0</b> 으로 두면 라인이다. 구멍을 그대로 지나간다. 반지름을 <b>22 이하</b>로 두면 스윕도 통과하고, 넘기면 <b>벽 모서리에 걸린다</b>. 같은 시작점·끝점인데 결과가 갈린다.</p>
+
+<p>스윕에는 <b>모양</b>과 <b>회전</b>이 함께 간다. 박스는 회전에 따라 막히는 범위가 달라지므로 <code>FQuat</code> 인자가 붙는다. 캐릭터 이동에 쓰는 캡슐 스윕이 대표적이다.</p>
+
+<h3>개수 — Single · Multi · Test</h3>
+
+<p>같은 경로라도 <b>몇 개를 돌려주나</b>가 다르다. 아래 그림의 앞 두 상자는 <b>Overlap</b>, 마지막은 <b>Block</b> 이다.</p>
+
+<div class="panel">
+  <div class="ctl" id="multiCtl">
+    <button type="button" data-mode="single" aria-pressed="true">Single</button>
+    <button type="button" data-mode="multi" aria-pressed="false">Multi</button>
+    <button type="button" data-mode="test" aria-pressed="false">Test</button>
+  </div>
+  <div class="stage"><canvas id="multiCv" aria-label="트레이스 경로에 상자 세 개가 있다. 앞의 두 개는 Overlap, 마지막은 Block 이다. Single 은 마지막 Block 하나만, Multi 는 Overlap 둘과 Block 하나를, Test 는 bool 하나만 돌려준다."></canvas></div>
+  <p class="verdict" id="multiOut"></p>
+</div>
+
+<div class="tablewrap">
+<table class="api">
+<thead><tr><th>개수</th><th>함수 (Line · Sweep · Overlap)</th></tr></thead>
+<tbody>
+<tr><td><b>Single</b></td><td><code>LineTraceSingleByChannel</code> · <code>SweepSingleByChannel</code> · Overlap 없음</td></tr>
+<tr><td><b>Multi</b></td><td><code>LineTraceMultiByChannel</code> · <code>SweepMultiByChannel</code> · <code>OverlapMultiByChannel</code></td></tr>
+<tr><td><b>Test</b></td><td><code>LineTraceTestByChannel</code> · <code>SweepTestByChannel</code> · <code>OverlapAnyTestByChannel</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>Single 은 Overlap 을 무시한다.</b> 엔진이 Single·Test 에서는 <code>bIgnoreTouches</code> 를 강제로 켜기 때문이다. 첫 Block 만 <code>FHitResult</code> 로 돌려주고, 맞은 것이 Overlap 뿐이면 결과가 비어 있다. <b>Multi 는 Overlap 도 모은다.</b> 대신 Block 을 만나면 그 뒤로는 보지 않는다. <b>Test 는 bool 만</b> 돌려준다 &mdash; 어디에 맞았는지, 몇 개 맞았는지는 알려 주지 않는다. 가장 싸다.</p>
+
+<h2>8. Channel 로 쏘나, ObjectType 으로 쏘나</h2>
+
+<p>거르는 방식도 둘이다. <b>ByChannel</b> 은 채널 하나를 정하고 <b>오브젝트의 응답</b>을 본다. <b>ByObjectType</b> 은 오브젝트 타입 여러 개를 정하고 <b>그 타입인지</b>만 본다.</p>
+
+<div class="tablewrap">
+<table class="cmp">
+<thead><tr><th></th><th>ByChannel</th><th>ByObjectType</th></tr></thead>
+<tbody>
+<tr><td>고르는 것</td><td>채널 하나 (<code>ECC_Visibility</code> 등)</td><td>오브젝트 타입 여러 개 (<code>ECC_Pawn</code>, <code>ECC_Vehicle</code> …)</td></tr>
+<tr><td>응답</td><td><b>본다</b></td><td><b>안 본다</b> &mdash; 타입이 맞으면 맞는다</td></tr>
+<tr><td>쿼리 응답</td><td><code>FCollisionResponseParams</code></td><td>없다</td></tr>
+<tr><td>대표 함수</td><td><code>LineTraceSingleByChannel</code></td><td><code>LineTraceSingleByObjectType</code></td></tr>
+<tr><td>쓰는 곳</td><td>무기·카메라처럼 오브젝트의 필터 정책을 존중해야 할 때</td><td>"Pawn·Vehicle 만" 같은 타입 스캔</td></tr>
+</tbody>
+</table>
+</div>
+
+<pre><code>// 채널 쿼리 — 오브젝트의 응답을 존중한다
+World-&gt;LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
+
+// 오브젝트 타입 쿼리 — 타입만 본다
+FCollisionObjectQueryParams ObjParams(FCollisionObjectQueryParams::AllDynamicObjects);
+ObjParams.AddObjectTypesToQuery(ECC_Pawn);
+World-&gt;LineTraceSingleByObjectType(Hit, Start, End, ObjParams, Params);</code></pre>
+
+<blockquote><b>오브젝트 타입 쿼리는 응답을 보지 않는다.</b> Chaos 필터의 <code>ObjectTypeNarrowFilter</code> 는 쿼리 타입 마스크와 오브젝트의 채널 비트만 비교한다. 그래서 <b>모든 채널을 Ignore 로 둔 오브젝트도</b> 타입이 맞으면 오브젝트 타입 쿼리에는 맞는다. Collision Enabled(쿼리 트리에 있나)와 무시 목록은 여전히 적용된다.</blockquote>
+
+<p>반대로 채널 쿼리는 6절의 규칙을 그대로 따른다. 오브젝트의 응답과 쿼리 쪽 응답의 <b>min</b> 이 결과를 정한다.</p>
+
+<h2>9. Query Params — 무엇을 켜고 끄나</h2>
+
+<p>트레이스에 함께 넘기는 <code>FCollisionQueryParams</code> 가 세부 규칙을 정한다. 자주 쓰는 것만 추려도 이만큼이다.</p>
+
+<ul class="params">
+<li><code>bTraceComplex</code> <span class="small">기본 false</span><br>Complex(삼각형) 충돌을 쓸지. Simple vs Complex 는 별도 문서에서 다룬다</li>
+<li><code>bFindInitialOverlaps</code> <span class="small">기본 true</span><br>시작점이 이미 겹쳐 있으면 <code>bStartPenetrating</code> 으로 알려 줄지</li>
+<li><code>bReturnPhysicalMaterial</code> <span class="small">기본 false</span><br><code>Hit.PhysMaterial</code> 을 채울지</li>
+<li><code>bReturnFaceIndex</code> <span class="small">기본 false</span><br>Complex 히트의 <code>FaceIndex</code> 를 채울지</li>
+<li><code>bIgnoreBlocks</code> · <code>bIgnoreTouches</code> <span class="small">기본 false</span><br>Block 결과·Overlap 결과를 각각 버릴지</li>
+<li><code>bSkipNarrowPhase</code> <span class="small">기본 false</span><br>Overlap 에서 정밀 검사를 생략. 빠르지만 정확도가 떨어진다</li>
+<li><code>MobilityType</code> <span class="small">기본 Any</span><br>Static / Movable 만 대상으로 할지</li>
+<li><code>TraceTag</code> <span class="small">기본 None</span><br>Collision Analyzer 에서 이 쿼리를 찾는 이름표</li>
+<li><code>AddIgnoredActor</code> · <code>AddIgnoredComponent</code><br>자기 자신·무기·쉴드 등을 결과에서 뺀다</li>
+</ul>
+
+<p>응답과 오브젝트 타입은 파라미터가 아니라 <b>따로 넘기는 인자</b>다. <code>FCollisionResponseParams</code>(쿼리 쪽 응답, 기본 전부 Block)와 <code>FCollisionObjectQueryParams</code>(오브젝트 타입 목록)가 그것이다.</p>
+
+<pre><code>FCollisionQueryParams Params(SCENE_QUERY_STAT(WeaponTrace), false, GetOwner());
+Params.bReturnPhysicalMaterial = true;
+Params.AddIgnoredComponent(ShieldComp);
+
+FHitResult Hit;
+GetWorld()-&gt;LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);</code></pre>
+
+<p class="note"><code>FCollisionQueryParams</code> 에는 "나 자신을 무시" 하는 플래그가 따로 없다. 생성자에 무시할 액터를 넘기거나 <code>AddIgnoredActor</code> 를 쓴다.</p>
+
+<h2>10. Hit Result — 어디를 봐야 하나</h2>
+
+<p><code>FHitResult</code> 는 필드가 많다. 전부 외울 필요는 없고, <b>Location 과 ImpactPoint 를 구분</b>하는 것부터 시작하면 된다.</p>
+
+<ul class="params">
+<li><code>bBlockingHit</code><br>Block 으로 맞았나. false 면 Overlap/touch 이거나 안 맞은 것</li>
+<li><code>Time</code><br>경로 위 어디인지 0~1. 시작이 0, 끝이 1</li>
+<li><code>Distance</code><br>시작점에서 <code>Location</code> 까지의 거리(월드 단위). 시작이 겹쳐 있으면 0</li>
+<li><code>Location</code><br>모양의 <b>중심</b>이 닿는 위치. 라인이면 충돌 지점과 같다</li>
+<li><code>ImpactPoint</code><br>모양의 <b>표면</b>이 실제로 닿은 지점. 데칼은 보통 이걸 쓴다</li>
+<li><code>Normal</code> · <code>ImpactNormal</code><br>스윕 모양 기준 노멀 · 맞은 표면의 노멀. 라인에서는 둘이 같다</li>
+<li><code>TraceStart</code> · <code>TraceEnd</code><br>요청한 시작·끝. <b>맞은 지점이 아니다</b></li>
+<li><code>bStartPenetrating</code> · <code>PenetrationDepth</code><br>시작부터 겹쳐 있었나, 빠져나오려면 얼마나 움직여야 하나</li>
+<li><code>Component</code> · <code>GetActor()</code> · <code>BoneName</code><br>맞은 컴포넌트·액터·본</li>
+<li><code>PhysMaterial</code><br><code>bReturnPhysicalMaterial</code> 를 켜야 채워진다</li>
+<li><code>FaceIndex</code><br>Complex 히트의 삼각형 번호. <code>bTraceComplex</code>·<code>bReturnFaceIndex</code> 가 필요</li>
+</ul>
+
+<blockquote><b>스윕에서 <code>Location</code> 을 데칼 위치로 쓰면 어긋난다.</b> <code>Location</code> 은 구 중심이 멈춘 자리이고, 표면에 붙는 점은 <code>ImpactPoint</code> 다. 시작이 겹쳐 있으면 <code>Time</code>·<code>Distance</code> 가 0 이고 <code>ImpactPoint</code> 는 <code>Location</code> 과 같아진다 &mdash; 의미 있는 접점이 하나가 아니기 때문이다.</blockquote>
+
+<h2>11. 실전 패턴 네 가지</h2>
+
+<p>같은 트레이스라도 목적에 따라 모양·개수·필터가 달라진다.</p>
+
+<h3>조준 — 라인 하나, 첫 Block</h3>
+
+<pre><code>FHitResult Hit;
+FCollisionQueryParams Params(SCENE_QUERY_STAT(Aim), false, GetOwner());
+if (GetWorld()-&gt;LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+{
+    SpawnDecal(Hit.ImpactPoint, Hit.ImpactNormal);
+}</code></pre>
+
+<h3>근접 공격 — 구 스윕</h3>
+
+<pre><code>FCollisionShape Shape = FCollisionShape::MakeSphere(40.f);
+FHitResult Hit;
+if (GetWorld()-&gt;SweepSingleByChannel(Hit, Start, End, FQuat::Identity,
+        ECC_Visibility, Shape, Params))
+{
+    // Hit.bStartPenetrating 이면 이미 겹친 채로 시작한 것
+}</code></pre>
+
+<h3>트리거 — Overlap 멀티</h3>
+
+<pre><code>TArray&lt;FOverlapResult&gt; Overlaps;
+FCollisionObjectQueryParams ObjParams(FCollisionObjectQueryParams::AllDynamicObjects);
+GetWorld()-&gt;OverlapMultiByObjectType(Overlaps, Pos, FQuat::Identity, ObjParams,
+        FCollisionShape::MakeSphere(300.f), Params);</code></pre>
+
+<p>Overlap 결과에는 <code>ImpactPoint</code>·<code>Normal</code> 이 없다. 위치·노멀이 필요하면 스윕을 써야 한다. <code>FOverlapResult</code> 는 <b>컴포넌트·아이템 인덱스·bBlockingHit</b> 정도만 준다.</p>
+
+<h3>이동 — 캡슐 스윕</h3>
+
+<pre><code>FCollisionShape Capsule = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+FHitResult Hit;
+if (GetWorld()-&gt;SweepSingleByChannel(Hit, Start, End, Rot, ECC_Pawn, Capsule,
+        MoveParams, FCollisionResponseParams::DefaultResponseParam))
+{
+    // Hit.ImpactNormal 을 따라 미끄러지게 한다
+}</code></pre>
+
+<p>이동은 라인으로 하면 벽 모서리에 걸리고, 캡슐로 하면 부드럽게 미끄러진다. 그래서 캐릭터 이동은 캡슐 스윕이 기본이다.</p>
+
+<h2>12. Collision Enabled — 쿼리 트리와 시뮬레이션 트리</h2>
 
 <p>응답이 "무엇과 부딪히나" 라면, <b>Collision Enabled</b> 는 "어느 트리에 들어가나" 다. 충돌 데이터는 쿼리용 트리와 시뮬레이션용 트리로 나뉘어 있고, Enabled 가 어느 쪽에 넣을지 정한다.</p>
 
@@ -278,7 +464,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <p class="note">오버랩 이벤트는 <b>쿼리</b>로 계산된다. 그래서 <code>PhysicsOnly</code> 인 컴포넌트는 아무리 겹쳐도 <code>BeginOverlap</code> 이 뜨지 않는다.</p>
 
-<h2>8. Overlap 이벤트는 세 조건이 모두 맞아야 뜬다</h2>
+<h2>13. Overlap 이벤트는 세 조건이 모두 맞아야 뜬다</h2>
 
 <p>엔진이 오버랩을 갱신하는 코드는 이렇다. 세 조건이 다 보인다.</p>
 
@@ -317,7 +503,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <p><b>Generate Overlap Events 의 기본값은 true</b> 다. 그래서 "오버랩이 안 뜬다" 는 대부분 <b>응답</b>이나 <b>Enabled</b> 문제다. Block 쌍으로 만들어 놓고 오버랩을 기대하는 경우도 많다 &mdash; Block 은 <code>Hit</code> 이벤트이지 <code>BeginOverlap</code> 이 아니다.</p>
 
-<h2>9. 엔진 기본 프리셋</h2>
+<h2>14. 엔진 기본 프리셋</h2>
 
 <div class="tablewrap">
 <table>
@@ -338,7 +524,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <p class="note"><b>OverlapAll 의 함정.</b> 이름은 All 이지만 커스텀 채널까지 Overlap 으로 바꾸지는 않는다. 기본 8개 채널만 Overlap 으로 적혀 있고, 나머지는 채널의 DefaultResponse(보통 Block)를 따른다. 커스텀 트레이스 채널을 만들었다면 OverlapAll 이 그 채널을 여전히 Block 할 수 있다.</p>
 
-<h2>10. 커스텀 채널·프리셋은 ini 에 저장된다</h2>
+<h2>15. 커스텀 채널·프리셋은 ini 에 저장된다</h2>
 
 <p>Project Settings 의 <b>Collision</b> 페이지에서 채널과 프리셋을 만든다. 저장되는 곳은 <code>DefaultEngine.ini</code> 의 <code>[/Script/Engine.CollisionProfile]</code> 이다.</p>
 
@@ -362,7 +548,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <p>코드에서는 <code>SetCollisionProfileName("MyTrigger")</code> 로 통째로 적용하고, <code>SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore)</code> 처럼 한 채널만 바꿀 수도 있다. 후자를 쓰면 프리셋 이름이 <code>Custom</code> 으로 바뀐다.</p>
 
-<h2>11. 안 될 때 보는 곳</h2>
+<h2>16. 안 될 때 보는 곳</h2>
 
 <ul>
 <li><code>show Collision</code> &mdash; 콜리전 형상을 그린다. <code>show CollisionPawn</code>·<code>show CollisionVisibility</code> 는 그 채널 기준으로 보여 준다</li>
@@ -388,7 +574,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <blockquote><b>한 문장으로.</b> 프리셋은 <b>ObjectType · Enabled · 채널 64개의 응답</b>을 묶은 이름이다. 물리 접촉은 <b>양쪽 ObjectType 응답이 모두 Block</b> 이어야 막히고, 트레이스는 <b>채널 하나</b>, 오버랩은 <b>세 조건</b>이다.</blockquote>
 
-<h2>12. 소스 위치</h2>
+<h2>17. 소스 위치</h2>
 
 <div class="tablewrap">
 <table class="wide">
@@ -415,6 +601,15 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 <tr><td><code>LineTraceSingleByChannel</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/World.h</code></td><td>2161</td></tr>
 <tr><td>엔진 기본 프리셋 정의</td><td><code>Engine/Config/BaseEngine.ini</code></td><td>3102~3121</td></tr>
 <tr><td><code>show Collision</code> 플래그</td><td><code>Engine/Source/Runtime/Engine/Public/ShowFlagsValues.inl</code></td><td>303</td></tr>
+<tr><td>Line·Sweep·Overlap API 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/World.h</code></td><td>2128~2430</td></tr>
+<tr><td><code>FCollisionQueryParams</code> 필드·기본값</td><td><code>Engine/Source/Runtime/Engine/Public/CollisionQueryParams.h</code></td><td>42~225</td></tr>
+<tr><td><code>FCollisionResponseParams</code></td><td><code>Engine/Source/Runtime/Engine/Public/CollisionQueryParams.h</code></td><td>323</td></tr>
+<tr><td><code>FCollisionObjectQueryParams</code></td><td><code>Engine/Source/Runtime/Engine/Public/CollisionQueryParams.h</code></td><td>453</td></tr>
+<tr><td>ObjectType 쿼리 필터 (응답 무시)</td><td><code>Engine/Source/Runtime/Experimental/Chaos/Private/Chaos/CollisionFilterData.cpp</code></td><td>506</td></tr>
+<tr><td>Single·Test 가 Overlap 을 버리는 곳</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/SceneQuery.cpp</code></td><td>527</td></tr>
+<tr><td><code>FHitResult</code> 필드</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/HitResult.h</code></td><td>20~160</td></tr>
+<tr><td><code>FOverlapResult</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/OverlapResult.h</code></td><td>12</td></tr>
+<tr><td><code>FCollisionShape</code> · <code>MakeSphere/Capsule/Box</code></td><td><code>Engine/Source/Runtime/PhysicsCore/Public/CollisionShape.h</code></td><td>20 · 284~316</td></tr>
 </tbody>
 </table>
 </div>
@@ -424,7 +619,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 </article>
 
 <footer class="site-foot">
-<p>이 페이지는 충돌 설정이 값으로 정해지는 방식을 다뤘다. Simple/Complex 충돌 형상 자체는 <a href="collision-simple-vs-complex.html">Collision — Simple vs Complex</a> 에서 다룬다.</p>
+<p>이 페이지는 충돌 설정과 트레이스 선택을 다뤘다. Simple/Complex 충돌 형상 자체는 <a href="collision-simple-vs-complex.html">Collision — Simple vs Complex</a> 에서 다룬다.</p>
 </footer>
 
 </div>
@@ -674,6 +869,191 @@ function initOverlapCheck(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initOverlapCheck);
 else initOverlapCheck();
+</script>
+
+
+<script>
+/* 라인 vs 스윕 — 같은 경로라도 부피가 있으면 구멍 모서리에 걸린다. */
+function initSweepFig(){
+  if (!window.Viz) return;
+  var slider = document.getElementById('sweepR');
+  var out = document.getElementById('sweepROut');
+  var verdict = document.getElementById('sweepOut');
+  if (!slider || !out || !verdict) return;
+
+  var HALF_GAP = 22;
+
+  var v = Viz.view('sweepCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cy = h / 2;
+    var wallX = w * 0.62, wallW = 14;
+    var r = parseInt(slider.value, 10) || 0;
+
+    // 벽 — 가운데 구멍
+    ctx.fillStyle = c.line; ctx.strokeStyle = c.dim; ctx.lineWidth = 1.5;
+    var topH = cy - HALF_GAP - 20;
+    var botY = cy + HALF_GAP;
+    var botH = h - 20 - botY;
+    ctx.fillRect(wallX, 20, wallW, topH);
+    ctx.strokeRect(wallX, 20, wallW, topH);
+    ctx.fillRect(wallX, botY, wallW, botH);
+    ctx.strokeRect(wallX, botY, wallW, botH);
+
+    // 경로
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1; ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(24, cy); ctx.lineTo(w - 24, cy); ctx.stroke();
+    ctx.setLineDash([]);
+    Viz.arrow(ctx, w - 64, cy, w - 26, cy, c.dim, 1.5);
+
+    var startX = 56;
+    var blocked = r > HALF_GAP;
+    var dx = blocked ? Math.sqrt(r * r - HALF_GAP * HALF_GAP) : 0;
+    var endX = blocked ? wallX - dx : w - 64;
+
+    if (r > 0){
+      ctx.beginPath(); ctx.arc(startX, cy, r, 0, Math.PI * 2);
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1.5; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(startX, cy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = c.dim; ctx.fill();
+    }
+
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(startX, cy); ctx.lineTo(endX, cy); ctx.stroke();
+
+    if (r > 0){
+      ctx.beginPath(); ctx.arc(endX, cy, r, 0, Math.PI * 2);
+      ctx.fillStyle = c.accent; ctx.globalAlpha = 0.18; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = blocked ? c.warn : c.accent; ctx.lineWidth = 2; ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.arc(endX, cy, 3, 0, Math.PI * 2);
+      ctx.fillStyle = c.accent; ctx.fill();
+    }
+
+    if (blocked){
+      var hx = wallX, hy = cy - HALF_GAP;
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(hx - 5, hy - 5); ctx.lineTo(hx + 5, hy + 5);
+      ctx.moveTo(hx + 5, hy - 5); ctx.lineTo(hx - 5, hy + 5);
+      ctx.stroke();
+    } else {
+      Viz.text(ctx, '통과', endX, cy - Math.max(r, 3) - 12, c.accent, 10, 'center');
+    }
+  });
+
+  if (!v) return;
+
+  function update(){
+    var r = parseInt(slider.value, 10) || 0;
+    out.textContent = r;
+    if (r === 0){
+      verdict.className = 'verdict';
+      verdict.textContent = '라인(반지름 0). 부피가 없어 구멍을 그대로 지나간다.';
+    } else if (r <= HALF_GAP){
+      verdict.className = 'verdict ok';
+      verdict.textContent = '반지름 ' + r + ' ≤ 구멍 반폭 22. 스윕도 통과한다.';
+    } else {
+      verdict.className = 'verdict bad';
+      verdict.textContent = '반지름 ' + r + ' > 구멍 반폭 22. 벽 모서리에 걸린다. 같은 경로인데 라인과 결과가 갈린다.';
+    }
+    v.render();
+  }
+
+  slider.addEventListener('input', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSweepFig);
+else initSweepFig();
+</script>
+
+<script>
+/* Single / Multi / Test — 앞의 둘은 Overlap, 마지막은 Block. */
+function initMultiFig(){
+  if (!window.Viz) return;
+  var ctl = document.getElementById('multiCtl');
+  var verdict = document.getElementById('multiOut');
+  if (!ctl || !verdict) return;
+
+  var mode = 'single';
+  var KINDS = ['Overlap', 'Overlap', 'Block'];
+
+  var v = Viz.view('multiCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cy = h / 2;
+    var size = 44;
+    var xs = [w * 0.30, w * 0.50, w * 0.70];
+
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1; ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(20, cy); ctx.lineTo(w - 20, cy); ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (var i = 0; i < 3; i++){
+      var x = xs[i];
+      var isBlock = KINDS[i] === 'Block';
+      var included = (mode === 'multi') || (mode === 'single' && isBlock);
+      ctx.globalAlpha = included ? 1 : 0.35;
+
+      Viz.roundRect(ctx, x - size / 2, cy - size / 2, size, size, 8);
+      ctx.fillStyle = c.sf2; ctx.fill();
+      ctx.strokeStyle = isBlock ? c.accent : c.warn; ctx.lineWidth = 2; ctx.stroke();
+      Viz.text(ctx, KINDS[i], x, cy + 2, isBlock ? c.accent : c.warn, 8, 'center');
+      ctx.globalAlpha = 1;
+
+      if (included && mode !== 'test'){
+        var mx = x - size / 2 - 5;
+        ctx.strokeStyle = isBlock ? c.accent : c.warn; ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(mx - 4, cy - 4); ctx.lineTo(mx + 4, cy + 4);
+        ctx.moveTo(mx + 4, cy - 4); ctx.lineTo(mx - 4, cy + 4);
+        ctx.stroke();
+      }
+    }
+
+    if (mode === 'multi'){
+      var stopX = xs[2] + size / 2 + 12;
+      ctx.strokeStyle = c.warn; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(stopX, 26); ctx.lineTo(stopX, h - 26); ctx.stroke();
+      ctx.setLineDash([]);
+      Viz.text(ctx, 'Block 에서 끝', stopX - 4, 30, c.warn, 9, 'right');
+    }
+    if (mode === 'test'){
+      Viz.text(ctx, 'true / false', w / 2, h - 22, c.accent, 12, 'center');
+    }
+  });
+
+  if (!v) return;
+
+  function update(){
+    var btns = ctl.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      var on = btns[i].getAttribute('data-mode') === mode;
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (mode === 'single'){
+      verdict.className = 'verdict';
+      verdict.textContent = 'Single — 첫 Block 하나만 돌아온다. 앞의 Overlap 둘은 결과에 없다.';
+    } else if (mode === 'multi'){
+      verdict.className = 'verdict ok';
+      verdict.textContent = 'Multi — Overlap 둘 + Block 하나가 배열로 돌아온다. Block 을 만나면 그 뒤는 보지 않는다.';
+    } else {
+      verdict.className = 'verdict bad';
+      verdict.textContent = 'Test — bool 하나만 돌아온다. 몇 개 맞았는지, 어디에 맞았는지는 알 수 없다.';
+    }
+    v.render();
+  }
+
+  var btns = ctl.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      var m = this.getAttribute('data-mode');
+      if (m){ mode = m; update(); }
+    });
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initMultiFig);
+else initMultiFig();
 </script>
 
 </body>
