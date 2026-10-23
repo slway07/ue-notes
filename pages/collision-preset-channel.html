@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Collision — Preset · Channel · ObjectType</title>
+<meta name="note-title" content="Collision — Preset · Channel · ObjectType">
+<meta name="note-summary" content="프리셋 하나를 고르면 64개 채널의 응답이 한꺼번에 정해진다. ObjectType·Channel·Response가 각각 무엇을 정하고, 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지.">
+<meta name="note-tags" content="Collision, Collision Channel, Collision Preset, Physics">
+<meta name="note-order" content="11">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.presetctl{display:flex;gap:10px;align-items:center;margin:0 0 12px;font-size:.88rem;flex-wrap:wrap}
+.presetctl select{flex:1 1 180px}
+#presetOut{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+#presetOut .v{font-size:1rem}
+select{font:inherit;font-size:.88rem;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text)}
+.matrix td{text-align:center}
+.range td:first-child{white-space:nowrap}
+.matrix td:first-child{text-align:left;font-family:ui-monospace,Consolas,monospace;white-space:nowrap;font-size:.85rem}
+.matrix .dot{display:inline-block;width:11px;height:11px;border-radius:50%;border:1px solid var(--line);vertical-align:-1px}
+.matrix .dot.on{background:var(--accent);border-color:var(--accent)}
+.matrix .dot.on.overlap{background:var(--warn);border-color:var(--warn)}
+.matrix .dot.on.ignore{background:var(--text-dim);border-color:var(--text-dim)}
+.pairctl{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 12px}
+.pairctl .side{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface-2)}
+.pairctl .side b{display:block;font-size:.8rem;margin-bottom:6px;color:var(--accent)}
+.pairctl label{display:block;font-size:.75rem;color:var(--text-dim);margin:6px 0 3px}
+.pairctl select{width:100%}
+.checks{display:grid;gap:8px;margin:0 0 12px;font-size:.9rem}
+.checks label{display:flex;gap:8px;align-items:center}
+.checks select{flex:1 1 auto;min-width:120px}
+.chip{display:inline-block;padding:1px 8px;border-radius:999px;font-size:.72rem;font-weight:600;white-space:nowrap}
+.chip.block{background:var(--accent-dim);color:var(--accent)}
+.chip.overlap{background:var(--surface-2);color:var(--warn)}
+.chip.ignore{background:var(--surface-2);color:var(--text-dim)}
+@media (max-width:520px){.pairctl{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Collision — Preset · Channel · ObjectType</h1>
+<p>프리셋 하나를 고르면 채널 64개의 응답이 한꺼번에 정해진다. ObjectType·Channel·Response가 각각 무엇을 정하는지, 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지.</p>
+</header>
+
+<article>
+
+<h2>1. 프리셋은 이름표가 아니라 네 값을 묶은 것이다</h2>
+
+<p>디테일 패널의 <b>Collision Preset</b> 드롭다운은 코드에서 <code>CollisionProfileName</code> 이고, 프리셋 목록은 <code>UCollisionProfile</code> 이 들고 있다. 이름만 보고 있으면 놓치지만, 프리셋 하나에는 네 가지가 들어 있다.</p>
+
+<ul>
+<li><b>Collision Enabled</b> &mdash; 쿼리에 닿는지, 물리로 시뮬레이션되는지</li>
+<li><b>Object Type</b> &mdash; 이 컴포넌트가 어떤 종류인지 (하나)</li>
+<li><b>Response To Channels</b> &mdash; 채널 64개 각각에 대한 Ignore / Overlap / Block</li>
+<li><b>bCanModify</b> &mdash; 게임이 이 프리셋을 고칠 수 있는지</li>
+</ul>
+
+<p>컴포넌트에서 보이는 이 값들은 실제로 <b><code>BodyInstance</code></b> 에 들어 있다. 코드에서 <code>BodyInstance.CollisionResponses</code> 를 찾게 되는 이유다.</p>
+
+<p>엔진 기본 프리셋은 <code>Engine/Config/BaseEngine.ini</code> 에 이렇게 적혀 있다.</p>
+
+<pre><code>+Profiles=(Name="BlockAll", CollisionEnabled=QueryAndPhysics,
+           ObjectTypeName="WorldStatic", CustomResponses=, bCanModify=False)</code></pre>
+
+<p><code>CustomResponses</code> 가 비어 있는데도 <b>전부 Block</b> 인 이유는, 프리셋을 읽을 때 <b>기본 응답 컨테이너</b>에서 시작하기 때문이다. 그 기본값은 모든 채널 Block 이다(기즈모 채널만 Ignore). 그래서 "아무것도 안 적은 프리셋"은 곧 "전부 Block" 이다.</p>
+
+<div class="panel">
+  <div class="presetctl">
+    <label for="presetSel">Collision Preset</label>
+    <select id="presetSel">
+      <option value="BlockAll">BlockAll</option>
+      <option value="BlockAllDynamic">BlockAllDynamic</option>
+      <option value="OverlapAll">OverlapAll</option>
+      <option value="Pawn">Pawn</option>
+      <option value="Trigger">Trigger</option>
+      <option value="UI">UI</option>
+      <option value="NoCollision">NoCollision</option>
+      <option value="InvisibleWall">InvisibleWall</option>
+      <option value="PhysicsActor">PhysicsActor</option>
+    </select>
+  </div>
+  <div class="readout" id="presetOut"></div>
+  <div class="tablewrap">
+    <table class="matrix" id="presetMatrix">
+      <thead><tr><th>채널</th><th>Ignore</th><th>Overlap</th><th>Block</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="verdict" id="presetVerdict"></p>
+</div>
+
+<p class="note">표는 64개 중 6개만 보여 준다. 나머지도 같은 규칙으로 정해진다.</p>
+
+<p>프리셋을 고른 뒤 <b>응답 하나만 바꾸면</b> 엔진은 즉시 프리셋 이름을 <code>Custom</code> 으로 바꾼다. 프리셋은 "지금 값들의 이름"이지, 값을 계속 묶어 두는 잠금장치가 아니다. <code>SetCollisionEnabled</code>·<code>SetObjectType</code>·<code>SetCollisionResponseToChannel</code> 모두 그렇게 동작한다.</p>
+
+<h2>2. 채널은 64개, 그중 게임이 쓰는 것은 50개</h2>
+
+<p>응답 컨테이너는 채널 64개의 배열이다. 번호와 용도가 정해져 있다.</p>
+
+<div class="tablewrap">
+<table class="range">
+<thead><tr><th>범위</th><th>무엇</th></tr></thead>
+<tbody>
+<tr><td><b>0~7</b><br><span class="small">8개</span></td><td><b>엔진 기본 채널</b><br><code>WorldStatic</code> · <code>WorldDynamic</code> · <code>Pawn</code> · <code>Visibility</code> · <code>Camera</code> · <code>PhysicsBody</code> · <code>Vehicle</code> · <code>Destructible</code></td></tr>
+<tr><td><b>8~13</b><br><span class="small">6개</span></td><td><b>엔진 트레이스 채널 (숨김)</b><br>기즈모용 1번 등. 게임에서 쓰라고 열어 둔 것이 아니다</td></tr>
+<tr><td><b>14~63</b><br><span class="small">50개</span></td><td><b>게임 채널</b><br>프로젝트에서 만든 트레이스·오브젝트 채널</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>기본 8개 중 <b>오브젝트 채널 6개</b>(WorldStatic, WorldDynamic, Pawn, PhysicsBody, Vehicle, Destructible)와 <b>트레이스 채널 2개</b>(Visibility, Camera)가 게임에서 바로 쓰는 채널이다. 나머지 50개는 프로젝트가 트레이스용으로 만들 수도, 오브젝트용으로 만들 수도 있다.</p>
+
+<p class="note">5.8 에서 게임 채널은 50개다. 예전 기억으로 "18개" 라고 알고 있으면 프로젝트 설정 화면과 어긋난다.</p>
+
+<p>새 채널을 만들 때 정하는 <b>DefaultResponse</b> 는 그 채널의 <b>전 세계 기본 응답</b>이 된다. 기본값은 Block 이라, 아무 생각 없이 채널을 추가하면 <b>모든 프리셋이 그 채널을 Block</b> 한다. "새 트레이스 채널을 만들었더니 온 세상이 맞는다" 는 여기서 나온다.</p>
+
+<h2>3. ObjectType 은 "나는 무엇인가", Channel 은 "무엇으로 검사하는가"</h2>
+
+<p>둘을 헷갈리는 이유는 <b>같은 채널 목록</b>을 쓰기 때문이다. 하지만 역할은 다르다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th></th><th>정하는 것</th><th>어디에 쓰나</th></tr></thead>
+<tbody>
+<tr><td><b>Object Type</b></td><td>이 컴포넌트의 <b>정체</b>. 하나만 고른다</td><td>물리 접촉·오브젝트 쿼리에서 상대가 <b>나를 찾는 이름</b></td></tr>
+<tr><td><b>Trace Channel</b></td><td>쿼리가 <b>무엇을 검사하는지</b></td><td><code>LineTraceSingleByChannel</code> 같은 트레이스의 인자</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>WorldStatic</code> 은 레벨 지오메트리, <code>WorldDynamic</code> 은 움직이는 액터에 주로 붙는 이름이다. 이름이 역할을 암시하지만, 필터 판정에 쓰이는 것은 <b>ObjectType 비트</b> 하나다.</p>
+
+<p>그래서 "무기 트레이스가 캐릭터를 맞나?" 는 두 단계다. 무기 트레이스는 <code>Weapon</code> 채널로 쏘고, 캐릭터 캡슐은 <code>Pawn</code> 오브젝트다. 맞는지는 <b>캡슐의 Weapon 채널 응답</b>이 정한다. 캡슐의 ObjectType 이 <code>Pawn</code> 인 것은 "물리 접촉에서 상대가 나를 Pawn 으로 본다" 는 뜻이지, 트레이스 채널과는 별개다.</p>
+
+<p>디테일 패널도 이 둘을 나눠 보여 준다. <b>Object Type</b> 은 드롭다운 하나이고, 응답은 <b>Trace Responses</b> 와 <b>Object Responses</b> 두 묶음으로 나뉜다. 채널마다 Ignore / Overlap / Block 체크박스 세 개가 붙는 구조다. 물리 접촉은 <b>상대 ObjectType 에 대한 내 응답</b>을, 트레이스는 <b>내 트레이스 채널에 대한 오브젝트의 응답</b>을 본다.</p>
+
+<blockquote><b>프리셋에 트레이스 채널을 ObjectType 으로 넣으면</b> 엔진은 그 프리셋을 버리고 경고를 남긴다. ObjectType 은 오브젝트 채널이어야 한다.</blockquote>
+
+<h2>4. 응답은 세 값이고, 약한 쪽이 이긴다</h2>
+
+<p>응답은 <code>Ignore</code> · <code>Overlap</code> · <code>Block</code> 셋뿐이고, enum 값이 <b>0 · 1 · 2</b> 순서다. 그래서 엔진은 두 응답을 비교할 때 그냥 <b>작은 쪽</b>을 고른다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th></th><th>Ignore (0)</th><th>Overlap (1)</th><th>Block (2)</th></tr></thead>
+<tbody>
+<tr><td><b>Ignore</b></td><td class="yn">Ignore</td><td class="yn">Ignore</td><td class="yn">Ignore</td></tr>
+<tr><td><b>Overlap</b></td><td class="yn">Ignore</td><td class="yn">Overlap</td><td class="yn">Overlap</td></tr>
+<tr><td><b>Block</b></td><td class="yn">Ignore</td><td class="yn">Overlap</td><td class="yn">Block</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>의미는 이렇다.</p>
+
+<ul>
+<li><b>Ignore</b> &mdash; 없는 것과 같다. 쿼리도 물리도 닿지 않는다</li>
+<li><b>Overlap</b> &mdash; 막지 않는다. 겹침을 알리고, 조건이 맞으면 <code>BeginOverlap</code> 이 뜬다</li>
+<li><b>Block</b> &mdash; 막는다. 물리는 접촉하고, 트레이스는 거기서 멈춘다</li>
+</ul>
+
+<h2>5. 두 물체가 막히려면 양쪽이 모두 Block 이어야 한다</h2>
+
+<p>물리 접촉의 판정은 Chaos 필터에 이렇게 들어 있다.</p>
+
+<pre><code>const bool bBlocking =
+    (A.ChannelMask &amp; B.BlockMask) &amp;&amp;
+    (B.ChannelMask &amp; A.BlockMask);</code></pre>
+
+<p><code>BlockMask</code> 는 그 물체가 Block 하기로 한 채널들의 비트 묶음이다. 식을 풀면 <b>A 가 B 의 타입을 Block 하고, B 도 A 의 타입을 Block 해야</b> 막힌다. 한쪽이라도 Overlap 이면 막히지 않고, 한쪽이라도 Ignore 면 아예 없는 것과 같다.</p>
+
+<div class="panel">
+  <div class="pairctl">
+    <div class="side">
+      <b>A</b>
+      <label>Object Type</label>
+      <select id="aType">
+        <option>WorldStatic</option>
+        <option selected>WorldDynamic</option>
+        <option>Pawn</option>
+        <option>PhysicsBody</option>
+      </select>
+      <label>B 에 대한 응답</label>
+      <select id="aResp">
+        <option value="2">Block</option>
+        <option value="1">Overlap</option>
+        <option value="0">Ignore</option>
+      </select>
+    </div>
+    <div class="side">
+      <b>B</b>
+      <label>Object Type</label>
+      <select id="bType">
+        <option>WorldStatic</option>
+        <option>WorldDynamic</option>
+        <option selected>Pawn</option>
+        <option>PhysicsBody</option>
+      </select>
+      <label>A 에 대한 응답</label>
+      <select id="bResp">
+        <option value="2">Block</option>
+        <option value="1" selected>Overlap</option>
+        <option value="0">Ignore</option>
+      </select>
+    </div>
+  </div>
+  <div class="stage"><canvas id="pairCv" aria-label="두 물체가 서로를 향해 움직인다. 양쪽이 모두 Block 이면 가장자리에서 부딪혀 되돌아오고, 한쪽이라도 Overlap 이면 통과하며 겹침 표시가 생기고, Ignore 면 아무 표시 없이 통과한다."></canvas></div>
+  <p class="verdict" id="pairOut"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> A 를 <b>Block</b>, B 를 <b>Overlap</b> 으로 두라. 둘은 <b>막히지 않고 통과</b>한다. 이제 B 도 Block 으로 바꾸면 부딪혀 멈춘다. 한쪽만 Block 해서는 막히지 않는다는 것이 이 그림의 요점이다.</p>
+
+<h2>6. 트레이스는 왜 한쪽만 보는 것처럼 느껴지나</h2>
+
+<p>트레이스도 원칙은 같다. 엔진은 <b>쿼리 쪽 응답</b>과 <b>맞은 오브젝트 쪽 응답</b>을 모두 보고 작은 쪽을 고른다. 그런데 쿼리 쪽 응답의 기본값이 <b>전부 Block</b> 이다.</p>
+
+<pre><code>LineTraceSingleByChannel(..., TraceChannel,
+    Params, ResponseParam = FCollisionResponseParams::DefaultResponseParam)
+
+// FCollisionResponseParams 의 기본 생성자
+FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code></pre>
+
+<p>그래서 평소에는 <b>맞은 오브젝트의 응답</b>만 결과를 정하는 것처럼 보인다. 쿼리 쪽이 이미 전부 Block 이라 min 을 해도 오브젝트 쪽이 이기기 때문이다. 반대로 <code>ResponseParam</code> 을 직접 넘겨 쿼리 쪽에서 특정 오브젝트 타입을 Ignore 하면, <b>오브젝트가 Block 이어도 맞지 않는다</b>.</p>
+
+<div class="panel">
+  <div class="presetctl">
+    <label for="trCh">Trace Channel</label>
+    <select id="trCh">
+      <option value="Visibility">Visibility</option>
+      <option value="Camera">Camera</option>
+    </select>
+    <label for="trResp">오브젝트의 응답</label>
+    <select id="trResp">
+      <option value="2">Block</option>
+      <option value="1">Overlap</option>
+      <option value="0">Ignore</option>
+    </select>
+  </div>
+  <p class="verdict" id="trOut"></p>
+</div>
+
+<p>기본 <code>Pawn</code> 프리셋이 <b>Visibility 만 Ignore</b> 인 이유가 여기 있다. 캐릭터 캡슐은 물리로는 단단히 막히지만, 카메라·조준 트레이스는 그 캡슐을 통과한다. 조준선이 캐릭터 몸에 걸리면 불편하기 때문이다.</p>
+
+<h2>7. Collision Enabled — 쿼리 트리와 시뮬레이션 트리</h2>
+
+<p>응답이 "무엇과 부딪히나" 라면, <b>Collision Enabled</b> 는 "어느 트리에 들어가나" 다. 충돌 데이터는 쿼리용 트리와 시뮬레이션용 트리로 나뉘어 있고, Enabled 가 어느 쪽에 넣을지 정한다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>쿼리</th><th>물리</th></tr></thead>
+<tbody>
+<tr><td><code>NoCollision</code><br><span class="small">장식. 가장 싸다</span></td><td class="yn dep">✗</td><td class="yn dep">✗</td></tr>
+<tr><td><code>QueryOnly</code><br><span class="small">트리거, 총알 판정, 캐릭터 캡슐</span></td><td class="yn ok">✓</td><td class="yn dep">✗</td></tr>
+<tr><td><code>PhysicsOnly</code><br><span class="small">흔들리는 장식. 트레이스에 안 맞는다</span></td><td class="yn dep">✗</td><td class="yn ok">✓</td></tr>
+<tr><td><code>QueryAndPhysics</code><br><span class="small">일반 액터·월드 지오메트리</span></td><td class="yn ok">✓</td><td class="yn ok">✓</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>5.8 소스에는 <code>ProbeOnly</code> 와 <code>QueryAndProbe</code> 도 있다. 물리적으로 반응하지 않으면서 접촉 데이터만 받고 싶을 때 쓰는 상태다.</p>
+
+<p><b>두 컴포넌트의 Enabled 도 서로 맞아야 한다.</b> 엔진은 둘의 교집합을 낸다. 예를 들어 <code>QueryOnly</code> 와 <code>PhysicsOnly</code> 가 만나면 <code>NoCollision</code> 이 되어 아무 일도 일어나지 않는다. 한쪽이 쿼리만, 다른 쪽이 물리만 켜 두면 <b>서로 다른 트리에 있어 만날 일이 없다.</b></p>
+
+<p class="note">오버랩 이벤트는 <b>쿼리</b>로 계산된다. 그래서 <code>PhysicsOnly</code> 인 컴포넌트는 아무리 겹쳐도 <code>BeginOverlap</code> 이 뜨지 않는다.</p>
+
+<h2>8. Overlap 이벤트는 세 조건이 모두 맞아야 뜬다</h2>
+
+<p>엔진이 오버랩을 갱신하는 코드는 이렇다. 세 조건이 다 보인다.</p>
+
+<pre><code>if (GetGenerateOverlapEvents() &amp;&amp; IsQueryCollisionEnabled())   // 내 쪽
+{
+    Params.bIgnoreBlocks = true;                              // Block 은 오버랩이 아니다
+    ComponentOverlapMulti(...);
+
+    for (...)
+        if (HitComp-&gt;GetGenerateOverlapEvents())             // 상대 쪽
+            ...
+}</code></pre>
+
+<ol>
+<li><b>나</b>에게 쿼리 충돌이 켜져 있고 <b>Generate Overlap Events</b> 가 켜져 있다</li>
+<li><b>상대</b>도 Generate Overlap Events 가 켜져 있다</li>
+<li>두 응답의 <b>min 이 Overlap</b> 이다 (Block 이면 Hit, Ignore 면 아무것도 아니다)</li>
+</ol>
+
+<div class="panel">
+  <div class="checks">
+    <label><input type="checkbox" id="ovQ" checked> A: 쿼리 충돌이 켜져 있다</label>
+    <label><input type="checkbox" id="ovG" checked> A: Generate Overlap Events</label>
+    <label><input type="checkbox" id="ovQ2" checked> B: 쿼리 충돌이 켜져 있다</label>
+    <label><input type="checkbox" id="ovG2" checked> B: Generate Overlap Events</label>
+    <label>두 응답의 min
+      <select id="ovR">
+        <option value="1" selected>Overlap</option>
+        <option value="2">Block</option>
+        <option value="0">Ignore</option>
+      </select>
+    </label>
+  </div>
+  <p class="verdict" id="ovOut"></p>
+</div>
+
+<p><b>Generate Overlap Events 의 기본값은 true</b> 다. 그래서 "오버랩이 안 뜬다" 는 대부분 <b>응답</b>이나 <b>Enabled</b> 문제다. Block 쌍으로 만들어 놓고 오버랩을 기대하는 경우도 많다 &mdash; Block 은 <code>Hit</code> 이벤트이지 <code>BeginOverlap</code> 이 아니다.</p>
+
+<h2>9. 엔진 기본 프리셋</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>프리셋</th><th>특징</th></tr></thead>
+<tbody>
+<tr><td><code>BlockAll</code><br><span class="small">QueryAndPhysics · WorldStatic</span></td><td>전부 Block. 커스텀 응답이 비어 있어 기본값을 그대로 쓴다</td></tr>
+<tr><td><code>BlockAllDynamic</code><br><span class="small">QueryAndPhysics · WorldDynamic</span></td><td>같은 응답, ObjectType 만 다르다</td></tr>
+<tr><td><code>OverlapAll</code><br><span class="small">QueryOnly · WorldStatic</span></td><td>기본 8개 채널만 Overlap. <b>커스텀 채널은 자기 기본 응답을 따른다</b></td></tr>
+<tr><td><code>Pawn</code><br><span class="small">QueryAndPhysics · Pawn</span></td><td>Visibility 만 Ignore. 카메라·조준 트레이스가 통과한다</td></tr>
+<tr><td><code>Trigger</code><br><span class="small">QueryOnly · WorldDynamic</span></td><td>Visibility 만 Ignore, 나머지 Overlap. 물리로는 안 막는다</td></tr>
+<tr><td><code>UI</code><br><span class="small">QueryOnly · WorldDynamic</span></td><td>Visibility 는 Block, 나머지는 Overlap. 위젯 트레이스용</td></tr>
+<tr><td><code>NoCollision</code><br><span class="small">NoCollision · WorldStatic</span></td><td>응답은 Block 으로 남아 있지만 Enabled 가 NoCollision 이다</td></tr>
+<tr><td><code>InvisibleWall</code><br><span class="small">QueryAndPhysics · WorldStatic</span></td><td>Visibility Ignore. 카메라에는 안 보이지만 물리로는 막는다</td></tr>
+<tr><td><code>PhysicsActor</code><br><span class="small">QueryAndPhysics · PhysicsBody</span></td><td>전부 Block. 시뮬레이션 액터</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note"><b>OverlapAll 의 함정.</b> 이름은 All 이지만 커스텀 채널까지 Overlap 으로 바꾸지는 않는다. 기본 8개 채널만 Overlap 으로 적혀 있고, 나머지는 채널의 DefaultResponse(보통 Block)를 따른다. 커스텀 트레이스 채널을 만들었다면 OverlapAll 이 그 채널을 여전히 Block 할 수 있다.</p>
+
+<h2>10. 커스텀 채널·프리셋은 ini 에 저장된다</h2>
+
+<p>Project Settings 의 <b>Collision</b> 페이지에서 채널과 프리셋을 만든다. 저장되는 곳은 <code>DefaultEngine.ini</code> 의 <code>[/Script/Engine.CollisionProfile]</code> 이다.</p>
+
+<pre><code>[/Script/Engine.CollisionProfile]
++DefaultChannelResponses=(Channel=ECC_GameTraceChannel1,
+    DefaultResponse=ECR_Ignore, bTraceType=True, bStaticObject=False,
+    Name="Weapon")
+
++Profiles=(Name="MyTrigger", CollisionEnabled=QueryOnly,
+    ObjectTypeName="WorldDynamic",
+    CustomResponses=((Channel="Pawn", Response=ECR_Overlap)),
+    HelpMessage="Pawn 만 받는 트리거")</code></pre>
+
+<ul>
+<li><b>bTraceType=True</b> 면 트레이스 채널, False 면 오브젝트 채널이다. 같은 50개 슬롯을 나눠 쓴다</li>
+<li><b>DefaultResponse</b> 는 그 채널의 전 세계 기본 응답이다. 여기를 Ignore 로 두면, 아무 프리셋도 그 채널을 기본으로 막지 않는다. 그래서 커스텀 트레이스 채널은 Ignore 로 시작해, 필요한 프리셋에서만 Block·Overlap 으로 켜는 경우가 많다</li>
+<li><b>+Profiles</b> 는 게임 프리셋 추가, <b>EditProfiles</b> 는 엔진 프리셋 덮어쓰기다</li>
+<li>엔진 프리셋은 <code>bCanModify=False</code> 라 그 자리에서 고칠 수 없다. 고치면 <code>Custom</code> 이 된다</li>
+<li>이름을 바꾸면 <code>ProfileRedirects</code>·<code>CollisionChannelRedirects</code> 로 옛 이름을 새 이름에 연결한다</li>
+</ul>
+
+<p>코드에서는 <code>SetCollisionProfileName("MyTrigger")</code> 로 통째로 적용하고, <code>SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore)</code> 처럼 한 채널만 바꿀 수도 있다. 후자를 쓰면 프리셋 이름이 <code>Custom</code> 으로 바뀐다.</p>
+
+<h2>11. 안 될 때 보는 곳</h2>
+
+<ul>
+<li><code>show Collision</code> &mdash; 콜리전 형상을 그린다. <code>show CollisionPawn</code>·<code>show CollisionVisibility</code> 는 그 채널 기준으로 보여 준다</li>
+<li><b>Collision Analyzer</b> &mdash; 실행 중에 발생한 쿼리를 채널·응답과 함께 기록한다</li>
+</ul>
+
+<p>증상별로 먼저 볼 것.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>증상</th><th>먼저 볼 것</th></tr></thead>
+<tbody>
+<tr><td>트레이스가 안 맞는다</td><td>그 오브젝트의 <b>트레이스 채널 응답</b>이 Ignore 인지. 채널을 잘못 골랐는지</td></tr>
+<tr><td>물리로 안 막힌다</td><td>양쪽 다 Block 인지. 한쪽이 Overlap·Ignore 인지. Enabled 가 QueryOnly 인지</td></tr>
+<tr><td>BeginOverlap 이 안 뜬다</td><td>응답이 Block 인지(그럼 Hit), 양쪽 Generate Overlap Events, 쿼리 충돌 여부</td></tr>
+<tr><td>새 채널이 온 세상을 맞는다</td><td>그 채널의 DefaultResponse 가 Block 인지</td></tr>
+<tr><td>프리셋을 골랐는데 값이 다르다</td><td>프리셋 이름이 <code>Custom</code> 인지. 한 필드라도 만졌으면 프리셋은 풀린다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>충돌은 <b>에러 없이 조용히 안 되는</b> 쪽에 가깝다. 응답 한 칸, 체크박스 하나가 원인인 경우가 대부분이라, 로그보다 <b>매트릭스</b>를 먼저 보는 편이 빠르다.</p>
+
+<blockquote><b>한 문장으로.</b> 프리셋은 <b>ObjectType · Enabled · 채널 64개의 응답</b>을 묶은 이름이다. 물리 접촉은 <b>양쪽 ObjectType 응답이 모두 Block</b> 이어야 막히고, 트레이스는 <b>채널 하나</b>, 오버랩은 <b>세 조건</b>이다.</blockquote>
+
+<h2>12. 소스 위치</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>ECollisionChannel</code> (0~63)</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>1098</td></tr>
+<tr><td><code>ECollisionResponse</code> (Ignore 0 · Overlap 1 · Block 2)</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>1346</td></tr>
+<tr><td><code>FCollisionResponseContainer::GetResponse</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>1762</td></tr>
+<tr><td><code>ECollisionEnabled</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>1805</td></tr>
+<tr><td>기본 응답 = 전부 Block</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/CollisionProfile.cpp</code></td><td>390</td></tr>
+<tr><td>채널 64개 상수</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/CollisionProfile.cpp</code></td><td>13</td></tr>
+<tr><td>프리셋 읽기 (<code>ReadConfig</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/CollisionProfile.cpp</code></td><td>184</td></tr>
+<tr><td>커스텀 응답 적용 (<code>LoadCustomResponses</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/CollisionProfile.cpp</code></td><td>694</td></tr>
+<tr><td>커스텀 채널 DefaultResponse 적용</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/CollisionProfile.cpp</code></td><td>455~483</td></tr>
+<tr><td>물리 접촉의 양쪽 Block 판정</td><td><code>Engine/Source/Runtime/Experimental/Chaos/Private/Chaos/CollisionFilterData.cpp</code></td><td>263</td></tr>
+<tr><td>쿼리의 min 판정</td><td><code>Engine/Source/Runtime/Experimental/Chaos/Private/Chaos/CollisionFilterData.cpp</code></td><td>467</td></tr>
+<tr><td><code>FCollisionResponseParams</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Public/CollisionQueryParams.h</code></td><td>323</td></tr>
+<tr><td><code>SetCollisionProfileName</code></td><td><code>Engine/Source/Runtime/Engine/Private/PhysicsEngine/BodyInstance.cpp</code></td><td>698</td></tr>
+<tr><td>프리셋 이름 무효화 (<code>Custom</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/PhysicsEngine/BodyInstance.cpp</code></td><td>564</td></tr>
+<tr><td>물리 필터 데이터 생성</td><td><code>Engine/Source/Runtime/Engine/Private/PhysicsEngine/BodyInstance.cpp</code></td><td>4757</td></tr>
+<tr><td><code>bGenerateOverlapEvents</code> 설명</td><td><code>Engine/Source/Runtime/Engine/Classes/Components/PrimitiveComponent.h</code></td><td>405~429</td></tr>
+<tr><td>기본값 true</td><td><code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></td><td>398</td></tr>
+<tr><td>오버랩 갱신 조건</td><td><code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></td><td>4464</td></tr>
+<tr><td><code>LineTraceSingleByChannel</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/World.h</code></td><td>2161</td></tr>
+<tr><td>엔진 기본 프리셋 정의</td><td><code>Engine/Config/BaseEngine.ini</code></td><td>3102~3121</td></tr>
+<tr><td><code>show Collision</code> 플래그</td><td><code>Engine/Source/Runtime/Engine/Public/ShowFlagsValues.inl</code></td><td>303</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; 위 표의 파일과 줄 번호 (UE 5.8).</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 충돌 설정이 값으로 정해지는 방식을 다뤘다. Simple/Complex 충돌 형상 자체는 <a href="collision-simple-vs-complex.html">Collision — Simple vs Complex</a> 에서 다룬다.</p>
+</footer>
+
+</div>
+
+<script>
+/* 프리셋 인스펙터 — BaseEngine.ini 의 정의를 그대로 옮겼다.
+   CustomResponses 가 비어 있으면 기본값(전부 Block)을 쓴다는 점이 핵심. */
+function initPresetMatrix(){
+  var sel = document.getElementById('presetSel');
+  var out = document.getElementById('presetOut');
+  var verdict = document.getElementById('presetVerdict');
+  var tbody = document.querySelector('#presetMatrix tbody');
+  if (!sel || !out || !tbody) return;
+
+  var CHANNELS = ['WorldStatic','WorldDynamic','Pawn','PhysicsBody','Visibility','Camera'];
+
+  var PRESETS = {
+    BlockAll:        { enabled:'QueryAndPhysics', object:'WorldStatic',  all:'Block',   overrides:{}, note:'CustomResponses 가 비어 있다. 기본값이 전부 Block 이라 그대로 BlockAll 이 된다.' },
+    BlockAllDynamic: { enabled:'QueryAndPhysics', object:'WorldDynamic', all:'Block',   overrides:{}, note:'응답은 BlockAll 과 같고 ObjectType 만 WorldDynamic 이다.' },
+    OverlapAll:      { enabled:'QueryOnly',       object:'WorldStatic',  all:'Block',   overrides:{ WorldStatic:'Overlap', WorldDynamic:'Overlap', Pawn:'Overlap', PhysicsBody:'Overlap', Visibility:'Overlap', Camera:'Overlap' }, note:'기본 8개 채널만 Overlap 으로 적혀 있다. 커스텀 채널은 자기 DefaultResponse(보통 Block)를 따른다.' },
+    Pawn:            { enabled:'QueryAndPhysics', object:'Pawn',         all:'Block',   overrides:{ Visibility:'Ignore' }, note:'Visibility 만 Ignore 다. 카메라·조준 트레이스가 캐릭터를 통과하는 이유다.' },
+    Trigger:         { enabled:'QueryOnly',       object:'WorldDynamic', all:'Overlap', overrides:{ Visibility:'Ignore' }, note:'Visibility 만 Ignore, 나머지는 Overlap. QueryOnly 라 물리로는 막지 않는다.' },
+    UI:              { enabled:'QueryOnly',       object:'WorldDynamic', all:'Overlap', overrides:{ Visibility:'Block' }, note:'Visibility 는 Block, 나머지는 Overlap. 위젯 트레이스용 조합이다.' },
+    NoCollision:     { enabled:'NoCollision',     object:'WorldStatic',  all:'Block',   overrides:{ Visibility:'Ignore', Camera:'Ignore' }, note:'응답은 Block 으로 남아 있지만 Enabled 가 NoCollision 이라 어떤 쿼리도 닿지 않는다.' },
+    InvisibleWall:   { enabled:'QueryAndPhysics', object:'WorldStatic',  all:'Block',   overrides:{ Visibility:'Ignore' }, note:'Visibility Ignore. 카메라에는 안 보이지만 물리로는 막는다.' },
+    PhysicsActor:    { enabled:'QueryAndPhysics', object:'PhysicsBody',  all:'Block',   overrides:{}, note:'PhysicsBody 이고 전부 Block. 시뮬레이션 액터의 기본값이다.' }
+  };
+
+  function cell(v){
+    return '<div class="cell"><span class="k">' + v.k + '</span><span class="v" style="color:var(--' + v.tone + ')">' + v.v + '</span></div>';
+  }
+
+  function changed(p){
+    var list = [];
+    for (var i = 0; i < CHANNELS.length; i++){
+      var ch = CHANNELS[i];
+      if ((p.overrides[ch] || p.all) !== p.all) list.push(ch);
+    }
+    return list;
+  }
+
+  function render(){
+    var p = PRESETS[sel.value];
+    if (!p) return;
+
+    var diff = changed(p);
+    out.innerHTML =
+      cell({ k:'Collision Enabled', v:p.enabled, tone:'text' }) +
+      cell({ k:'Object Type', v:p.object, tone:'accent' }) +
+      cell({ k:'나머지 채널', v:p.all, tone: p.all === 'Block' ? 'accent' : 'warn' });
+
+    var html = '';
+    for (var i = 0; i < CHANNELS.length; i++){
+      var ch = CHANNELS[i];
+      var r = p.overrides[ch] || p.all;
+      var cls = r.toLowerCase();
+      html += '<tr><td>' + ch + '</td>';
+      html += '<td><span class="dot' + (r === 'Ignore'  ? ' on ignore'  : '') + '"></span></td>';
+      html += '<td><span class="dot' + (r === 'Overlap' ? ' on overlap' : '') + '"></span></td>';
+      html += '<td><span class="dot' + (r === 'Block'   ? ' on'         : '') + '"></span></td>';
+      html += '</tr>';
+    }
+    tbody.innerHTML = html;
+
+    verdict.className = 'verdict' + (p.enabled === 'NoCollision' ? ' bad' : '');
+    verdict.textContent = p.note + ((diff.length && diff.length < CHANNELS.length) ? (' 바뀐 채널: ' + diff.join(', ') + '.') : '');
+  }
+
+  sel.addEventListener('change', render);
+  render();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initPresetMatrix);
+else initPresetMatrix();
+</script>
+
+<script>
+/* 두 물체 시뮬레이터 — 응답의 min 이 결과를 정한다.
+   Block(2) 끼리만 막히고, Overlap(1) 은 통과하며 표시가 생기고, Ignore(0) 는 아무 일도 없다. */
+function initPairSim(){
+  if (!window.Viz) return;
+  var aType = document.getElementById('aType');
+  var aResp = document.getElementById('aResp');
+  var bType = document.getElementById('bType');
+  var bResp = document.getElementById('bResp');
+  var out = document.getElementById('pairOut');
+  if (!aType || !aResp || !bType || !bResp || !out) return;
+
+  var phase = 0;
+  var NAMES = { '0':'Ignore', '1':'Overlap', '2':'Block' };
+
+  function result(){
+    return Math.min(parseInt(aResp.value, 10), parseInt(bResp.value, 10));
+  }
+
+  function lerp(a, b, t){ return a + (b - a) * t; }
+  function ease(t){ return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+  var v = Viz.view('pairCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var res = result();
+    var half = Math.min(38, w * 0.1);
+    var y = h / 2 - 6;
+    var startA = w * 0.14, startB = w * 0.86;
+    var endA = w / 2 - half - 6, endB = w / 2 + half + 6;
+
+    var p = phase;
+    var xA, xB;
+    if (res === 2){
+      var m = ease(p < 0.5 ? p * 2 : 2 - p * 2);
+      xA = lerp(startA, endA, m);
+      xB = lerp(startB, endB, m);
+    } else {
+      xA = lerp(startA, w + half, ease(p));
+      xB = lerp(startB, -half, ease(p));
+    }
+
+    var col = res === 2 ? c.accent : (res === 1 ? c.warn : c.dim);
+
+    // 바닥선
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(16, y + half + 14); ctx.lineTo(w - 16, y + half + 14); ctx.stroke();
+
+    // 겹침 표시
+    if (res === 1 && Math.abs(p - 0.5) < 0.14){
+      var k = 1 - Math.abs(p - 0.5) / 0.14;
+      ctx.strokeStyle = c.warn; ctx.lineWidth = 2; ctx.globalAlpha = k;
+      ctx.beginPath(); ctx.arc(w / 2, y, half + 10 + (1 - k) * 34, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    function box(x, label, type, resp){
+      Viz.roundRect(ctx, x - half, y - half, half * 2, half * 2, 10);
+      ctx.fillStyle = c.sf2; ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+      Viz.text(ctx, label, x, y - 7, c.text, 15, 'center');
+      Viz.text(ctx, type, x, y + 11, c.dim, 9, 'center');
+      Viz.text(ctx, resp, x, y + half + 28, c.dim, 9, 'center');
+    }
+
+    box(xA, 'A', aType.value, '→ ' + NAMES[aResp.value]);
+    box(xB, 'B', bType.value, '→ ' + NAMES[bResp.value]);
+
+    Viz.text(ctx, 'A→B ' + NAMES[aResp.value] + ' · B→A ' + NAMES[bResp.value] + ' → min ' + NAMES[res],
+             w / 2, 20, col, 10, 'center');
+  });
+
+  if (!v) return;
+  Viz.animate(v, function(v, t){ phase = (t % 3.0) / 3.0; });
+
+  function update(){
+    var res = result();
+    var a = NAMES[aResp.value], b = NAMES[bResp.value];
+    if (res === 2){
+      out.className = 'verdict ok';
+      out.textContent = 'A→B ' + a + ', B→A ' + b + ' → 둘 다 Block 이라 막힌다. 물리 접촉이 생기고 서로 겹치지 않는다.';
+    } else if (res === 1){
+      out.className = 'verdict bad';
+      out.textContent = 'A→B ' + a + ', B→A ' + b + ' → min 이 Overlap 이라 막히지 않는다. 서로 통과하고, 조건이 맞으면 BeginOverlap 이 뜬다.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = 'A→B ' + a + ', B→A ' + b + ' → 한쪽이 Ignore 라 서로 없는 것과 같다. 겹쳐도 아무 일도 없다.';
+    }
+  }
+
+  aType.addEventListener('change', update);
+  bType.addEventListener('change', update);
+  aResp.addEventListener('change', update);
+  bResp.addEventListener('change', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initPairSim);
+else initPairSim();
+</script>
+
+<script>
+/* 트레이스 판정 — 쿼리 쪽 기본값이 BlockAll 이라, 오브젝트의 응답이 결과를 정한다. */
+function initTraceCheck(){
+  var ch = document.getElementById('trCh');
+  var resp = document.getElementById('trResp');
+  var out = document.getElementById('trOut');
+  if (!ch || !resp || !out) return;
+
+  function update(){
+    var r = resp.value;
+    var name = ch.value;
+    if (r === '2'){
+      out.className = 'verdict ok';
+      out.textContent = name + ' 트레이스 → Block. blocking hit 이 생기고 트레이스가 거기서 멈춘다.';
+    } else if (r === '1'){
+      out.className = 'verdict bad';
+      out.textContent = name + ' 트레이스 → Overlap. 막지는 않는다. LineTraceSingleByChannel 처럼 blocking hit 을 찾는 함수는 이걸 맞은 것으로 세지 않는다.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = name + ' 트레이스 → Ignore. 맞지 않는다. 카메라·조준 트레이스가 캐릭터를 통과할 때가 이 상태다.';
+    }
+  }
+
+  ch.addEventListener('change', update);
+  resp.addEventListener('change', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initTraceCheck);
+else initTraceCheck();
+</script>
+
+<script>
+/* 오버랩 이벤트 조건 — 세 조건이 모두 맞아야 BeginOverlap 이 뜬다. */
+function initOverlapCheck(){
+  var ids = ['ovQ','ovG','ovQ2','ovG2'];
+  var sel = document.getElementById('ovR');
+  var out = document.getElementById('ovOut');
+  if (!sel || !out) return;
+
+  function checked(id){
+    var el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
+
+  function update(){
+    var q = checked('ovQ'), g = checked('ovG'), q2 = checked('ovQ2'), g2 = checked('ovG2');
+    var r = sel.value;
+
+    if (!q || !q2){
+      out.className = 'verdict bad';
+      out.textContent = '쿼리 충돌이 꺼진 쪽이 있다. 겹침 자체를 계산하지 않으므로 BeginOverlap 은 뜨지 않는다. PhysicsOnly 도 여기 해당한다.';
+    } else if (!g || !g2){
+      out.className = 'verdict bad';
+      out.textContent = '둘 중 하나라도 Generate Overlap Events 가 꺼져 있으면 BeginOverlap 은 뜨지 않는다. 양쪽 모두 켜져 있어야 한다.';
+    } else if (r === '2'){
+      out.className = 'verdict bad';
+      out.textContent = '응답이 Block 이다. Block 쌍은 BeginOverlap 이 아니라 Hit 이벤트다. 오버랩을 기대했다면 응답을 Overlap 으로 바꿔야 한다.';
+    } else if (r === '0'){
+      out.className = 'verdict';
+      out.textContent = '응답이 Ignore 다. 서로 없는 것과 같아서 이벤트도 없다.';
+    } else {
+      out.className = 'verdict ok';
+      out.textContent = '세 조건이 모두 맞았다. BeginOverlap 과 EndOverlap 이 뜬다.';
+    }
+  }
+
+  for (var i = 0; i < ids.length; i++){
+    var el = document.getElementById(ids[i]);
+    if (el) el.addEventListener('change', update);
+  }
+  sel.addEventListener('change', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initOverlapCheck);
+else initOverlapCheck();
+</script>
+
+</body>
+</html>
