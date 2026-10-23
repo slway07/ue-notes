@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projectile · Rotating · InterpTo · Floating</title>
+<meta name="note-title" content="Projectile · Rotating · InterpTo · Floating">
+<meta name="note-summary" content="발사체의 중력·바운스·호밍·정지, 충돌 없이 회전하는 Rotating, 제어점을 잇는 InterpTo, 입력으로 뜨는 Floating, 그리고 직접 만드는 커스텀 무브먼트.">
+<meta name="note-tags" content="ProjectileMovement, RotatingMovement, InterpToMovement, FloatingPawnMovement, Custom Movement">
+<meta name="note-order" content="16">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.tablewrap td code{overflow-wrap:anywhere}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+.sl{grid-template-columns:auto 1fr auto}
+.sl output{grid-column:auto;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Projectile · Rotating · InterpTo · Floating</h1>
+<p>발사체의 중력·바운스·호밍·정지, 충돌 없이 회전하는 Rotating, 제어점을 잇는 InterpTo, 입력으로 뜨는 Floating, 그리고 직접 만드는 커스텀 무브먼트.</p>
+</header>
+
+<nav class="series" aria-label="Movement 시리즈">
+<a href="movement-component.html">개요</a>
+<a href="movement-character.html">캐릭터 물리</a>
+<a href="movement-network.html">네트워크</a>
+<a href="movement-root-motion.html">Root Motion</a>
+<a href="movement-other.html" aria-current="page">그 외</a>
+</nav>
+
+<article>
+
+<h2>1. ProjectileMovement — 발사체</h2>
+
+<p><code>UProjectileMovementComponent</code> 는 <code>Velocity</code> 를 적분해 <code>UpdatedComponent</code> 를 옮긴다. 캐릭터처럼 입력·마찰·계단을 다루지 않고, <b>속도·중력·충돌·바운스</b> 만 다룬다.</p>
+
+<p>한 틱의 순서는 이렇다.</p>
+
+<ol>
+<li><b>보간</b> — <code>TickInterpolation</code>. 시뮬레이션이 끝난 뒤에도 남은 보간을 마저 한다.</li>
+<li><b>루프</b> — <code>ShouldUseSubStepping()</code> 이면 <code>GetSimulationTimeStep</code> 으로 시간을 쪼갠다. <b>중력이 있거나 호밍 중이면 자동으로 켜진다</b>.</li>
+<li><b>이동량</b> — <code>ComputeMoveDelta</code> 가 velocity Verlet(<code>p = p0 + v0*t + 1/2*a*t^2</code>)로 delta를 만든다.</li>
+<li><b>회전</b> — <code>bRotationFollowsVelocity</code> 면 속도 방향으로 돌린다. <code>bRotationRemainsVertical</code> 이면 Yaw만 남긴다.</li>
+<li><b>스윕</b> — 바운스가 있으면 <code>SafeMoveUpdatedComponent</code>(관통 보정 포함), 없으면 <code>MoveUpdatedComponent</code> 에 <code>MOVECOMP_NeverIgnoreBlockingOverlaps</code> 를 걸어 첫 충돌을 놓치지 않는다.</li>
+<li><b>충돌 처리</b> — <code>HandleBlockingHit</code> → <code>HandleImpact</code>. 바운스면 <code>HandleDeflection</code>, 아니면 <code>StopSimulating</code>.</li>
+<li><b>속도 갱신</b> — 충돌이 없었으면 <code>ComputeVelocity</code> 로 중력·호밍을 더한다.</li>
+</ol>
+
+<p>서브스텝 기본값은 캐릭터와 다르다. <code>MaxSimulationTimeStep = 0.05</code>, <code>MaxSimulationIterations = 4</code>, 그리고 바운스 직후 한 번 더 돌리는 <code>BounceAdditionalIterations = 1</code> 이다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="pg">중력</label>
+    <input type="range" id="pg" min="0" max="2" value="1" step="0.1">
+    <output id="pgo">1.0</output>
+  </div>
+  <div class="sl">
+    <label for="pb">Bounciness</label>
+    <input type="range" id="pb" min="0" max="0.9" value="0.6" step="0.05">
+    <output id="pbo">0.60</output>
+  </div>
+  <div class="stage"><canvas id="projCv" aria-label="중력과 Bounciness에 따라 발사체가 직선으로 가거나 바닥에서 튕긴다."></canvas></div>
+  <p class="verdict" id="projOut"></p>
+</div>
+
+<p class="note">그림은 이해를 위한 단순화다. 실제 엔진은 velocity Verlet + 서브스텝 + 캡슐/구 스윕으로 계산한다.</p>
+
+<h2>2. Projectile — 값과 충돌</h2>
+
+<ul class="branch">
+<li><b><code>InitialSpeed</code></b> <span class="small">기본 0</span> &mdash; 0보다 크면 <code>Velocity</code> 의 크기를 덮어쓰고, <code>Velocity</code> 는 방향으로만 쓰인다</li>
+<li><b><code>MaxSpeed</code></b> <span class="small">기본 0</span> &mdash; 0이면 무제한. <code>LimitVelocity</code> 가 클램프</li>
+<li><b><code>ProjectileGravityScale</code></b> <span class="small">기본 1</span> &mdash; 0이면 직선. 중력이 있으면 서브스텝 자동</li>
+<li><b><code>bShouldBounce</code></b> <span class="small">기본 false</span> &mdash; false면 첫 충돌에서 정지</li>
+<li><b><code>Bounciness</code> · <code>Friction</code></b> <span class="small">0.6 · 0.2</span> &mdash; 튕김 계수와 마찰</li>
+<li><b><code>BounceVelocityStopSimulatingThreshold</code></b> <span class="small">기본 5</span> &mdash; 이 속도 아래로 떨어지면 정지</li>
+<li><b><code>bRotationFollowsVelocity</code></b> <span class="small">기본 false</span> &mdash; 속도 방향 회전</li>
+<li><b><code>bInitialVelocityInLocalSpace</code></b> <span class="small">기본 true</span> &mdash; 초기 속도를 액터 로컬 기준으로 해석</li>
+<li><b><code>bSweepCollision</code></b> <span class="small">기본 true</span> &mdash; 스윕 사용. 끄면 순간이동</li>
+<li><b><code>bInterpMovement</code> · <code>bInterpRotation</code></b> <span class="small">기본 false</span> &mdash; 시뮬레이티드 프록시 보간. <code>InterpLocationTime</code> 0.1 · <code>InterpRotationTime</code> 0.05</li>
+</ul>
+
+<p><b>정지</b>는 <code>StopSimulating</code> 이다. 속도를 0으로 만들고, <b><code>UpdatedComponent</code> 를 null로</b> 하고, <code>OnProjectileStop</code> 을 브로드캐스트한다. 그래서 정지한 뒤에는 그 컴포넌트가 더 이상 무브먼트의 대상이 아니다.</p>
+
+<p><b>바운스</b>는 <code>HandleDeflection</code> 이 법선을 기준으로 속도를 반사하고, <code>Bounciness</code>·<code>Friction</code> 을 적용한다. 같은 자리에서 여러 번 튕기면 <code>bIsSliding</code> 으로 미끄러지고, 코너에서는 두 법선의 외적으로 방향을 만든다. <code>OnProjectileBounce</code> 가 매 바운스마다 나간다.</p>
+
+<p><b>호밍</b>은 <code>HomingTargetComponent</code>·<code>HomingAccelerationMagnitude</code> 로 목표를 향해 가속한다. 호밍 중이면 <code>ShouldUseSubStepping</code> 이 true가 되고, <code>MaxSpeed</code> 가 전체 속도를 제한한다.</p>
+
+<h2>3. RotatingMovement — 충돌 없이 회전</h2>
+
+<p><code>URotatingMovementComponent</code> 는 <code>RotationRate</code> 만큼 <code>UpdatedComponent</code> 를 회전시킨다. 기본은 Yaw 180도/초, 로컬 공간 회전이다.</p>
+
+<pre><code>const bool bEnableCollision = false;
+MoveUpdatedComponent(DeltaLocation, NewRotation, bEnableCollision);</code></pre>
+
+<p><code>MoveUpdatedComponent</code> 에 <b>충돌을 끈 채</b> 넘긴다. 그래서 회전하는 문·선풍기 날개·회전 플랫폼이 벽이나 캐릭터를 밀어내지 않는다. 충돌이 필요하면 Rotating으로 해결하지 말고, 물리 액터나 별도 처리를 써야 한다.</p>
+
+<p><code>PivotTranslation</code> 은 회전 중심을 옮긴다. 예를 들어 X=+100이면 그만큼 떨어진 점을 축으로 돌아간다. <code>bRotationInLocalSpace</code> 는 부모 회전을 기준으로 돌지, 월드 기준으로 돌지를 정한다.</p>
+
+<h2>4. InterpToMovement — 제어점 사이</h2>
+
+<p><code>UInterpToMovementComponent</code> 는 <code>ControlPoints</code> 사이를 <code>Duration</code> 동안 보간한다. 문이 열리는 경로, 엘리베이터, 왕복 플랫폼처럼 <b>정해진 경로</b>가 있을 때 쓴다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>동작</th></tr></thead>
+<tbody>
+<tr><td><code>ControlPoints</code></td><td>경로 점. 상대/월드, 액터 기준점을 섞을 수 있다</td></tr>
+<tr><td><code>Duration</code></td><td>한 구간을 이동하는 시간</td></tr>
+<tr><td><code>BehaviourType</code></td><td><code>OneShot</code> · <code>OneShot_Reverse</code> · <code>Loop_Reset</code> · <code>PingPong</code></td></tr>
+<tr><td><code>bSweep</code></td><td>true면 이동 중 충돌 스윕. 기본 true</td></tr>
+<tr><td><code>bPauseOnImpact</code></td><td>충돌하면 멈출지, 끝점에 도달한 것처럼 행동할지</td></tr>
+<tr><td><code>SpeedMultiplier</code></td><td>전체 재생 속도</td></tr>
+<tr><td><code>OnInterpToStop</code></td><td>정지 이벤트</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>bSweep</code> 이 true면 <code>SafeMoveUpdatedComponent</code> 로 이동하고, 충돌 시 <code>bPauseOnImpact</code> 에 따라 멈추거나 방향을 바꾼다. <code>StopMovementImmediately</code> 는 <b><code>UpdatedComponent</code> 를 null로 만들지 않는다</b>. Projectile의 <code>StopSimulating</code> 과 다른 점이다.</p>
+
+<h2>5. FloatingPawnMovement — 입력으로 뜨는 Pawn</h2>
+
+<p><code>UFloatingPawnMovement</code> 는 <code>UPawnMovementComponent</code> 계열이다. 중력·바닥 없이 입력으로 가속·감속하고, <code>SafeMoveUpdatedComponent</code> 로 스윕한다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>기본</th><th>동작</th></tr></thead>
+<tbody>
+<tr><td><code>MaxSpeed</code></td><td>1200</td><td>최고 속도</td></tr>
+<tr><td><code>Acceleration</code></td><td>4000</td><td>입력이 있을 때 가속</td></tr>
+<tr><td><code>Deceleration</code></td><td>8000</td><td>입력이 없을 때 감속</td></tr>
+<tr><td><code>TurningBoost</code></td><td>8</td><td>방향 전환 부스트</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>컨트롤러 입력이 있으면 <code>ApplyControlInputToVelocity</code> 로 속도를 만들고, <code>Delta = Velocity * DeltaTime</code> 을 스윕한다. 충돌하면 <code>HandleImpact</code> 후 남은 시간을 다시 처리한다. <code>LimitWorldBounds</code> 로 월드 경계를 넘지 않게 한다.</p>
+
+<h2>6. 커스텀 무브먼트 — 무엇을 상속할까</h2>
+
+<ul class="branch">
+<li><b><code>UMovementComponent</code></b> — 가장 가볍다. <code>UpdatedComponent</code> 를 직접 옮기고 싶을 때. <code>Pawn</code> 이 아니어도 된다.</li>
+<li><b><code>UPawnMovementComponent</code></b> — <code>PawnOwner</code> 와 입력(<code>AddInputVector</code>)이 필요할 때. <code>UFloatingPawnMovement</code> 가 좋은 예.</li>
+<li><b><code>UCharacterMovementComponent</code></b> — 캐릭터. 걷기·낙하·계단·네트워크 예측을 다시 만들지 말고 이것을 쓴다.</li>
+</ul>
+
+<p>오버라이드 지점은 이렇다.</p>
+
+<ul>
+<li><code>TickComponent</code> — <code>Super</code> 호출 후 delta를 만들고 <code>SafeMoveUpdatedComponent</code>.</li>
+<li><code>MoveUpdatedComponentImpl</code> — 이동 방식을 바꾸고 싶을 때.</li>
+<li><code>GetMaxSpeed</code> — 길찾기·AI가 참조하는 최고 속도.</li>
+<li><code>RequestDirectMove</code>·<code>RequestPathMove</code> — <code>UPathFollowingComponent</code> 가 경로를 넘길 때.</li>
+<li><code>StopActiveMovement</code> — 정지 요청.</li>
+</ul>
+
+<p>무브먼트 컴포넌트 자체는 <b>자동으로 복제되지 않는다</b>. <code>Velocity</code>·상태를 액터의 <code>bReplicateMovement</code> 로 보내거나, 직접 RPC/리플리케이션을 붙여야 한다. CharacterMovement처럼 예측·보정을 공짜로 얻는 것은 아니다.</p>
+
+<h2>7. 무엇을 고를까</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>상황</th><th>컴포넌트</th></tr></thead>
+<tbody>
+<tr><td>캐릭터 걷기·점프·계단</td><td><code>UCharacterMovementComponent</code></td></tr>
+<tr><td>총알·화살·수류탄</td><td><code>UProjectileMovementComponent</code></td></tr>
+<tr><td>문·팬·회전 플랫폼</td><td><code>URotatingMovementComponent</code></td></tr>
+<tr><td>왕복 엘리베이터·정해진 경로</td><td><code>UInterpToMovementComponent</code></td></tr>
+<tr><td>비행·부유 Pawn</td><td><code>UFloatingPawnMovement</code></td></tr>
+<tr><td>그 외 규칙</td><td><code>UMovementComponent</code> 파생</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>8. 디버깅</h2>
+
+<ul>
+<li><code>LogProjectileMovement</code> — 발사체의 스텝·충돌·바운스 로그. <code>VeryVerbose</code> 로 켠다.</li>
+<li><code>show Collision</code> — 발사체·바닥의 콜리전 형상과 채널.</li>
+<li><code>p.VisualizeMovement 1</code> — 캐릭터 이동 경로. 발사체에는 적용되지 않는다.</li>
+<li><code>showdebug Physics</code> — 캐릭터의 CharacterMovement 상태. 발사체는 해당 없음.</li>
+</ul>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UProjectileMovementComponent</code> · <code>ComputeMoveDelta</code> · <code>HandleBlockingHit</code> · <code>StopSimulating</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/ProjectileMovementComponent.cpp</code></td></tr>
+<tr><td><code>URotatingMovementComponent</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/RotatingMovementComponent.cpp</code></td></tr>
+<tr><td><code>UInterpToMovementComponent</code> · <code>EInterpToBehaviourType</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/InterpToMovementComponent.cpp</code> · <code>Classes/Components/InterpToMovementComponent.h</code></td></tr>
+<tr><td><code>UFloatingPawnMovement</code></td><td><code>Engine/Source/Runtime/Engine/Private/FloatingPawnMovement.cpp</code></td></tr>
+<tr><td><code>UMovementComponent</code> · <code>UPawnMovementComponent</code></td><td><code>Classes/GameFramework/MovementComponent.h</code> · <code>PawnMovementComponent.h</code></td></tr>
+<tr><td><code>UPathFollowingComponent</code> · <code>RequestDirectMove</code></td><td><code>Classes/GameFramework/NavMovementComponent.h</code> · <code>Navigation/PathFollowingComponent.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 캐릭터 밖의 무브먼트를 다뤘다. 캐릭터 이동은 <a href="movement-character.html">CharacterMovement — 걷기와 낙하의 물리</a>, 기본 관계는 <a href="movement-component.html">MovementComponent — 무엇이 액터를 움직이나</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* Projectile 궤적 — 중력과 Bounciness만 간단히 보여 준다. */
+function initProj(){
+  if (!window.Viz) return;
+  var g = document.getElementById('pg');
+  var b = document.getElementById('pb');
+  var go = document.getElementById('pgo');
+  var bo = document.getElementById('pbo');
+  var out = document.getElementById('projOut');
+  if (!g || !b || !out) return;
+
+  var x, y, vx, vy, trail, lastT, wait;
+  var phase = 0;
+  function reset(){
+    x = 44; y = 120; vx = 190; vy = -130;
+    trail = []; lastT = null; wait = 0;
+  }
+  reset();
+
+  var v = Viz.view('projCv', function(){ return 280; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ground = h - 30;
+    var grav = parseFloat(g.value) * 520;
+    var bounce = parseFloat(b.value);
+
+    // 상태 적분
+    var now = phase;
+    var dt = (lastT == null) ? 0 : Math.min(0.04, Math.max(0, now - lastT));
+    lastT = now;
+    if (wait > 0){
+      wait -= dt;
+      if (wait <= 0) reset();
+    } else {
+      vy += grav * dt;
+      x += vx * dt;
+      y += vy * dt;
+      if (y > ground - 10){
+        y = ground - 10;
+        if (bounce <= 0.001){
+          wait = 1.2;
+        } else {
+          vy = -vy * bounce;
+          vx *= (1 - 0.08 * (1 - bounce));
+          if (Math.abs(vy) < 28 && Math.abs(vx) < 35) wait = 1.0;
+        }
+      }
+      trail.push([x, y]);
+      if (trail.length > 220) trail.shift();
+      if (x > w - 30 || x < 10 || y < 10) wait = 1.2;
+    }
+
+    // 바닥
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(14, ground + 1); ctx.lineTo(w - 14, ground + 1); ctx.stroke();
+
+    // 궤적
+    for (var i = 0; i < trail.length; i++){
+      ctx.globalAlpha = 0.15 + 0.5 * (i / trail.length);
+      ctx.fillStyle = c.accent;
+      ctx.beginPath(); ctx.arc(trail[i][0], trail[i][1], 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // 발사체
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+
+    Viz.text(ctx, '중력 ' + parseFloat(g.value).toFixed(1) + ' · Bounciness ' + parseFloat(b.value).toFixed(2),
+      w / 2, 20, c.text, 10, 'center');
+    Viz.text(ctx, bounce <= 0.001 ? '튕기지 않음' : '바닥에서 튕김', w / 2, 40,
+      bounce <= 0.001 ? c.warn : c.dim, 9, 'center');
+  });
+
+  if (!v) return;
+  Viz.animate(v, function(v, t){ phase = t; });
+
+  function update(){
+    go.value = parseFloat(g.value).toFixed(1);
+    bo.value = parseFloat(b.value).toFixed(2);
+    reset();
+    if (parseFloat(g.value) === 0 && parseFloat(b.value) === 0){
+      out.className = 'verdict';
+      out.textContent = '중력 0 · Bounciness 0 → 직선으로 날아가 첫 충돌에서 정지한다.';
+    } else if (parseFloat(b.value) === 0){
+      out.className = 'verdict bad';
+      out.textContent = 'Bounciness 0 → 노멀 속도가 0이 되어 튕기지 않는다. bShouldBounce false는 첫 충돌에서 StopSimulating.';
+    } else {
+      out.className = 'verdict ok';
+      out.textContent = '중력 ' + parseFloat(g.value).toFixed(1) + ' · Bounciness ' + parseFloat(b.value).toFixed(2) + ' → 바닥에서 속도의 ' + Math.round(parseFloat(b.value) * 100) + '%로 튕긴다.';
+    }
+    v.render();
+  }
+
+  g.addEventListener('input', update);
+  b.addEventListener('input', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initProj);
+else initProj();
+</script>
+
+</body>
+</html>

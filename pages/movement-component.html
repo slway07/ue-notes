@@ -9,7 +9,7 @@
 <meta name="note-tags" content="Movement, CharacterMovement, UpdatedComponent, Collision, Physics">
 <meta name="note-order" content="12">
 <meta name="note-category" content="충돌과 물리">
-<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
 <script src="../assets/viz.js?v=32ab0c43"></script>
 <style>
 .stage canvas{touch-action:none}
@@ -40,6 +40,14 @@
 <h1>MovementComponent — 무엇이 액터를 움직이나</h1>
 <p>무브먼트는 자기 충돌이 없다. <b>UpdatedComponent</b>를 움직이고, 그 컴포넌트의 충돌을 쓴다. 루트·자식·메시 중 무엇이 UpdatedComponent냐에 따라 같은 몬스터를 통과하기도 막히기도 한다.</p>
 </header>
+
+<nav class="series" aria-label="Movement 시리즈">
+<a href="movement-component.html" aria-current="page">개요</a>
+<a href="movement-character.html">캐릭터 물리</a>
+<a href="movement-network.html">네트워크</a>
+<a href="movement-root-motion.html">Root Motion</a>
+<a href="movement-other.html">그 외</a>
+</nav>
 
 <article>
 
@@ -125,73 +133,18 @@ MyWorld-&gt;ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, ...);</code></
 
 <p>스윕 채널은 <code>this-&gt;GetCollisionObjectType()</code>, 쿼리 응답은 <code>this</code> 의 response container 다. 즉 <b>움직이는 그 컴포넌트</b>의 설정이 쓰인다.</p>
 
-<h2>5. CharacterMovement — 모드와 값</h2>
+<h2>5. 시리즈 — 더 깊이</h2>
 
-<p><code>ACharacter</code> 는 캡슐(루트)과 <code>UCharacterMovementComponent</code> 를 만들고, 캡슐을 UpdatedComponent 로 둔다. 이동은 모드에 따라 갈린다.</p>
-
-<div class="tablewrap">
-<table class="modes">
-<thead><tr><th>모드</th><th>하는 일</th></tr></thead>
-<tbody>
-<tr><td><code>MOVE_Walking</code></td><td>바닥을 따라 걷기. 계단·경사·마찰</td></tr>
-<tr><td><code>MOVE_NavWalking</code></td><td>내비메시를 따라 단순화된 걷기. Overlap Events 가 켜져 있으면 이동마다 스윕한다</td></tr>
-<tr><td><code>MOVE_Falling</code></td><td>중력 낙하. 공중 제어</td></tr>
-<tr><td><code>MOVE_Swimming</code></td><td>물속. 부력·유체 마찰</td></tr>
-<tr><td><code>MOVE_Flying</code></td><td>중력 무시 비행</td></tr>
-<tr><td><code>MOVE_Custom</code></td><td>게임이 직접 구현. 네트워크 복제도 직접</td></tr>
-</tbody>
-</table>
-</div>
-
-<div class="tablewrap">
-<table class="defaults">
-<thead><tr><th>값</th><th>기본</th><th>영향</th></tr></thead>
-<tbody>
-<tr><td><code>MaxWalkSpeed</code></td><td>600</td><td>걷기 최고 속도</td></tr>
-<tr><td><code>MaxAcceleration</code></td><td>2048</td><td>속도가 변하는 최대 가속</td></tr>
-<tr><td><code>GroundFriction</code></td><td>8</td><td>바닥 마찰. 멈추는 거리</td></tr>
-<tr><td><code>GravityScale</code></td><td>1</td><td>중력 배율</td></tr>
-<tr><td><code>MaxStepHeight</code></td><td>45</td><td>넘을 수 있는 계단 높이</td></tr>
-<tr><td><code>WalkableFloorZ</code></td><td>0.71</td><td>걷기 가능한 경사. 약 45도</td></tr>
-<tr><td><code>JumpZVelocity</code></td><td>420</td><td>점프 초기 상승 속도</td></tr>
-<tr><td><code>AirControl</code></td><td>0.05</td><td>공중에서 방향을 바꾸는 힘</td></tr>
-</tbody>
-</table>
-</div>
-
-<p class="note"><code>MOVE_NavWalking</code> 은 내비메시를 믿고 이동한다. Overlap Events 가 꺼져 있으면 스윕을 생략해 싸지만, 그만큼 다른 물체를 뚫고 지나갈 수 있다.</p>
-
-<h2>6. ProjectileMovement — 중력·바운스·정지</h2>
-
-<div class="tablewrap">
-<table>
-<thead><tr><th>값</th><th>하는 일</th></tr></thead>
-<tbody>
-<tr><td><code>InitialSpeed</code></td><td>시작 속도. <code>Velocity</code> 를 초기화</td></tr>
-<tr><td><code>MaxSpeed</code></td><td>속도 상한</td></tr>
-<tr><td><code>ProjectileGravityScale</code></td><td>중력 배율. 0 이면 직선</td></tr>
-<tr><td><code>bShouldBounce</code> · <code>Bounciness</code></td><td>충돌 시 튕길지, 얼마나 튕길지</td></tr>
-<tr><td><code>bRotationFollowsVelocity</code></td><td>속도 방향으로 회전</td></tr>
-<tr><td><code>bInitialVelocityInLocalSpace</code></td><td>초기 속도를 액터 로컬 기준으로</td></tr>
-<tr><td><code>HomingTargetComponent</code> · <code>HomingAccelerationMagnitude</code></td><td>목표를 향해 가속하는 호밍</td></tr>
-<tr><td><code>OnProjectileStop</code> · <code>OnProjectileBounce</code></td><td>정지·바운스 이벤트</td></tr>
-</tbody>
-</table>
-</div>
-
-<p>발사체도 같은 <code>SafeMoveUpdatedComponent</code> 를 쓴다. 바운스가 켜져 있으면 관통에서 빠져나오는 보정을 쓰고, 아니면 첫 충돌에서 <code>StopSimulating</code> 한다. 충돌 판정은 역시 <b>UpdatedComponent</b> 의 채널·응답이다.</p>
-
-<h2>7. Rotating · InterpTo · Floating</h2>
+<p>이 페이지는 공통 뼈대다. 캐릭터의 걷기·낙하, 네트워크, 루트 모션, 나머지 무브먼트는 각각 따로 파고들었다. 처음이면 <b>개요 → 캐릭터 물리 → 네트워크 → 루트 모션</b> 순서가 좋다.</p>
 
 <ul class="branch">
-<li><b><code>URotatingMovementComponent</code></b> &mdash; <code>RotationRate</code> · <code>PivotTranslation</code> · <code>bRotationInLocalSpace</code><br><b>충돌 없음.</b> 회전 중에는 벽을 뚫고 지나간다</li>
-<li><b><code>UInterpToMovementComponent</code></b> &mdash; <code>ControlPoints</code> · <code>Duration</code> · <code>BehaviourType</code>(OneShot · PingPong · Loop) · <code>bSweep</code><br><code>bSweep</code> 기본 true</li>
-<li><b><code>UFloatingPawnMovement</code></b> &mdash; <code>MaxSpeed</code> · <code>Acceleration</code> · <code>Deceleration</code> · <code>TurningBoost</code><br>스윕 사용</li>
+<li><b><a href="movement-character.html">CharacterMovement — 걷기와 낙하의 물리</a></b><br><code>PerformMovement</code>의 순서, <code>PhysWalking</code>, <code>StepUp</code>, <code>FindFloor</code>, MovementBase, <code>PhysFalling</code></li>
+<li><b><a href="movement-network.html">CharacterMovement — 네트워크 예측과 보정</a></b><br>클라이언트 예측, <code>FSavedMove_Character</code>, <code>ServerMove</code>, <code>ClientAdjustPosition</code>, 네트워크 스무딩</li>
+<li><b><a href="movement-root-motion.html">Root Motion — 애니메이션이 이동을 소유할 때</a></b><br><code>RootMotionMode</code>, <code>FRootMotionSource</code>, 몽타주 루트 모션, 네트워크 보정</li>
+<li><b><a href="movement-other.html">Projectile · Rotating · InterpTo · Floating</a></b><br>발사체의 중력·바운스·호밍, 회전·보간·부유 이동, 커스텀 무브먼트</li>
 </ul>
 
-<p>Rotating 은 <code>MoveUpdatedComponent(..., bEnableCollision=false)</code> 로 회전만 한다. 그래서 회전하는 문·선풍기 날개가 벽을 뚫는 것을 막지 않는다. 충돌이 필요하면 다른 방식으로 처리해야 한다.</p>
-
-<h2>8. 예제 — 루트 · 자식 A · 메시</h2>
+<h2>6. 예제 — 루트 · 자식 A · 메시</h2>
 
 <p>앞에서 본 상황을 그대로 두자. <b>PC 루트</b>는 ObjectType PC, Monster 응답 Block. <b>자식 A</b>는 ObjectType Col, Monster 응답 Block. <b>몬스터 루트</b>는 ObjectType Monster, PC 응답 Ignore, Col 응답 Block.</p>
 
@@ -220,7 +173,7 @@ MyWorld-&gt;ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, ...);</code></
 
 <p class="note">루트가 움직일 때 자식 A·메시는 <b>충돌 없이</b> 따라온다. A 가 몬스터와 Block 관계여도, A 는 스윕의 주체가 아니라서 루트의 이동을 막지 못한다. A 가 막히는 것은 <b>A 자신이 UpdatedComponent 일 때</b>뿐이다.</p>
 
-<h2>9. 흔한 함정</h2>
+<h2>7. 흔한 함정</h2>
 
 <div class="tablewrap">
 <table>
@@ -239,7 +192,7 @@ MyWorld-&gt;ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, ...);</code></
 </table>
 </div>
 
-<h2>10. 디버깅</h2>
+<h2>8. 디버깅</h2>
 
 <ul>
 <li><code>showdebug Physics</code> &mdash; 캐릭터의 CharacterMovement 상태를 띄운다. 첫 줄에 <b><code>Updated Component: ...</code></b> 가 나와서, 지금 무엇을 움직이는지 바로 보인다</li>
@@ -249,7 +202,7 @@ MyWorld-&gt;ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, ...);</code></
 
 <p class="note">"왜 안 움직이지" 의 절반은 <code>UpdatedComponent</code> 가 엉뚱한 컴포넌트이거나 비어 있는 경우다. <code>showdebug Physics</code> 로 이름을 먼저 확인하는 편이 빠르다.</p>
 
-<h2>11. 소스 위치</h2>
+<h2>9. 소스 위치</h2>
 
 <div class="tablewrap">
 <table class="wide">

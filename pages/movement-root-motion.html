@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Root Motion — 애니메이션이 이동을 소유할 때</title>
+<meta name="note-title" content="Root Motion — 애니메이션이 이동을 소유할 때">
+<meta name="note-summary" content="ERootMotionMode의 네 값, FRootMotionSource의 우선순위·누적, 몽타주 루트 모션의 실제 스위치, CharacterMovement가 루트 모션을 속도로 바꿔 충돌시키는 순서, 네트워크 보정까지.">
+<meta name="note-tags" content="Root Motion, Animation, CharacterMovement, Montage, Network">
+<meta name="note-order" content="15">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 14px}
+.fstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.fstep b{display:block;font-size:.8rem}
+.fstep span{display:block;font-size:.7rem;color:var(--text-dim);line-height:1.4;margin-top:2px}
+.stack{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:6px}
+.stack li{display:grid;grid-template-columns:74px 1fr auto;gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);font-size:.84rem}
+.stack .pri{font-family:ui-monospace,Consolas,monospace;color:var(--accent);font-size:.8rem}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+.stack .tag{font-size:.7rem;color:var(--text-dim);border:1px solid var(--line);border-radius:999px;padding:2px 7px}
+@media (max-width:560px){.flow{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Root Motion — 애니메이션이 이동을 소유할 때</h1>
+<p>애니메이션의 루트 본 이동을 <b>코드의 속도 대신</b> 캐릭터 이동으로 쓰는 방법. 모드 네 값, <code>FRootMotionSource</code>의 우선순위·누적, 몽타주의 실제 스위치, 네트워크 보정까지.</p>
+</header>
+
+<nav class="series" aria-label="Movement 시리즈">
+<a href="movement-component.html">개요</a>
+<a href="movement-character.html">캐릭터 물리</a>
+<a href="movement-network.html">네트워크</a>
+<a href="movement-root-motion.html" aria-current="page">Root Motion</a>
+<a href="movement-other.html">그 외</a>
+</nav>
+
+<article>
+
+<h2>1. 루트 모션이란</h2>
+
+<p>애니메이션에는 루트 본의 이동이 들어 있을 수 있다. 공격하며 앞으로 나아가는 몽타주, 벽을 넘는 애니메이션, 피격으로 밀려나는 동작이 그렇다. 이 이동을 <b>애니메이션 데이터 그대로</b> 캐릭터에 적용하는 것이 루트 모션이다.</p>
+
+<p>일반 이동은 코드가 속도를 만들고 <code>AddMovementInput</code> 으로 밀어 준다. 루트 모션은 반대로 <b>애니메이션이 이동량을 소유</b>한다. 그래서 <code>MaxWalkSpeed</code>·<code>MaxAcceleration</code> 같은 속도 값이 아니라, 애니메이션의 루트 트랙이 이동 거리를 정한다.</p>
+
+<p>중요한 것은 루트 모션이 <b>충돌을 건너뛰지 않는다</b>는 점이다. CharacterMovement는 루트 모션을 속도로 바꾼 뒤 일반 캡슐 스윕을 한다. 벽이 막으면 루트 모션도 막히고, 슬라이드한다.</p>
+
+<h2>2. RootMotionMode — 네 값</h2>
+
+<p><code>UAnimInstance::RootMotionMode</code> 가 애니메이션의 루트 모션을 <b>추출할지, 적용할지</b>를 정한다. 기본값은 <b><code>RootMotionFromMontagesOnly</code></b> 다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>모드</th><th>추출</th><th>적용</th><th>설명</th></tr></thead>
+<tbody>
+<tr><td><code>NoRootMotionExtraction</code></td><td class="yn dep">안 함</td><td class="yn dep">안 함</td><td>루트 이동을 애니메이션 안에 그대로 둔다</td></tr>
+<tr><td><code>IgnoreRootMotion</code></td><td class="yn ok">함</td><td class="yn dep">안 함</td><td>추출은 하지만 버린다. 이동은 코드가 담당</td></tr>
+<tr><td><code>RootMotionFromEverything</code></td><td class="yn ok">함</td><td class="yn ok">함</td><td>모든 애니메이션의 루트 모션. <b>네트워크 멀티플레이에 부적합</b></td></tr>
+<tr><td><code>RootMotionFromMontagesOnly</code></td><td class="yn ok">함</td><td class="yn ok">함</td><td>몽타주만. <b>네트워크에 적합</b>. 기본</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>"추출"과 "적용"은 별개다. <code>ShouldExtractRootMotion()</code> 은 <code>RootMotionFromEverything</code> 과 <code>IgnoreRootMotion</code> 에서 true다. 즉 <code>IgnoreRootMotion</code> 도 루트 모션을 <b>뽑아서 버리는</b> 모드이지, 아예 안 뽑는 모드가 아니다.</p>
+
+<p><code>RootMotionFromEverything</code> 은 블렌드된 모든 애니메이션의 루트 모션을 합치기 때문에, 클라이언트와 서버의 애니메이션 상태가 조금만 달라도 이동이 어긋난다. 그래서 네트워크 게임에서는 <code>RootMotionFromMontagesOnly</code> 를 쓴다.</p>
+
+<h2>3. CharacterMovement로 들어오는 두 경로</h2>
+
+<p>루트 모션은 두 갈래로 CharacterMovement에 들어온다. 둘 다 결국 <b>속도</b>가 되어 같은 스윕을 탄다.</p>
+
+<div class="flow">
+  <div class="fstep"><b>AnimSequence</b><span>루트 본 delta</span></div>
+  <div class="fstep"><b>AnimInstance</b><span>RootMotionParams</span></div>
+  <div class="fstep"><b>CharacterMovement</b><span>AnimRootMotionVelocity</span></div>
+  <div class="fstep"><b>ApplyRootMotionSource</b><span>CurrentRootMotion</span></div>
+  <div class="fstep"><b>PrepareRootMotion</b><span>Override · Additive</span></div>
+  <div class="fstep"><b>Velocity → Sweep</b><span>캡슐 충돌</span></div>
+</div>
+
+<p><b>애니메이션 루트 모션</b>은 <code>RootMotionParams</code>·<code>HasAnimRootMotion()</code>·<code>AnimRootMotionVelocity</code> 로 들어온다. 애니메이션 루트 모션은 항상 <b>로컬</b>이고, <code>ConvertLocalRootMotionToWorld</code> 로 메시 기준 월드로 바꾼다. 코드 주석도 "애니메이션 루트 모션은 속도를 덮어쓰고, 현재 다른 루트 모션 소스를 허용하지 않는다" 고 말한다.</p>
+
+<p><b>코드 루트 모션</b>은 <code>ApplyRootMotionSource</code> 로 <code>CurrentRootMotion</code>(<code>FRootMotionSourceGroup</code>)에 넣는다. 대시·넉백·점프 궤적처럼 애니메이션 없이 이동량을 만들 때 쓴다. <code>StartTime</code> 은 autonomous proxy면 클라이언트 타임스탬프, authority면 서버가 본 클라이언트 타임스탬프로 기본 설정된다.</p>
+
+<h2>4. FRootMotionSource — 우선순위와 누적</h2>
+
+<p>소스 하나는 <code>Priority</code>(높을수록 먼저), <code>Duration</code>(음수면 무한), <code>AccumulateMode</code>(Override/Additive), <code>bInLocalSpace</code>, <code>FinishVelocityParams</code> 를 갖는다. 기본값은 <b>Duration -1, Override, 월드 공간</b>이다.</p>
+
+<ul class="stack">
+<li><span class="pri">Priority 20</span><span><b>MoveToForce</b> — 목표 지점까지 이동</span><span class="tag">Override</span></li>
+<li><span class="pri">Priority 10</span><span><b>ConstantForce</b> — 일정한 힘</span><span class="tag">Additive</span></li>
+<li><span class="pri">Priority 5</span><span><b>RadialForce</b> — 반경 안에서 밀어냄</span><span class="tag">Additive</span></li>
+</ul>
+
+<p><code>PrepareRootMotion</code> 은 대기 중인 소스를 활성 목록에 합치고, <b>Priority 내림차순</b>으로 정렬한다. 그다음 소스별로 이번 틱의 이동량을 만든다.</p>
+
+<ul>
+<li><b>Override</b> — 가장 높은 우선순위 소스 <b>하나만</b> 적용하고 멈춘다. 나머지는 무시된다.</li>
+<li><b>Additive</b> — 여러 소스의 이동량을 <b>합산</b>한다.</li>
+<li><b>로컬 공간</b> — <code>bInLocalSpace</code> 면 <code>UpdatedComponent</code> 의 회전을 곱해 월드로 바꾼다.</li>
+</ul>
+
+<p>소스가 끝나거나 제거될 때는 <code>FinishVelocityParams</code> 가 적용된다. 마지막 루트 모션 속도를 유지할지, 지정 속도로 바꿀지, 클램프할지를 정한다. Additive 소스가 끝나면 그 효과를 <code>LastPreAdditiveVelocity</code> 에서 빼서, 벽에 막혀 속도가 0이 된 뒤에도 뒤로 가지 않게 한다.</p>
+
+<p class="note"><code>FRootMotionSourceGroup</code> 에는 <code>HasRootMotion()</code> 이라는 함수가 없다. <code>HasActiveRootMotionSources()</code> 또는 <code>HasRootMotionToApply()</code> 를 쓴다. 둘은 같은 구현이다.</p>
+
+<h2>5. 소스 타입</h2>
+
+<ul class="branch">
+<li><b><code>FRootMotionSource_ConstantForce</code></b> &mdash; 일정한 힘. 캐치업 시 <code>SimulationTime / MovementTickTime</code> 으로 힘을 키운다</li>
+<li><b><code>FRootMotionSource_RadialForce</code></b> &mdash; 반경 안에서 밀거나 당김. <code>bIsPush</code>·<code>bNoZForce</code>·거리/시간 감쇠</li>
+<li><b><code>FRootMotionSource_MoveToForce</code></b> &mdash; 시작→목표 보간. <code>PathOffsetCurve</code>·<code>bRestrictSpeedToExpected</code></li>
+<li><b><code>FRootMotionSource_MoveToDynamicForce</code></b> &mdash; 목표가 움직이는 버전. <code>SetTargetLocation</code>·<code>TimeMappingCurve</code></li>
+<li><b><code>FRootMotionSource_JumpForce</code></b> &mdash; 포물선 점프. <code>Distance</code>·<code>Height</code>·<code>Rotation</code>, 착지까지 지속 가능</li>
+</ul>
+
+<p><code>MoveToForce</code> 의 <code>bRestrictSpeedToExpected</code> 는 캐치업할 때 기대 속도보다 빨라지는 것을 막는다. 네트워크로 늦게 도착한 소스가 목표를 향해 과속하는 것을 방지하는 장치다.</p>
+
+<h2>6. 몽타주 루트 모션 — 실제 스위치는 시퀀스에 있다</h2>
+
+<p>몽타주에 <code>bEnableRootMotion</code> 같은 단일 스위치는 <b>없다</b>. <code>UAnimMontage</code> 의 <code>bEnableRootMotionTranslation</code>·<code>bEnableRootMotionRotation</code>·<code>RootMotionRootLock</code> 은 4.5에서 deprecated된 레거시 필드다.</p>
+
+<p>실제 스위치는 <b><code>UAnimSequence::bEnableRootMotion</code></b> 과 <code>RootMotionRootLock</code> 이다. 몽타주는 슬롯 트랙이 참조하는 시퀀스의 설정을 따르고, <code>UAnimMontage::HasRootMotion()</code> 은 슬롯 트랙을 검사해 루트 모션이 있는지 판단한다.</p>
+
+<ul>
+<li><b>재생</b> — <code>FAnimMontageInstance::Advance</code> 가 <code>OutRootMotionParams</code> 를 만든다. <code>SimulateAdvance</code> 는 네트워크 재생용이다.</li>
+<li><b>추출</b> — <code>UAnimMontage::ExtractRootMotionFromTrackRange</code> 는 주석 그대로 <b>첫 번째 슬롯 트랙</b>만 본다. 여러 트랙의 루트 모션을 섞지 않는다.</li>
+<li><b>소비</b> — <code>UAnimInstance::Montage_Advance</code> 가 추출량을 누적하고, <code>ConsumeExtractedRootMotion(Alpha)</code> 가 알파만큼 소비한다.</li>
+<li><b>제공자 하나</b> — <code>RootMotionMontageInstance</code> 는 <code>Montage_Play</code> 에서 <code>HasRootMotion()</code> 일 때만 지정된다. 여러 몽타주가 동시에 루트 모션을 소유하지 않는다.</li>
+</ul>
+
+<p><code>ERootMotionMode::RootMotionFromMontagesOnly</code> 와 <code>USkeletalMeshComponent::IsPlayingNetworkedRootMotionMontage()</code> 가 함께 "지금 네트워크 루트 모션 몽타주가 도는가"를 판단한다. <code>bRootMotionFromMontagesOnly</code> 라는 별도 심볼은 5.8에 없다.</p>
+
+<h2>7. 적용 순서와 충돌</h2>
+
+<p><code>PerformMovement</code> 안에서 루트 모션은 이동 전에 준비된다.</p>
+
+<ol>
+<li><code>CleanUpInvalidRootMotion</code> — 끝난 소스를 정리하고 FinishVelocity를 적용한다.</li>
+<li><code>TickCharacterPose</code> — 애니메이션 루트 모션을 소비한다.</li>
+<li><code>CurrentRootMotion.PrepareRootMotion</code> — 소스별 이동량을 만든다.</li>
+<li><b>Apply Root Motion to Velocity</b> — 이동량을 속도로 바꾼다. 애니메이션 루트 모션이 있으면 다른 소스는 무시된다.</li>
+<li><code>StartNewPhysics</code> — <code>PhysWalking</code>/<code>PhysFalling</code> 이 그 속도로 캡슐을 스윕한다.</li>
+<li>회전 적용 후 <code>RootMotionParams.Clear()</code>.</li>
+</ol>
+
+<p><code>PhysWalking</code>·<code>PhysFalling</code> 안에서는 <code>RestorePreAdditiveRootMotionVelocity</code> 로 시작하고, <b>애니메이션 루트 모션이나 Override 소스가 있으면 <code>CalcVelocity</code> 를 건너뛴다</b>. 마찰·가속으로 루트 모션을 깎지 않기 위해서다.</p>
+
+<p>그다음 <code>MoveAlongFloor</code> 의 <code>SafeMoveUpdatedComponent</code> 로 실제 이동한다. 벽이 막으면 <code>HandleImpact</code>·<code>SlideAlongSurface</code> 가 돌고, 이동이 막힌 뒤 <code>PhysWalking</code> 이 실제 이동량으로 속도를 다시 계산한다. 그래서 <b>루트 모션의 거리는 보장되지 않는다</b>. 애니메이션이 3m를 요구해도 벽이 있으면 그만큼 못 간다.</p>
+
+<p>상승 속도가 임계값(기본 <code>-GetGravityZ() * dt</code>)을 넘으면 <code>MOVE_Falling</code> 으로 바뀐다. 루트 모션으로 위로 솟구치면 자연스럽게 낙하로 이어진다.</p>
+
+<h2>8. 네트워크</h2>
+
+<p>루트 모션은 이동량이 애니메이션에 묶여 있어 일반 이동보다 복제가 까다롭다. CharacterMovement는 두 종류의 보정을 따로 보낸다.</p>
+
+<ul>
+<li><b>몽타주 루트 모션 보정</b> — <code>ClientAdjustRootMotionPosition</code>. 먼저 <code>ClientAdjustPosition</code> 으로 위치를 맞추고, 서버의 몽타주 트랙 위치가 다르면 <code>FAnimMontageInstance::SetPosition</code> 으로 점프시킨 뒤 <code>bClientResimulateRootMotion</code> 을 세운다. 다음 재생에서 <code>FSavedMove_Character::PrepMoveFor</code> 가 <code>SimulateAdvance</code> 로 루트 모션을 다시 만든다.</li>
+<li><b>소스 보정</b> — <code>ClientAdjustRootMotionSourcePosition</code>. 서버의 <code>FRootMotionSourceGroup</code> 을 받아 LocalID를 맞추고, 유효하지 않은 소스를 걸러낸 뒤 <code>LastAckedMove-&gt;SavedRootMotion</code> 과 비교한다. 다르면 <code>SavedRootMotion</code> 을 서버 그룹으로 바꾸고 <code>bClientResimulateRootMotionSources</code> 를 세운다.</li>
+</ul>
+
+<p>응답 패킹에는 <code>bRootMotionMontageCorrection</code>·<code>bRootMotionSourceCorrection</code> 비트가 있고, 소스 그룹은 <code>NetSerialize</code> 로 전송한다. <code>FRootMotionSource::NetSerialize</code> 는 Priority·LocalID·AccumulateMode·InstanceName·CurrentTime·Duration·Status·bInLocalSpace 만 보내고, 클라이언트는 시간으로 이동량을 다시 계산한다. 5.8에는 Iris용 <code>FRootMotionSourceGroupNetSerializer</code> 도 있다.</p>
+
+<p><code>bServerMoveIgnoreRootMotion</code> 은 dual move에서 첫 move가 루트 모션이 아닐 때 서버가 루트 모션을 무시하게 하는 플래그다.</p>
+
+<h2>9. 디버그와 함정</h2>
+
+<ul>
+<li><code>p.RootMotion.Debug 1</code> — 루트 모션 소스의 prepare/cleanup/적용/보정 단계를 화면과 <code>LogRootMotion</code> 에 출력한다. <code>p.RootMotion.DebugSourceLifeTime</code>(기본 6초)로 표시 시간을 조절한다.</li>
+<li><code>showdebug Physics</code> — CharacterMovement의 <code>RootMotionSources: N active</code> 를 본다.</li>
+<li><code>p.VisualizeMovement 1</code> — 이동 경로와 속도를 그린다.</li>
+</ul>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>함정</th><th>이유</th></tr></thead>
+<tbody>
+<tr><td>컨트롤러 없는 캐릭터가 소스 루트 모션으로 안 움직인다</td><td><code>bRunPhysicsWithNoController</code> 가 false면 <code>FRootMotionSource</code> 만으로는 이동 경로를 타지 않는다. <b>애니메이션 루트 모션은 예외</b>로 움직인다</td></tr>
+<tr><td>시뮬레이티드 프록시가 뒤늦게 따라온다</td><td><code>SimulatedTick</code> 이 <code>RootMotionRepMoves</code> 로 캐치업한다. 오차의 절반씩, 최대 0.5초</td></tr>
+<tr><td>벽에 막힌 뒤 캐릭터가 뒤로 간다</td><td>Additive 소스의 <code>RestorePreAdditiveRootMotionVelocity</code> 가 <code>LastPreAdditiveVelocity</code> 로 복원한다</td></tr>
+<tr><td>루트 모션이 너무 짧거나 길다</td><td><code>AnimRootMotionTranslationScale</code>(기본 1). 몽타주 <code>RateScale</code> 도 이동량에 영향</td></tr>
+<tr><td>루트 모션이 벽을 뚫는다</td><td>뚫지 않는다. 속도로 바꾼 뒤 캡슐 스윕을 한다. 다만 <b>거리 보장은 없다</b></td></tr>
+<tr><td>네트워크에서 루트 모션이 어긋난다</td><td><code>RootMotionFromEverything</code> 을 쓰고 있지 않은지. 네트워크는 <code>RootMotionFromMontagesOnly</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note">애니메이션 루트 모션은 <b>항상 로컬</b>이다. <code>ConvertLocalRootMotionToWorld</code> 가 메시 기준으로 월드화한다. 반면 <code>FRootMotionSource</code> 는 <code>bInLocalSpace</code> 로 선택한다. 둘을 섞어 쓸 때 이 차이를 놓치면 방향이 어긋난다.</p>
+
+<h2>10. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>ERootMotionMode</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Animation/AnimEnums.h</code></td></tr>
+<tr><td><code>UAnimInstance::RootMotionMode</code> · <code>ShouldExtractRootMotion</code> · <code>Montage_Advance</code></td><td><code>Classes/Animation/AnimInstance.h</code> · <code>Private/Animation/AnimInstance.cpp</code></td></tr>
+<tr><td><code>FRootMotionSource</code> · <code>FRootMotionSourceGroup</code> · 소스 타입</td><td><code>Classes/GameFramework/RootMotionSource.h</code> · <code>Private/GameFramework/RootMotionSource.cpp</code></td></tr>
+<tr><td><code>CurrentRootMotion</code> · <code>ApplyRootMotionSource</code> · <code>HasAnimRootMotion</code></td><td><code>Classes/GameFramework/CharacterMovementComponent.h</code> · <code>Private/Components/CharacterMovementComponent.cpp</code></td></tr>
+<tr><td><code>UAnimMontage::HasRootMotion</code> · <code>ExtractRootMotionFromTrackRange</code></td><td><code>Classes/Animation/AnimMontage.h</code> · <code>Private/Animation/AnimMontage.cpp</code></td></tr>
+<tr><td><code>UAnimSequence::bEnableRootMotion</code> · <code>RootMotionRootLock</code></td><td><code>Classes/Animation/AnimSequence.h</code></td></tr>
+<tr><td><code>FAnimMontageInstance::Advance</code> · <code>SimulateAdvance</code></td><td><code>Classes/Animation/AnimMontage.h</code> · <code>Private/Animation/AnimMontage.cpp</code></td></tr>
+<tr><td><code>ClientAdjustRootMotionPosition</code> · <code>ClientAdjustRootMotionSourcePosition</code></td><td><code>Private/Components/CharacterMovementComponent.cpp</code></td></tr>
+<tr><td><code>FRootMotionSource::NetSerialize</code> · <code>FRootMotionSourceGroupNetSerializer</code></td><td><code>Private/GameFramework/RootMotionSource.cpp</code> · <code>Public/GameFramework/RootMotionSourceGroupNetSerializer.h</code></td></tr>
+<tr><td><code>p.RootMotion.Debug</code> · <code>LogRootMotion</code></td><td><code>Private/GameFramework/RootMotionSource.cpp</code> · <code>Public/EngineLogs.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 루트 모션을 다뤘다. 캐릭터 이동의 기본 물리는 <a href="movement-character.html">CharacterMovement — 걷기와 낙하의 물리</a>, 네트워크 보정은 <a href="movement-network.html">CharacterMovement — 네트워크 예측과 보정</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

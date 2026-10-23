@@ -16,34 +16,54 @@
 </header>
 <main>
 <details class="cat" data-cat="충돌과 물리">
-<summary><span class="chev"></span>충돌과 물리<span class="n">3</span></summary>
+<summary><span class="chev"></span>충돌과 물리<span class="n">7</span></summary>
 <ul class="toc">
 <li><a href="pages/collision-simple-vs-complex.html?v=c1b9c63b">
 <span class="t">Collision — Simple vs Complex</span>
 <span class="s">Simple은 속이 찬 솔리드, Complex는 속이 빈 껍데기. 공을 끌어 넣어 보며 차이를 확인한다.</span>
 <span class="tags"><span class="tag">Collision</span><span class="tag">Static Mesh</span><span class="tag">Trace</span></span>
 </a></li>
-<li><a href="pages/collision-preset-channel.html?v=13b635c7">
+<li><a href="pages/collision-preset-channel.html?v=1e2e6e52">
 <span class="t">Collision — Preset · Channel · Trace</span>
 <span class="s">프리셋·채널·응답으로 충돌을 거르는 법과, ByChannel·ByObjectType·ByProfile, Line·Sweep·Overlap 트레이스를 고르는 법.</span>
 <span class="tags"><span class="tag">Collision</span><span class="tag">Collision Channel</span><span class="tag">Collision Preset</span><span class="tag">Trace</span><span class="tag">Physics</span></span>
 </a></li>
-<li><a href="pages/movement-component.html?v=94e6726c">
+<li><a href="pages/movement-component.html?v=7d46ddb7">
 <span class="t">MovementComponent — 무엇이 액터를 움직이나</span>
 <span class="s">무브먼트는 자기 충돌이 없다. UpdatedComponent를 움직이고, 그 컴포넌트의 충돌을 쓴다. 루트·자식·메시 중 무엇이 UpdatedComponent냐에 따라 같은 몬스터를 통과하기도 막히기도 한다.</span>
 <span class="tags"><span class="tag">Movement</span><span class="tag">CharacterMovement</span><span class="tag">UpdatedComponent</span><span class="tag">Collision</span><span class="tag">Physics</span></span>
+</a></li>
+<li><a href="pages/movement-character.html?v=3ad8e4b0">
+<span class="t">CharacterMovement — 걷기와 낙하의 물리</span>
+<span class="s">PerformMovement가 한 틱에 하는 순서, PhysWalking이 바닥을 찾고 계단을 오르는 법, MovementBase가 움직이는 발판을 따라가는 법, PhysFalling의 중력·공중 제어·점프.</span>
+<span class="tags"><span class="tag">CharacterMovement</span><span class="tag">PhysWalking</span><span class="tag">StepUp</span><span class="tag">FindFloor</span><span class="tag">MovementBase</span><span class="tag">PhysFalling</span></span>
+</a></li>
+<li><a href="pages/movement-network.html?v=460b90a0">
+<span class="t">CharacterMovement — 네트워크 예측과 보정</span>
+<span class="s">클라이언트는 먼저 움직이고 서버가 검사한다. FSavedMove_Character, ReplicateMoveToServer, ServerMove, ClientAdjustPosition, SavedMoves 재생, NetworkSmoothing까지.</span>
+<span class="tags"><span class="tag">CharacterMovement</span><span class="tag">Network</span><span class="tag">Prediction</span><span class="tag">Replication</span><span class="tag">ClientAdjustPosition</span><span class="tag">Smoothing</span></span>
+</a></li>
+<li><a href="pages/movement-root-motion.html?v=6bd4b385">
+<span class="t">Root Motion — 애니메이션이 이동을 소유할 때</span>
+<span class="s">ERootMotionMode의 네 값, FRootMotionSource의 우선순위·누적, 몽타주 루트 모션의 실제 스위치, CharacterMovement가 루트 모션을 속도로 바꿔 충돌시키는 순서, 네트워크 보정까지.</span>
+<span class="tags"><span class="tag">Root Motion</span><span class="tag">Animation</span><span class="tag">CharacterMovement</span><span class="tag">Montage</span><span class="tag">Network</span></span>
+</a></li>
+<li><a href="pages/movement-other.html?v=0b675d33">
+<span class="t">Projectile · Rotating · InterpTo · Floating</span>
+<span class="s">발사체의 중력·바운스·호밍·정지, 충돌 없이 회전하는 Rotating, 제어점을 잇는 InterpTo, 입력으로 뜨는 Floating, 그리고 직접 만드는 커스텀 무브먼트.</span>
+<span class="tags"><span class="tag">ProjectileMovement</span><span class="tag">RotatingMovement</span><span class="tag">InterpToMovement</span><span class="tag">FloatingPawnMovement</span><span class="tag">Custom Movement</span></span>
 </a></li>
 </ul>
 </details>
 <details class="cat" data-cat="AI와 길찾기">
 <summary><span class="chev"></span>AI와 길찾기<span class="n">2</span></summary>
 <ul class="toc">
-<li><a href="pages/navmesh-how-it-is-built.html?v=7826dee1">
+<li><a href="pages/navmesh-how-it-is-built.html?v=8b334b90">
 <span class="t">NavMesh는 어떻게 만들어지나</span>
 <span class="s">지형이 걷기면이 되기까지. 네 개의 Agent 값이 바닥을 어떻게 깎는지 단면으로 본다.</span>
 <span class="tags"><span class="tag">NavMesh</span><span class="tag">Recast</span><span class="tag">내비게이션</span></span>
 </a></li>
-<li><a href="pages/navmesh-tiles-and-layers.html?v=9e48fd41">
+<li><a href="pages/navmesh-tiles-and-layers.html?v=694d0fec">
 <span class="t">NavMesh 타일과 레이어</span>
 <span class="s">타일은 바닥을 XY로만 자른다. 높이는 레이어가 맡는다. 둘을 헷갈리면 예산 계산이 어긋난다.</span>
 <span class="tags"><span class="tag">NavMesh</span><span class="tag">Recast</span><span class="tag">내비게이션</span></span>
@@ -53,37 +73,37 @@
 <details class="cat" data-cat="애니메이션">
 <summary><span class="chev"></span>애니메이션<span class="n">7</span></summary>
 <ul class="toc">
-<li><a href="pages/animbp-one-frame.html?v=24fe218a">
+<li><a href="pages/animbp-one-frame.html?v=2ebc1a90">
 <span class="t">AnimBP는 한 프레임에 무엇을 하나</span>
 <span class="s">Update는 게임 스레드와 워커 스레드로 갈린다. 어느 쪽에서 도는지를 알면 스레드 세이프 규칙이 암기가 아니게 된다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">멀티스레드</span></span>
 </a></li>
-<li><a href="pages/locomotion-speed-to-animation.html?v=9db57e31">
+<li><a href="pages/locomotion-speed-to-animation.html?v=d57a41a5">
 <span class="t">Locomotion ① 속도가 애니메이션이 되는 길</span>
 <span class="s">캐릭터가 움직이는 것과 애니메이션이 도는 것은 별개다. 둘을 잇는 값은 Speed 와 Direction 둘뿐이다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">Locomotion</span><span class="tag">CharacterMovement</span></span>
 </a></li>
-<li><a href="pages/locomotion-foot-sliding.html?v=eaed3e17">
+<li><a href="pages/locomotion-foot-sliding.html?v=c9067d00">
 <span class="t">Locomotion ② 발이 미끄러지는 이유</span>
 <span class="s">애니메이션이 전제한 이동량과 실제 이동량이 다르면 발이 미끄러진다. 길이가 다른 애니메이션을 맞추는 법까지.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">Locomotion</span><span class="tag">Distance Matching</span></span>
 </a></li>
-<li><a href="pages/locomotion-root-motion.html?v=6bba27c3">
+<li><a href="pages/locomotion-root-motion.html?v=f517d448">
 <span class="t">Locomotion ③ 루트 모션과 BlendSpace</span>
 <span class="s">캐릭터의 위치를 코드가 정하는가 애니메이션이 정하는가. 그리고 BlendSpace 가 샘플을 고르는 방식.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">Root Motion</span><span class="tag">BlendSpace</span></span>
 </a></li>
-<li><a href="pages/animbp-linked-layers.html?v=d6e3db99">
+<li><a href="pages/animbp-linked-layers.html?v=d610d8d4">
 <span class="t">AnimBP 레이어 ① 왜 나누고 어떻게 쓰나</span>
 <span class="s">상반신만 떼어내 런타임에 갈아끼우는 장치. 쓸 경우와 쓰지 않을 경우, 그리고 설정 네 단계.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">Linked Anim Layer</span></span>
 </a></li>
-<li><a href="pages/animbp-layers-inside.html?v=8fe6a93c">
+<li><a href="pages/animbp-layers-inside.html?v=4ea31999">
 <span class="t">AnimBP 레이어 ② 안에서 무슨 일이 일어나나</span>
 <span class="s">레이어는 그래프 조각이 아니라 별도의 AnimInstance 객체다. 그 사실 하나가 비용과 스레드 규칙을 설명한다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">AnimInstance</span></span>
 </a></li>
-<li><a href="pages/animbp-layers-pitfalls.html?v=9ad5780b">
+<li><a href="pages/animbp-layers-pitfalls.html?v=5ada013a">
 <span class="t">AnimBP 레이어 ③ 흔한 실수와 런타임 교체</span>
 <span class="s">되돌리지 않는 경우, 인터페이스 없이 쓰는 경우, 조용히 느는 비용. 그리고 런타임 교체 함수.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">Linked Anim Layer</span></span>
@@ -93,7 +113,7 @@
 <details class="cat" data-cat="렌더링">
 <summary><span class="chev"></span>렌더링<span class="n">1</span></summary>
 <ul class="toc">
-<li><a href="pages/render-feature-dependencies.html?v=037de551">
+<li><a href="pages/render-feature-dependencies.html?v=5f9e7080">
 <span class="t">Lumen · Nanite · VSM — 의존 관계와 Nanite 해부</span>
 <span class="s">기능 사이의 의존 관계를 정리하고, Nanite 를 파이프라인·메시 종류·메시별 설정으로 나눠 해부한다. VSM 이 왜 Nanite 지원을 요구하는지도 여기서 나온다.</span>
 <span class="tags"><span class="tag">Rendering</span><span class="tag">Nanite</span><span class="tag">Lumen</span><span class="tag">Virtual Shadow Maps</span><span class="tag">GPU Driven</span></span>
@@ -102,7 +122,7 @@
 </details>
 </main>
 <footer class="site-foot">
-<p>마지막 갱신 2026-10-23 &middot; 페이지 13개</p>
+<p>마지막 갱신 2026-10-23 &middot; 페이지 17개</p>
 </footer>
 </div>
 <script>

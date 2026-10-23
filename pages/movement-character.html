@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CharacterMovement — 걷기와 낙하의 물리</title>
+<meta name="note-title" content="CharacterMovement — 걷기와 낙하의 물리">
+<meta name="note-summary" content="PerformMovement가 한 틱에 하는 순서, PhysWalking이 바닥을 찾고 계단을 오르는 법, MovementBase가 움직이는 발판을 따라가는 법, PhysFalling의 중력·공중 제어·점프.">
+<meta name="note-tags" content="CharacterMovement, PhysWalking, StepUp, FindFloor, MovementBase, PhysFalling">
+<meta name="note-order" content="13">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.tablewrap td:first-child{white-space:nowrap}
+.steps{margin:0 0 16px;padding-left:22px}
+.steps li{margin:0 0 8px;font-size:.9rem;line-height:1.6}
+.steps b{font-family:ui-monospace,Consolas,monospace;font-size:.88em}
+.sl{grid-template-columns:auto 1fr auto}
+.sl output{grid-column:auto;text-align:right}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>CharacterMovement — 걷기와 낙하의 물리</h1>
+<p><code>PerformMovement</code>가 한 틱에 하는 순서, <code>PhysWalking</code>이 바닥을 찾고 계단을 오르는 법, <code>MovementBase</code>가 움직이는 발판을 따라가는 법, <code>PhysFalling</code>의 중력·공중 제어·점프.</p>
+</header>
+
+<nav class="series" aria-label="Movement 시리즈">
+<a href="movement-component.html">개요</a>
+<a href="movement-character.html" aria-current="page">캐릭터 물리</a>
+<a href="movement-network.html">네트워크</a>
+<a href="movement-root-motion.html">Root Motion</a>
+<a href="movement-other.html">그 외</a>
+</nav>
+
+<article>
+
+<h2>1. 캐릭터의 세 부품</h2>
+
+<p><code>ACharacter</code> 는 세 가지를 만든다. <b>캡슐</b>(루트), <b><code>UCharacterMovementComponent</code></b>, <b>메시</b>. 무브먼트의 <code>UpdatedComponent</code> 는 캡슐이다.</p>
+
+<pre><code>// ACharacter::ACharacter
+CharacterMovement-&gt;UpdatedComponent = CapsuleComponent;</code></pre>
+
+<p>그래서 캐릭터의 이동 충돌은 <b>캡슐의 ObjectType·응답·모양</b>으로 결정된다. 메시는 따라다니는 그림이고, 이동 스윕의 주체가 아니다. 이 관계는 <a href="movement-component.html">개요</a>에서 자세히 다뤘다.</p>
+
+<p>이 페이지는 그 캡슐이 <b>한 틱에 어떻게 움직이는지</b>를 따라간다. 중심은 <code>PerformMovement</code> → <code>PhysWalking</code> / <code>PhysFalling</code> 이다.</p>
+
+<h2>2. PerformMovement — 프레임당 한 번</h2>
+
+<p><code>PerformMovement</code> 는 캐릭터 무브먼트의 큰 틀이다. 순서가 중요하다. 힘을 먼저 모으고, 루트 모션을 준비한 뒤, 마지막에 <code>StartNewPhysics</code> 로 실제 이동을 맡긴다.</p>
+
+<ol class="steps">
+<li><b>MaybeUpdateBasedMovement</b> &mdash; 발판이 움직였으면 캐릭터를 같이 옮긴다.</li>
+<li><b>루트 모션 정리</b> &mdash; 끝난 <code>FRootMotionSource</code> 를 걷어낸다.</li>
+<li><b>ApplyAccumulatedForces</b> &mdash; <code>AddForce</code>·<code>LaunchCharacter</code> 로 쌓인 힘을 속도에 반영한다.</li>
+<li><b>UpdateCharacterStateBeforeMovement</b> &mdash; 점프·웅크리기 같은 상태를 먼저 갱신한다.</li>
+<li><b>HandlePendingLaunch</b> &mdash; <code>LaunchCharacter</code> 요청을 여기서 처리한다.</li>
+<li><b>루트 모션 준비/적용</b> &mdash; 애니메이션 루트 모션과 <code>CurrentRootMotion</code> 을 속도에 얹는다.</li>
+<li><b>StartNewPhysics</b> &mdash; 모드에 따라 <code>PhysWalking</code>·<code>PhysFalling</code> 등으로 분기한다. <b>이 호출은 한 번</b>이다.</li>
+<li><b>UpdateCharacterStateAfterMovement</b> &mdash; 이동 결과로 상태를 갱신한다.</li>
+<li><b>PhysicsRotation</b> &mdash; <code>bOrientRotationToMovement</code>·컨트롤러 회전을 적용한다.</li>
+<li><b>SaveBaseLocation · UpdateComponentVelocity</b> &mdash; 발판 상대 위치와 컴포넌트 속도를 저장한다.</li>
+</ol>
+
+<p>중요한 점은 <b>서브스텝이 여기 없</b>다는 것이다. <code>PerformMovement</code> 는 프레임당 한 번 돌고, 큰 <code>DeltaSeconds</code> 를 쪼개는 일은 각 <code>Phys*</code> 함수의 <code>while</code> 루프가 맡는다.</p>
+
+<h2>3. 서브스텝 — 큰 dt를 쪼갠다</h2>
+
+<p><code>PhysWalking</code> 과 <code>PhysFalling</code> 은 남은 시간이 <code>MIN_TICK_TIME</code> 보다 크고 반복 횟수가 <code>MaxSimulationIterations</code> 보다 작은 동안 루프를 돈다. 한 번에 쓰는 시간은 <code>GetSimulationTimeStep</code> 이 정한다.</p>
+
+<pre><code>// UCharacterMovementComponent::GetSimulationTimeStep
+if (RemainingTime &gt; MaxSimulationTimeStep)
+{
+    if (Iterations &lt; MaxSimulationIterations)
+        RemainingTime = FMath::Min(MaxSimulationTimeStep, RemainingTime * 0.5f);
+    else
+        /* 마지막 반복은 남은 시간을 전부 사용 (경고) */;
+}</code></pre>
+
+<p>기본값은 <code>MaxSimulationTimeStep = 0.05</code>, <code>MaxSimulationIterations = 8</code> 이다. 한 프레임이 0.4초를 넘으면 8번을 다 써도 남을 수 있고, 그때는 마지막 반복이 남은 시간을 한꺼번에 쓴다. 그래서 <b>프레임이 크게 튀면 이동이 한 번에 크게 점프</b>할 수 있다.</p>
+
+<p>서브스텝은 정확도뿐 아니라 <b>계단·경사·충돌을 여러 번 나눠 처리</b>하는 역할도 한다. <code>MaxSimulationIterations</code> 를 줄이면 싸지지만, 빠른 이동에서 벽을 뚫거나 계단을 놓칠 수 있다.</p>
+
+<h2>4. PhysWalking — 걷기의 본체</h2>
+
+<p><code>PhysWalking</code> 은 <code>MOVE_Walking</code> 일 때 불린다. 먼저 두 가지 조기 반환을 본다.</p>
+
+<ul>
+<li><b>컨트롤러가 없고</b> <code>bRunPhysicsWithNoController</code> 도 false이고, 루트 모션도 없고, 시뮬레이티드 프록시도 아니면 → <code>Acceleration</code>·<code>Velocity</code> 를 0으로 만들고 끝난다. AI 캐릭터가 컨트롤러 없이 서 있는 이유가 될 수 있다.</li>
+<li><b>쿼리 충돌이 꺼져 있으면</b> → 모드를 <code>MOVE_Walking</code> 으로 두고 바로 끝난다. 충돌 없이 걷기 물리를 돌리지 않는다.</li>
+</ul>
+
+<p>그다음 서브스텝 루프 안에서 이 순서로 간다.</p>
+
+<ol class="steps">
+<li><b>MaintainHorizontalGroundVelocity</b> &mdash; 속도의 수직 성분을 정리한다. <code>bMaintainHorizontalGroundVelocity</code> 기본 true.</li>
+<li><b>가속도 투영</b> &mdash; <code>Acceleration</code> 을 중력 반대 평면에 투영한다.</li>
+<li><b>CalcVelocity</b> &mdash; <code>GroundFriction</code> 과 <code>BrakingDecelerationWalking</code> 으로 속도를 갱신한다.</li>
+<li><b>ApplyRootMotionToVelocity</b> &mdash; 루트 모션이 속도를 덮어쓸 수 있다.</li>
+<li><b>MoveAlongFloor</b> &mdash; 지면을 따라 실제로 스윕한다. 계단은 여기서 <code>StepUp</code> 을 시도한다.</li>
+<li><b>FindFloor</b> &mdash; <code>StepUp</code> 이 바닥을 계산하지 않았다면 새로 찾는다.</li>
+<li><b>AdjustFloorHeight</b> &mdash; 바닥과의 거리를 <code>MIN_FLOOR_DIST</code>~<code>MAX_FLOOR_DIST</code> 사이로 맞춘다.</li>
+<li><b>SetBaseFromFloor</b> &mdash; 바닥을 발판(<code>MovementBase</code>)으로 등록한다.</li>
+</ol>
+
+<p>마지막에 <code>bJustTeleported</code> 가 false면, 실제로 이동한 거리로 <code>Velocity</code> 를 다시 계산한다. <code>StepUp</code>·<code>AdjustFloorHeight</code>·관통 보정이 <code>bJustTeleported</code> 를 세우면 이 재계산을 건너뛴다. 그래서 <b>순간이동 뒤에 속도가 튀지 않는다</b>.</p>
+
+<h2>5. MoveAlongFloor — 지면을 따라</h2>
+
+<p><code>MoveAlongFloor</code> 는 현재 바닥이 걸을 수 있는 곳일 때만 진행한다. 속도를 수평으로 투영해 <code>Delta</code> 를 만들고, 경사면이면 <code>ComputeGroundMovementDelta</code> 로 경사를 따라가는 벡터로 바꾼다.</p>
+
+<pre><code>const FVector Delta = ProjectToGravityFloor(InVelocity) * DeltaSeconds;
+FVector RampVector = ComputeGroundMovementDelta(Delta, CurrentFloor.HitResult, CurrentFloor.bLineTrace);
+SafeMoveUpdatedComponent(RampVector, UpdatedComponent-&gt;GetComponentQuat(), true, Hit);</code></pre>
+
+<p>스윕이 막히면 세 갈래다.</p>
+
+<ul>
+<li><b>시작부터 관통</b> &mdash; <code>HandleImpact</code> 후 <code>SlideAlongSurface</code>. 그래도 관통이면 <code>OnCharacterStuckInGeometry</code>.</li>
+<li><b>걸을 수 있는 다른 경사면</b> &mdash; 남은 시간으로 한 번 더 스윕한다.</li>
+<li><b>막는 벽</b> &mdash; <code>CanStepUp(Hit)</code> 이거나 그 컴포넌트가 현재 발판이면 <code>StepUp</code> 을 시도한다. 실패하면 <code>SlideAlongSurface</code> 로 미끄러진다.</li>
+</ul>
+
+<p>여기서 <code>CanStepUp</code> 은 단순히 "높이"만 보지 않는다. <code>MOVE_Falling</code> 이면 false, <code>CanCharacterStepUp</code>·<code>CanBeBaseForCharacter</code> 가 false여도 false다. 그래서 <b>계단처럼 생겼어도 액터가 밟히기를 거부하면</b> 올라가지 못한다.</p>
+
+<h2>6. StepUp — 계단</h2>
+
+<p><code>StepUp</code> 은 <b>위로 → 앞으로 → 아래로</b> 세 번의 스윕이다. 한 번의 이동으로 계단을 넘는 게 아니라, 캡슐을 들어 올린 뒤 전진시키고, 다시 내려서 바닥을 확인한다.</p>
+
+<ol class="steps">
+<li><b>위로</b> &mdash; <code>MaxStepHeight</code> 만큼 올린다. 지면에 붙어 있으면 <code>FloorDist</code> 만큼 빼서 실제 발 기준으로 맞춘다.</li>
+<li><b>앞으로</b> &mdash; <code>Delta</code> 만큼 전진한다. 막히면 <code>SlideAlongSurface</code> 로 밀어 보고, 그래도 진행이 0이면 실패.</li>
+<li><b>아래로</b> &mdash; <code>MaxStepHeight + MAX_FLOOR_DIST*2</code> 만큼 내린다. 여기서 바닥을 찾는다.</li>
+</ol>
+
+<p>실패 조건이 많다. 캡슐 <b>상단</b>이 뭔가에 닿았을 때, 임팩트가 <b>발 기준점보다 아래</b>일 때, 내려찍은 지점이 <code>MaxStepHeight</code> 보다 높을 때, 법선이 <code>IsWalkable</code> 이 아닐 때, 캡슐 가장자리 밖일 때, 밟을 수 없는 표면일 때 모두 되돌린다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="stepH">계단 높이</label>
+    <input type="range" id="stepH" min="10" max="60" value="30" step="1">
+    <output id="stepHO">30</output>
+  </div>
+  <div class="sl">
+    <label for="maxH">MaxStepHeight</label>
+    <input type="range" id="maxH" min="0" max="60" value="45" step="1">
+    <output id="maxHO">45</output>
+  </div>
+  <div class="stage"><canvas id="stepCv" aria-label="계단 높이와 MaxStepHeight에 따라 캐릭터가 계단을 오르거나 막힌다."></canvas></div>
+  <p class="verdict" id="stepOut"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> 계단 높이를 45로, <code>MaxStepHeight</code> 를 44로 두라. 1cm 차이로 <code>StepUp</code> 이 실패하고 캡슐이 계단 앞에서 막힌다. 이제 <code>MaxStepHeight</code> 를 45로 올리면 넘는다. <code>StepUp</code> 은 <b>내려찍은 지점의 높이 차</b>까지 다시 검사하기 때문이다.</p>
+
+<h2>7. FindFloor — 바닥 판정</h2>
+
+<p><code>FindFloor</code> 는 캡슐 아래를 스윕해 <code>FFindFloorResult</code> 를 만든다. 스윕 거리는 고정이 아니다.</p>
+
+<pre><code>HeightCheckAdjust = IsMovingOnGround() ? MAX_FLOOR_DIST + UE_KINDA_SMALL_NUMBER : -MAX_FLOOR_DIST;
+FloorSweepTraceDist = FMath::Max(MAX_FLOOR_DIST, MaxStepHeight + HeightCheckAdjust);</code></pre>
+
+<p>걷는 중이면 <code>MaxStepHeight + 2.4</code> 다. 기본 <code>MaxStepHeight = 45</code> 이므로 <b>47.4cm</b> 아래까지 본다. 계단 높이를 올리면 바닥 스윕 거리도 같이 늘어난다.</p>
+
+<p><code>ComputeFloorDist</code> 는 캡슐을 <b>0.9배로 줄인 스윕</b>을 먼저 한다. 가장자리에 걸리면 반경을 <code>SWEEP_EDGE_REJECT_DISTANCE</code>(0.15)만큼 줄여 다시 시도하고, 스윕이 실패하면 라인 트레이스로 폴백한다.</p>
+
+<p><b>걸을 수 있는가</b>는 <code>IsWalkable</code> 이 법선의 Z로 판단한다.</p>
+
+<pre><code>ImpactNormalZ &gt;= WalkableFloorZ   // WalkableFloorZ 기본 0.71 ≈ 44.8도</code></pre>
+
+<p><code>WalkableFloorAngle</code> 을 바꾸면 <code>WalkableFloorZ</code> 가 다시 계산된다. 여기에 <b><code>FWalkableSlopeOverride</code></b> 가 얹힌다. 바닥 컴포넌트가 "이 경사는 걸을 수 있다/없다"를 덮어쓸 수 있어서, 같은 각도라도 컴포넌트마다 결과가 다를 수 있다.</p>
+
+<p><code>PerchRadiusThreshold</code> 는 캡슐 가장자리가 걸칠 수 있는 바닥을 찾는 기능이다. 기본값은 0이고, <code>GetPerchRadiusThreshold() &lt;= SWEEP_EDGE_REJECT_DISTANCE</code> 면 계산 자체를 건너뛴다. 즉 <b>기본 상태에서는 perch가 꺼져 있다</b>. 켜려면 0.15보다 크게 줘야 하고, <code>PerchAdditionalHeight</code>(기본 40)도 같이 본다.</p>
+
+<p><code>bAlwaysCheckFloor</code> 는 기본 <b>true</b> 다. 이름 그대로 매 틱 바닥을 다시 계산한다. 비용이 걱정되면 끄고, <code>bForceNextFloorCheck</code> 를 필요한 순간(텔레포트·발판 변경·관통 탈출)에 세우는 방식으로 바꿀 수 있다.</p>
+
+<p class="note"><code>bUseFlatBaseForFloorChecks</code> 는 기본 false다. 켜면 캡슐 대신 내접 박스(0.707R)로 45도·0도 두 번 스윕해서, 평평한 바닥 판정을 더 보수적으로 만든다.</p>
+
+<h2>8. MovementBase — 움직이는 발판</h2>
+
+<p><code>SetBaseFromFloor</code> 는 바닥 히트에서 <b>발판</b>을 얻어 <code>SetBase</code> 한다. 발판이 있으면 캐릭터는 그 발판의 <b>상대 위치</b>로 저장되고, 발판이 움직이면 <code>MaybeUpdateBasedMovement</code> → <code>UpdateBasedMovement</code> 가 그 delta만큼 캐릭터를 옮긴다.</p>
+
+<p>그래서 움직이는 플랫폼 위에 서 있으면 입력이 없어도 같이 움직인다. 발판이 <b>물리 시뮬레이션</b> 중이면 발판이 먼저 움직여야 하므로 <code>PostPhysicsTickFunction</code> 으로 미룬다.</p>
+
+<p><code>BasedMovement.bServerHasBaseComponent</code> 는 서버가 이 발판을 알고 있는지를 표시한다. 클라이언트에서 발판을 못 찾으면 <code>IsBaseUnresolved</code> 가 되고, 보정·이동에서 발판을 신뢰하지 않는다. 네트워크에서 플랫폼이 흔들리는 흔한 원인이다.</p>
+
+<p>발판이 사라지거나 충돌이 꺼지면 <code>CurrentFloor</code> 가 클리어되고, 다음 틱에 <code>FindFloor</code> 가 다시 바닥을 찾는다. <b>발판은 바닥 판정의 결과</b>이지, 별도의 물리 조인트가 아니다.</p>
+
+<h2>9. PhysFalling — 낙하</h2>
+
+<p><code>MOVE_Falling</code> 에서는 중력이 속도에 적분된다. 중력은 <code>GetGravityZ() = Super * GravityScale</code> 이고, <code>NewFallVelocity</code> 가 <b>터미널 속도</b>로 클램프한다.</p>
+
+<p>수평 제어는 <code>AirControl</code>(기본 0.05)과 <code>FallingLateralFriction</code>(기본 0)이 맡는다. <code>GetFallingLateralAcceleration</code> 이 입력 가속을 공중 제어 비율로 깎고, <code>CalcVelocity</code> 에 <code>FallingLateralFriction</code> 을 넘긴다. 공중에서는 바닥 마찰이 없으므로 <b>관성</b>이 그대로 남는다.</p>
+
+<p>점프는 <code>JumpZVelocity</code>(기본 420)로 시작한다. <code>JumpMaxHoldTime</code> 이 있으면 <code>JumpForceTimeRemaining</code> 동안 힘이 유지되고, <code>bApplyGravityWhileJumping</code>(기본 true)이면 그동안에도 중력이 걸린다. false면 힘을 쓰는 동안 중력을 빼서 더 높이 뛴다.</p>
+
+<p>프레임이 커서 점프 정점을 지나칠 수 있으므로, <code>ForceJumpPeakSubstep</code> 이 켜져 있으면 정점까지의 시간을 계산해 <b>정점에서 한 번 더 쪼갠다</b>. <code>MaxJumpApexAttemptsPerSimulation</code>(기본 2)이 그 횟수를 제한한다.</p>
+
+<p>낙하 중 <code>IsValidLandingSpot</code> 이 true인 히트를 만나면 <code>ProcessLanded</code> 로 넘어간다. 여기서 <code>Landed</code> 이벤트가 나가고, 물이면 <code>MOVE_Swimming</code>, 아니면 지면 모드로 바뀐다. 착지 판정은 단순히 "블로킹 히트"가 아니라 <b>바닥으로 설 수 있는가</b>를 본다.</p>
+
+<h2>10. 튜닝 — 값이 얽힌다</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>기본</th><th>같이 봐야 할 것</th></tr></thead>
+<tbody>
+<tr><td><code>MaxWalkSpeed</code></td><td>600</td><td><code>MaxAcceleration</code>·<code>GroundFriction</code>·<code>BrakingDecelerationWalking</code></td></tr>
+<tr><td><code>MaxAcceleration</code></td><td>2048</td><td>너무 낮으면 입력이 둔해지고, 너무 높으면 즉각 반응</td></tr>
+<tr><td><code>GroundFriction</code></td><td>8</td><td>멈추는 거리. <code>BrakingDecelerationWalking</code> 과 함께 봄</td></tr>
+<tr><td><code>MaxStepHeight</code></td><td>45</td><td>캡슐 반높이·<code>FindFloor</code> 스윕 거리(47.4cm)</td></tr>
+<tr><td><code>WalkableFloorAngle</code></td><td>≈44.8도</td><td><code>WalkableFloorZ</code> 0.71, <code>FWalkableSlopeOverride</code></td></tr>
+<tr><td><code>AirControl</code></td><td>0.05</td><td><code>FallingLateralFriction</code>(0)·<code>AirControlBoostMultiplier</code></td></tr>
+<tr><td><code>GravityScale</code></td><td>1</td><td><code>JumpZVelocity</code>·점프 높이·낙하 시간</td></tr>
+<tr><td><code>MaxSimulationTimeStep</code> · <code>Iterations</code></td><td>0.05 · 8</td><td>프레임이 클 때 이동 정확도와 비용</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>MaxStepHeight</code> 는 캡슐 반높이보다 클 수 없다. 캡슐이 낮으면 계단을 올라가도 머리가 걸린다. <code>WalkableFloorAngle</code> 을 올리면 경사는 걸을 수 있지만, 그만큼 <b>미끄러져야 할 면</b>도 걸을 수 있게 된다.</p>
+
+<p><code>bRunPhysicsWithNoController</code> 는 컨트롤러 없는 캐릭터(AI·시네마틱)도 물리를 돌릴지 정한다. 기본 false라서, 컨트롤러를 잠시 떼면 캐릭터가 바로 멈출 수 있다.</p>
+
+<h2>11. 디버깅</h2>
+
+<ul>
+<li><code>showdebug Physics</code> &mdash; 캐릭터의 CharacterMovement 상태를 띄운다. <code>Updated Component</code>, 바닥 법선, <code>Acceleration</code>, <code>RootMotionSources</code>, <code>PhysicsVolume</code> 이 나온다.</li>
+<li><code>p.VisualizeMovement 1</code> &mdash; 이동 경로·속도·바닥을 디버그 라인으로 그린다.</li>
+<li><code>show Collision</code> &mdash; 캡슐과 바닥의 콜리전 형상. <code>show CollisionPawn</code>·<code>show CollisionVisibility</code> 는 채널 기준.</li>
+</ul>
+
+<p class="note">"계단을 못 오른다" 면 <code>MaxStepHeight</code>·캡슐 크기·<code>CanCharacterStepUp</code>·바닥 법선을 본다. "바닥에 붙지 않는다" 면 <code>FindFloor</code> 스윕 거리·<code>WalkableFloorZ</code>·<code>MovementBase</code> 를 본다. <code>showdebug Physics</code> 가 이 값들을 한 화면에 보여 준다.</p>
+
+<h2>12. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>PerformMovement</code> · <code>StartNewPhysics</code> · <code>GetSimulationTimeStep</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td></tr>
+<tr><td><code>PhysWalking</code> · <code>MoveAlongFloor</code> · <code>ComputeGroundMovementDelta</code></td><td>같은 파일</td></tr>
+<tr><td><code>StepUp</code> · <code>CanStepUp</code> · <code>IsWithinEdgeTolerance</code></td><td>같은 파일</td></tr>
+<tr><td><code>FindFloor</code> · <code>ComputeFloorDist</code> · <code>FloorSweepTest</code> · <code>IsWalkable</code></td><td>같은 파일</td></tr>
+<tr><td><code>AdjustFloorHeight</code> · <code>SetBase</code> · <code>SetBaseFromFloor</code> · <code>UpdateBasedMovement</code></td><td>같은 파일</td></tr>
+<tr><td><code>PhysFalling</code> · <code>GetAirControl</code> · <code>NewFallVelocity</code></td><td>같은 파일</td></tr>
+<tr><td><code>DoJump</code> · <code>ProcessLanded</code> · <code>CheckJumpInput</code></td><td>같은 파일 · <code>Private/Character.cpp</code></td></tr>
+<tr><td>기본값 (<code>MaxStepHeight</code>, <code>WalkableFloorZ</code> 등)</td><td>같은 파일의 생성자</td></tr>
+<tr><td><code>DisplayDebug</code> · <code>VisualizeMovement</code> · <code>p.VisualizeMovement</code></td><td>같은 파일</td></tr>
+<tr><td><code>EMovementMode</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td></tr>
+<tr><td><code>ACharacter</code> 의 캡슐·<code>UpdatedComponent</code></td><td><code>Engine/Source/Runtime/Engine/Private/Character.cpp</code></td></tr>
+<tr><td><code>FWalkableSlopeOverride</code> · <code>FHitResult</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 엔진 브랜치에 따라 달라지므로 함수명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 캐릭터의 걷기·낙하 물리를 다뤘다. 충돌 필터 규칙은 <a href="collision-preset-channel.html">Collision — Preset · Channel · Trace</a>, 무브먼트의 기본 관계는 <a href="movement-component.html">MovementComponent — 무엇이 액터를 움직이나</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* StepUp — 계단 높이와 MaxStepHeight의 관계 */
+function initStep(){
+  if (!window.Viz) return;
+  var sh = document.getElementById('stepH');
+  var mh = document.getElementById('maxH');
+  var sho = document.getElementById('stepHO');
+  var mho = document.getElementById('maxHO');
+  var out = document.getElementById('stepOut');
+  if (!sh || !mh || !out) return;
+
+  var phase = 0;
+  var v = Viz.view('stepCv', function(){ return 280; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ground = h - 40;
+    var stepH = parseInt(sh.value, 10);
+    var maxH = parseInt(mh.value, 10);
+    var scale = 1.7;
+    var stepPx = stepH * scale;
+    var maxPx = maxH * scale;
+    var stepX = w * 0.52;
+    var stepW = Math.max(64, w * 0.18);
+    var capW = 28, capH = 66;
+    var startX = 60;
+    var ok = stepH <= maxH;
+
+    var p = phase < 0.85 ? phase / 0.85 : 1;
+    var moveP = Math.min(1, p / 0.7);
+    var targetX = ok ? stepX + stepW * 0.55 : stepX - capW / 2 - 2;
+    var x = startX + (targetX - startX) * moveP;
+    var rise = ok ? Math.max(0, Math.min(1, (p - 0.45) / 0.2)) : 0;
+    var y = stepPx * rise;
+
+    // 바닥
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(16, ground + 1); ctx.lineTo(w - 16, ground + 1); ctx.stroke();
+
+    // 계단
+    ctx.fillStyle = c.sf2;
+    ctx.fillRect(stepX, ground - stepPx, stepW, stepPx);
+    ctx.strokeStyle = ok ? c.accent : c.warn;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(stepX + .5, ground - stepPx + .5, stepW - 1, stepPx - 1);
+
+    // MaxStepHeight 기준선
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(20, ground - maxPx); ctx.lineTo(w - 20, ground - maxPx); ctx.stroke();
+    ctx.setLineDash([]);
+    Viz.text(ctx, 'MaxStepHeight ' + maxH, w - 20, ground - maxPx - 7, c.dim, 9, 'right');
+
+    // 캡슐
+    var bottom = ground - y;
+    Viz.roundRect(ctx, x - capW / 2, bottom - capH, capW, capH, capW / 2);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = ok ? c.accent : c.warn;
+    ctx.lineWidth = 2.5; ctx.stroke();
+
+    // 결과
+    Viz.text(ctx, '계단 ' + stepH + ' · MaxStepHeight ' + maxH, w / 2, 20, c.text, 11, 'center');
+    Viz.text(ctx, ok ? 'StepUp 성공' : 'StepUp 실패 — 계단 앞에서 막힘', w / 2, 40,
+      ok ? c.accent : c.warn, 10, 'center');
+  });
+
+  if (!v) return;
+  Viz.animate(v, function(v, t){ phase = (t % 3.6) / 3.6; });
+
+  function update(){
+    var stepH = parseInt(sh.value, 10);
+    var maxH = parseInt(mh.value, 10);
+    sho.value = stepH;
+    mho.value = maxH;
+    if (stepH <= maxH){
+      out.className = 'verdict ok';
+      out.textContent = '계단 ' + stepH + ' ≤ MaxStepHeight ' + maxH + ' → StepUp 성공. 위로 올리고, 앞으로 보내고, 아래로 내려서 바닥을 확인한다.';
+    } else {
+      out.className = 'verdict bad';
+      out.textContent = '계단 ' + stepH + ' > MaxStepHeight ' + maxH + ' → StepUp 실패. 내려찍은 지점이 MaxStepHeight를 넘어 되돌리고, MoveAlongFloor가 슬라이드로 처리한다.';
+    }
+    v.render();
+  }
+
+  sh.addEventListener('input', update);
+  mh.addEventListener('input', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initStep);
+else initStep();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CharacterMovement — 네트워크 예측과 보정</title>
+<meta name="note-title" content="CharacterMovement — 네트워크 예측과 보정">
+<meta name="note-summary" content="클라이언트는 먼저 움직이고 서버가 검사한다. FSavedMove_Character, ReplicateMoveToServer, ServerMove, ClientAdjustPosition, SavedMoves 재생, NetworkSmoothing까지.">
+<meta name="note-tags" content="CharacterMovement, Network, Prediction, Replication, ClientAdjustPosition, Smoothing">
+<meta name="note-order" content="14">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.seq{width:100%;border-collapse:collapse;font-size:.82rem;margin:0 0 16px}
+.seq th,.seq td{border:1px solid var(--line);padding:7px 8px;vertical-align:top;line-height:1.5}
+.seq th{background:var(--surface-2);text-align:left;white-space:nowrap}
+.seq td:first-child{white-space:nowrap;text-align:center;color:var(--text-dim)}
+.seq .cli{color:var(--accent)}
+.seq .srv{color:var(--warn)}
+.note{border-left:3px solid var(--line);padding:2px 0 2px 12px;margin:14px 0;font-size:.88rem;color:var(--text-dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>CharacterMovement — 네트워크 예측과 보정</h1>
+<p>클라이언트는 <b>먼저 움직이고</b>, 서버가 <b>같은 입력으로 다시 움직여</b> 검사한다. 오차가 크면 클라이언트를 되감고, 남은 입력을 다시 재생한다.</p>
+</header>
+
+<nav class="series" aria-label="Movement 시리즈">
+<a href="movement-component.html">개요</a>
+<a href="movement-character.html">캐릭터 물리</a>
+<a href="movement-network.html" aria-current="page">네트워크</a>
+<a href="movement-root-motion.html">Root Motion</a>
+<a href="movement-other.html">그 외</a>
+</nav>
+
+<article>
+
+<h2>1. 예측과 권한 — 둘 다 필요하다</h2>
+
+<p>캐릭터 이동은 서버 권한이지만, 입력마다 서버 응답을 기다리면 조작감이 무너진다. 그래서 <code>UCharacterMovementComponent</code> 는 <b>클라이언트 예측(client prediction)</b> 을 한다. 클라이언트가 먼저 움직이고, 서버가 나중에 같은 입력을 재시뮬레이션해서 검사한다.</p>
+
+<p>이를 위해 <code>UCharacterMovementComponent</code> 는 <code>INetworkPredictionInterface</code> 를 구현한다. 핵심은 세 가지다.</p>
+
+<ul>
+<li><b>클라이언트</b> — 입력을 <code>FSavedMove_Character</code> 로 저장하고, 로컬에서 먼저 <code>PerformMovement</code> 한다.</li>
+<li><b>서버</b> — 같은 입력을 <code>MoveAutonomous</code> 로 재시뮬레이션하고, 클라이언트 위치와 비교한다.</li>
+<li><b>보정</b> — 오차가 크면 서버가 <code>ClientAdjustPosition</code> 을 보내고, 클라이언트는 저장해 둔 이동을 다시 재생한다.</li>
+</ul>
+
+<p>권한 분기는 <code>ControlledCharacterMove()</code> 한 곳에서 갈린다.</p>
+
+<pre><code>if (CharacterOwner-&gt;GetLocalRole() == ROLE_Authority)
+    PerformMovement(DeltaSeconds);                 // 서버
+else if (GetLocalRole() == ROLE_AutonomousProxy &amp;&amp; IsNetMode(NM_Client))
+    ReplicateMoveToServer(DeltaSeconds, Acceleration); // 조종 중인 클라이언트</code></pre>
+
+<h2>2. 클라이언트 — 예측하고 저장한다</h2>
+
+<p>클라이언트의 중심은 <code>ReplicateMoveToServer</code> 다. 매 틱(또는 전송 간격마다) 이 함수가 돈다.</p>
+
+<ol>
+<li><b>시간 갱신</b> — <code>FNetworkPredictionData_Client_Character::UpdateTimeStampAndDeltaTime</code> 으로 타임스탬프와 delta를 맞춘다.</li>
+<li><b>SavedMove 생성</b> — <code>CreateSavedMove</code> 로 <code>FSavedMove_Character</code> 를 하나 얻고, <code>SetMoveFor</code> 로 이번 입력·시작 위치·속도·상태를 기록한다.</li>
+<li><b>이전 move와 합치기</b> — <code>PendingMove</code> 가 있고 <code>CanCombineWith</code> 가 true면 하나로 합친다. 전송량을 줄이는 최적화다.</li>
+<li><b>로컬 이동</b> — <code>PerformMovement(NewMove-&gt;DeltaTime)</code> 으로 클라이언트가 먼저 움직인다.</li>
+<li><b>저장</b> — <code>SavedMoves</code> 에 넣는다. 아직 서버가 확인하지 않은 이동 목록이다.</li>
+<li><b>전송</b> — <code>CallServerMove</code> 또는 packed RPC로 서버에 보낸다.</li>
+</ol>
+
+<p><code>SavedMoves</code> 에 넣고 전송하는 일은 <code>IsReplicatingMovement()</code>(<code>bReplicateMovement</code>)가 true일 때만 일어난다. 전송은 매 틱이 아니라 <code>GetClientNetSendDeltaTime()</code> 간격(1/120~1/5초)으로 조절되고, 그 사이 move는 <code>PendingMove</code> 로 합쳐진다.</p>
+
+<p><code>FSavedMove_Character</code> 는 단순한 입력 로그가 아니다. 시작/끝 위치, 속도, 가속도, 이동 모드, 발판, 점프 플래그, 루트 모션까지 들어 있다. 서버가 같은 결과를 재현하려면 이 정보가 필요하다.</p>
+
+<pre><code>// 개념적인 저장 항목
+StartLocation, StartRotation, Velocity, Acceleration
+MovementMode, CustomMovementMode
+StartBase, EndBase, StartBoneName, EndBoneName
+CompressedFlags   // 점프·웅크리기 등
+RootMotion        // 애니메이션 루트 모션</code></pre>
+
+<p><b>압축 플래그</b>는 1바이트에 상태를 담는다. 기본 구현은 점프·웅크리기만 세팅하고, <code>FLAG_Custom_0..3</code> 은 서브클래스가 쓴다.</p>
+
+<table>
+<thead><tr><th>플래그</th><th>비트</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>FLAG_JumpPressed</code></td><td>0x01</td><td>점프 입력</td></tr>
+<tr><td><code>FLAG_WantsToCrouch</code></td><td>0x02</td><td>웅크리기 의도</td></tr>
+<tr><td><code>FLAG_Custom_0..3</code></td><td>0x10~0x80</td><td>게임이 정의한 상태</td></tr>
+</tbody>
+</table>
+
+<p><code>CanCombineWith()</code> 는 아무 move나 합치지 않는다. <code>bForceNoCombine</code>, 루트 모션, 가속도 방향 차이, <code>MaxSpeed</code> 변화, 점프 상태 변화, 압축 플래그 불일치, 발판·이동 모드·캡슐 크기 변화가 있으면 합치지 않는다. 합치면 서버가 재현할 수 없는 move가 되기 때문이다.</p>
+
+<p>prediction data는 move를 <b>최대 96개</b>까지 보관한다(<code>MaxSavedMoveCount</code>·<code>MaxFreeMoveCount</code>). <code>AckMove()</code> 가 서버가 확인한 move까지 풀에 돌려주고, <code>SavedMoves</code> 에서 제거한다.</p>
+
+<p>전송은 <code>ServerMove</code> RPC다. 최근 엔진은 <code>FCharacterNetworkMoveDataContainer</code> 로 묶어 <b>packed RPC</b> 를 쓰는 경로가 기본이다. 구형 경로(<code>CallServerMove</code>)도 남아 있지만, 확장은 보통 네트워크 move data 쪽에서 한다.</p>
+
+<h2>3. 서버 — 같은 입력으로 다시 움직인다</h2>
+
+<p>이동 RPC는 컴포넌트가 아니라 <b><code>ACharacter</code></b> 에 있다. 컴포넌트 RPC의 오버헤드를 피하려고 <code>ServerMovePacked</code>·<code>ClientMoveResponsePacked</code> 를 액터에 두고, 실제 처리는 CharacterMovement로 위임한다.</p>
+
+<p>packed 경로는 이렇게 흐른다.</p>
+
+<ol>
+<li><code>ServerMovePacked_ServerReceive</code> — 비트스트림을 풀기 전에는 검증할 수 없어 <code>Validate</code> 는 true를 반환한다. 실제 거부는 <b>비트 수 상한</b>(<code>NetPackedMovementMaxBits</code>)과 타임스탬프로 한다.</li>
+<li><code>ServerMove_HandleMoveData</code> — OldMove(재전송) → PendingMove(듀얼) → NewMove 순서로 <code>ServerMove_PerformMovement</code> 를 호출한다. <b>오차 검사는 NewMove에서만</b> 한다.</li>
+<li><code>ServerMove_PerformMovement</code> — <code>VerifyClientTimeStamp</code> 실패 시 return, <code>GetServerMoveDeltaTime</code> 으로 delta를 구한 뒤 <code>MoveAutonomous</code> 를 호출한다.</li>
+</ol>
+
+<pre><code>// UCharacterMovementComponent::MoveAutonomous
+UpdateFromCompressedFlags(CompressedFlags);
+CharacterOwner-&gt;CheckJumpInput(DeltaTime);
+
+Acceleration = ConstrainInputAcceleration(NewAccel);
+Acceleration = Acceleration.GetClampedToMaxSize(GetMaxAcceleration());
+PerformMovement(DeltaTime);</code></pre>
+
+<p>즉 서버도 <b>클라이언트와 같은 <code>PerformMovement</code></b> 를 돈다. 같은 입력, 같은 delta, 같은 시작 상태라면 같은 결과가 나와야 한다. 이 전제가 깨지는 것이 네트워크 이동 문제의 대부분이다.</p>
+
+<p>이동이 끝나면 <code>ServerMoveHandleClientError</code> 가 클라이언트가 보고한 위치와 서버 위치를 비교한다. <code>ServerCheckClientError</code> 는 <code>bIgnoreClientMovementErrorChecksAndCorrection</code> 이면 검사를 생략하고, 아니면 <b>이동 모드 불일치</b> 또는 <code>AGameNetworkManager::ExceedsAllowablePositionError</code> 로 판정한다. 테스트용 <code>p.NetForceClientAdjustmentPercent</code> 로 보정을 강제할 수도 있다.</p>
+
+<p>오차가 크면 <code>bNetworkLargeClientCorrection</code> 이 켜져 우선순위가 올라가고, <code>GetTeleportType()</code> 도 이를 <code>TeleportPhysics</code> 로 취급한다. 보정은 그 자리에서 바로 보내지 않고 프레임 끝 <code>SendClientAdjustment()</code> 에서 <b>스로틀</b>한다. ack는 <code>NetworkMinTimeBetweenClientAckGoodMoves</code>, 보정은 <code>NetworkMinTimeBetweenClientAdjustments</code>(대형 보정은 별도 간격)로 간격을 둔다.</p>
+
+<div class="note"><b>서버가 클라이언트를 믿는 예외</b> — <code>bServerAcceptClientAuthoritativePosition</code> 또는 <code>AGameNetworkManager::ClientAuthorativePosition</code> 이 켜져 있으면 서버가 클라이언트 위치를 그대로 받아들인다. 기본은 꺼져 있다.</div>
+
+<h2>4. 보정 — 되감고 다시 재생한다</h2>
+
+<p>서버가 보내는 <code>ClientAdjustPosition</code> 에는 서버가 계산한 위치·속도·회전·이동 모드·발판이 들어 있다. 클라이언트는 이 값을 그대로 적용하고, <b>아직 확인되지 않은 이동</b>을 다시 재생한다.</p>
+
+<table class="seq">
+<thead><tr><th>#</th><th>클라이언트</th><th>서버</th></tr></thead>
+<tbody>
+<tr><td>1</td><td class="cli">입력</td><td></td></tr>
+<tr><td>2</td><td class="cli"><code>PerformMovement</code> — 예측 이동</td><td></td></tr>
+<tr><td>3</td><td class="cli"><code>ServerMovePacked</code> 전송</td><td></td></tr>
+<tr><td>4</td><td></td><td class="srv"><code>MoveAutonomous</code> — 재시뮬레이션</td></tr>
+<tr><td>5</td><td></td><td class="srv"><code>ServerCheckClientError</code> — 오차 검사</td></tr>
+<tr><td>6</td><td class="cli"><code>ClientAdjustPosition</code> 수신</td><td class="srv">오차가 크면 전송</td></tr>
+<tr><td>7</td><td class="cli"><code>SavedMoves</code>를 <code>MoveAutonomous</code> 로 재생</td><td></td></tr>
+</tbody>
+</table>
+
+<p>수신은 <code>MoveResponsePacked_ClientReceive</code> → 응답 컨테이너 <code>Serialize</code> → <code>ClientHandleMoveResponse</code> 로 이어진다. 여기서 ack면 <code>ClientAckGoodMove_Implementation</code>, 보정이면 루트 모션 소스 → 루트 모션 몽타주 → 일반 <code>ClientAdjustPosition_Implementation</code> 순으로 분기한다.</p>
+
+<p><code>ClientAdjustPosition_Implementation</code> 은 먼저 <code>bClientIgnoreMovementCorrections</code> 를 확인한다. 켜져 있으면 ack만 하고 위치는 건드리지 않는다. 그다음 타임스탬프로 <code>SavedMoves</code> 에서 move를 찾고, 없으면(이미 ack된 과거) 그냥 끝낸다. 있으면 <code>AckMove</code> 후 서버 위치를 <b><code>SetWorldLocation(..., TeleportPhysics)</code></b> 로 적용하고, 속도·이동 모드·발판을 맞춘 뒤 <code>UpdateFloorFromAdjustment</code>·<code>bJustTeleported = true</code>·<code>bUpdatePosition = true</code> 로 끝낸다.</p>
+
+<p>재생은 그 자리에서 하지 않는다. <b>다음 <code>TickComponent</code></b> 가 <code>bUpdatePosition</code> 을 보고 <code>ClientUpdatePositionAfterServerUpdate</code> 를 호출한다. 이때 남은 <code>SavedMoves</code> 를 하나씩 <code>PrepMoveFor</code> → <code>MoveAutonomous</code> → <code>PostUpdate(PostUpdate_Replay)</code> 로 다시 실행한다. <code>PerformMovement</code> 만 부르는 게 아니라 <b>서버와 같은 <code>MoveAutonomous</code> 경로</b>를 쓴다는 점이 중요하다.</p>
+
+<p>재생 동안 <code>CharacterOwner-&gt;bClientUpdating</code> 이 켜진다. 이 플래그는 <code>DoJump</code>·<code>ShouldNotifyLanded</code>·<code>TickCharacterPose</code> 가 "재생 중"을 구분하게 해서, 루트 모션·애니메이션 이벤트·노티파이가 <b>두 번 발생하지 않게</b> 막는다. 재생은 "이미 일어난 일을 다시 계산"하는 것이지, 새 입력을 처리하는 것이 아니다.</p>
+
+<p class="note"><code>ClientVeryShortAdjustPosition</code> 은 속도가 0일 때 대역폭을 아끼는 legacy 버전이다. packed 응답 경로에서는 <code>ClientHandleMoveResponse</code> 가 항상 <code>ClientAdjustPosition_Implementation</code> 을 부르므로, 이 짧은 버전은 legacy RPC에서만 쓰인다.</p>
+
+<p>보정이 오면 화면이 순간이동할 수 있다. 그래서 <b>네트워크 스무딩</b>이 그 차이를 시각적으로 메운다.</p>
+
+<h2>5. 스무딩 — 보정을 부드럽게</h2>
+
+<p><code>NetworkSmoothingMode</code> 는 원격 캐릭터(시뮬레이티드 프록시)의 위치 보간 방식을 정한다. 기본은 <b>Exponential</b> 이다.</p>
+
+<table>
+<thead><tr><th>모드</th><th>동작</th></tr></thead>
+<tbody>
+<tr><td><code>Disabled</code></td><td>네트워크 갱신을 그대로 적용. 순간이동이 보인다</td></tr>
+<tr><td><code>Linear</code></td><td>이전 위치에서 목표 위치로 선형 보간</td></tr>
+<tr><td><code>Exponential</code></td><td>목표에 가까울수록 느려지는 지수 보간. 기본</td></tr>
+</tbody>
+</table>
+
+<p>스무딩은 네트워크 갱신이 올 때 시작된다. <code>SmoothCorrection()</code> 이 이전 위치와 새 위치의 차이를 <code>MeshTranslationOffset</code> 에 쌓고, <b>캡슐은 새 위치로 옮기되 메시는 그 자리에 붙잡아</b> 둔다(<code>FScopedPreventAttachedComponentMove</code>). 그다음 <code>SmoothClientPosition</code> 이 매 틱 오프셋을 줄여 메시를 따라오게 한다.</p>
+
+<ul>
+<li><b>Linear</b> — 이전 위치에서 목표까지 선형 보간. <code>SmoothingClientTimeStamp</code> 를 서버 쪽으로 밀며 <code>LerpPercent</code> 를 계산한다.</li>
+<li><b>Exponential</b> — <code>MeshTranslationOffset</code> 을 <code>(1 - DeltaSeconds / SmoothLocationTime)</code> 로 지수 감쇠. 목표에 가까울수록 느려진다.</li>
+<li><b>Disabled</b> — 오프셋 없이 즉시 스냅.</li>
+</ul>
+
+<p>너무 멀리 떨어진 보정은 스무딩하지 않는다. <code>NetworkMaxSmoothUpdateDistance</code> 를 넘으면 오프셋을 방향별 최대치로 자르고, <code>NetworkNoSmoothUpdateDistance</code> 를 넘으면 오프셋을 0으로 만들어 사실상 순간이동시킨다.</p>
+
+<p>관련 값은 <code>NetworkSimulatedSmoothLocationTime</code>(기본 0.1초), <code>NetworkSimulatedSmoothRotationTime</code>(0.05초)이다. 리슨 서버에서는 <code>ListenServerNetworkSimulatedSmooth*</code>(0.04·0.033초)를 따로 쓴다.</p>
+
+<p>스무딩은 <b>시각적</b> 보정이다. 실제 충돌·판정은 서버가 본 위치를 기준으로 하므로, 화면에서 부드럽게 보여도 판정은 다를 수 있다.</p>
+
+<p><b>시뮬레이티드 프록시</b>는 조종하지 않는 원격 캐릭터다. <code>TickComponent</code> 의 <code>ROLE_SimulatedProxy</code> 분기에서 <code>SimulatedTick</code> 을 돌리고, <code>ReplicatedMovement</code>·<code>ReplicatedBasedMovement</code> 가 도착하면 <code>PostNetReceiveLocationAndRotation</code>·<code>OnRep_ReplicatedBasedMovement</code> 가 <code>SmoothCorrection</code> 을 호출한다. 캡슐이 복제 반올림 때문에 벽에 끼는 것을 줄이려면 <code>bShrinkProxyCapsule</code> 로 프록시 캡슐을 줄인다.</p>
+
+<h2>6. 확장 — 커스텀 이동 데이터</h2>
+
+<p>이동 모드를 직접 만들었거나 입력을 더 보내야 한다면, 기본 RPC에 데이터를 얹는다.</p>
+
+<ul>
+<li><b><code>FSavedMove_Character</code> 파생</b> — 저장할 필드를 늘리고 <code>SetMoveFor</code>·<code>Clear</code>·<code>CanCombineWith</code>·<code>GetCompressedFlags</code> 를 재정의한다.</li>
+<li><b><code>FNetworkPredictionData_Client_Character</code> 파생</b> — <code>AllocateNewMove</code> 에서 커스텀 move를 만들고, <code>GetPredictionData_Client</code> 를 재정의한다.</li>
+<li><b><code>FCharacterNetworkMoveData</code> · <code>FCharacterNetworkMoveDataContainer</code></b> — RPC에 실리는 데이터를 확장한다. <code>GetNetworkMoveDataContainer</code> 를 재정의한다.</li>
+</ul>
+
+<p><code>FCharacterNetworkMoveData</code> 는 <code>ClientFillNetworkMoveData()</code> 와 <code>Serialize()</code> 가 virtual이다. 파생 컨테이너 생성자에서 <code>NewMoveData</code>·<code>PendingMoveData</code>·<code>OldMoveData</code> 포인터를 자기 구조체로 갈아끼우고, <code>SetNetworkMoveDataContainer()</code>·<code>SetMoveResponseDataContainer()</code> 로 등록한다. 처리 중에는 <code>GetCurrentNetworkMoveData()</code> 로 읽는다.</p>
+
+<p><code>FLAG_Custom_0..3</code> 을 쓰려면 <code>FSavedMove_Character::GetCompressedFlags()</code> 를 재정의해 비트를 세우고, <code>UCharacterMovementComponent::UpdateFromCompressedFlags()</code> 를 재정의해 해석한다. <code>CanCombineWith()</code> 가 압축 플래그를 비교하므로, 커스텀 플래그가 다르면 자동으로 move 결합이 금지된다.</p>
+
+<p>커스텀 <code>MOVE_Custom</code> 은 <b>이동 자체의 복제</b>도 직접 해야 한다. CharacterMovement의 예측·보정은 기본 모드(Walking/Falling 등)에 맞춰져 있으므로, 커스텀 모드의 상태를 move data에 넣고 서버에서 같은 <code>PhysCustom</code> 이 돌아가게 해야 한다.</p>
+
+<h2>7. 디버깅</h2>
+
+<ul>
+<li><code>p.NetShowCorrections 1</code> — 서버가 보정을 보낼 때 클라이언트/서버 캡슐을 색으로 그린다. <code>p.NetCorrectionLifetime</code> 으로 표시 시간을 조절한다.</li>
+<li><code>showdebug Physics</code> — <code>Updated Component</code>, 이동 모드, 발판, 속도, 루트 모션 소스를 한 화면에 본다.</li>
+<li><code>LogNetPlayerMovement</code> — <code>ServerMove</code>·<code>ClientAdjustPosition</code>·재생 로그. <code>VeryVerbose</code> 로 켜면 move 타임스탬프까지 보인다.</li>
+<li><code>p.NetShowCorrections</code> 는 기본 0(꺼짐)이고, 표시 시간은 <code>p.NetCorrectionLifetime</code>(기본 4초)이다. 서버는 서버 위치(초록)·클라 위치(빨강), 클라는 클라 위치(빨강)·보정 위치(초록)를 그린다.</li>
+<li><code>NetEmulation.PktLag</code> · <code>PktLoss</code> · <code>PktLagVariance</code> — 지연·손실을 넣어 예측과 보정을 재현한다. 예측 전용으로 <code>p.NetForceClientServerMoveLossPercent</code>·<code>p.NetForceClientAdjustmentPercent</code> 도 있다.</li>
+</ul>
+
+<h2>8. 흔한 함정</h2>
+
+<table>
+<thead><tr><th>증상</th><th>먼저 볼 것</th></tr></thead>
+<tbody>
+<tr><td>클라이언트만 움직이고 다른 사람 화면에서는 안 움직인다</td><td><code>bReplicateMovement</code>·<code>SetReplicateMovement</code>. 액터가 이동을 복제하는지</td></tr>
+<tr><td>멀리 있는 캐릭터가 안 보인다</td><td><code>bOnlyRelevantToOwner</code>(기본 false)·관련성(relevancy). 이동 RPC는 소유 클라이언트에만 간다</td></tr>
+<tr><td>보정이 자주 난다</td><td>클라이언트와 서버의 <code>PerformMovement</code> 입력이 같은지. delta·가속도·이동 모드·발판</td></tr>
+<tr><td>발판 위에서만 떨린다</td><td>발판이 클라이언트에 존재하는지(<code>IsBaseUnresolved</code>), <code>bServerHasBaseComponent</code></td></tr>
+<tr><td>커스텀 모드에서만 어긋난다</td><td><code>MOVE_Custom</code> 상태를 move data에 넣었는지, 서버에서 같은 <code>PhysCustom</code> 이 도는지</td></tr>
+<tr><td>루트 모션에서 튄다</td><td>루트 모션 보정 RPC(<code>ClientAdjustRootMotion*</code>)와 재생 중 <code>bClientUpdating</code></td></tr>
+<tr><td>컨트롤러 없는 캐릭터가 서버에서 멈춘다</td><td><code>bRunPhysicsWithNoController</code></td></tr>
+<tr><td>프록시 캡슐이 벽에 끼인다</td><td><code>bShrinkProxyCapsule</code>·<code>AdjustProxyCapsuleSize</code>. 복제 반올림 관통을 줄이는 옵션</td></tr>
+<tr><td>서버가 클라 위치를 그대로 믿는다</td><td><code>bServerAcceptClientAuthoritativePosition</code>·<code>ClientAuthorativePosition</code></td></tr>
+<tr><td>보정을 일부러 무시한다</td><td><code>bClientIgnoreMovementCorrections</code>·<code>bIgnoreClientMovementErrorChecksAndCorrection</code></td></tr>
+</tbody>
+</table>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>ControlledCharacterMove</code> · <code>ReplicateMoveToServer</code> · <code>CallServerMovePacked</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td></tr>
+<tr><td><code>ServerMove_HandleMoveData</code> · <code>ServerMove_PerformMovement</code> · <code>MoveAutonomous</code> · <code>ServerCheckClientError</code> · <code>SendClientAdjustment</code></td><td>같은 파일</td></tr>
+<tr><td><code>ClientHandleMoveResponse</code> · <code>ClientAdjustPosition_Implementation</code> · <code>ClientUpdatePositionAfterServerUpdate</code></td><td>같은 파일</td></tr>
+<tr><td><code>SmoothCorrection</code> · <code>SmoothClientPosition</code> · <code>NetworkSmoothingMode</code></td><td>같은 파일 · <code>Classes/GameFramework/CharacterMovementComponent.h</code></td></tr>
+<tr><td><code>ServerMovePacked</code> · <code>ClientMoveResponsePacked</code> (RPC)</td><td><code>Classes/GameFramework/Character.h</code> · <code>Private/Character.cpp</code></td></tr>
+<tr><td><code>FSavedMove_Character</code> · <code>FNetworkPredictionData_Client_Character</code></td><td><code>Classes/GameFramework/CharacterMovementComponent.h</code></td></tr>
+<tr><td><code>FCharacterNetworkMoveData</code> · <code>FCharacterNetworkMoveDataContainer</code></td><td><code>Classes/GameFramework/CharacterMovementReplication.h</code></td></tr>
+<tr><td><code>ENetworkSmoothingMode</code></td><td><code>Classes/Engine/EngineTypes.h</code></td></tr>
+<tr><td><code>p.NetShowCorrections</code> · <code>p.NetCorrectionLifetime</code></td><td>같은 파일의 CVar</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 함수명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 캐릭터 이동의 네트워크 예측·보정을 다뤘다. 이동 자체의 물리는 <a href="movement-character.html">CharacterMovement — 걷기와 낙하의 물리</a>, 루트 모션은 <a href="movement-root-motion.html">Root Motion</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+</body>
+</html>
