@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackboard — BT의 공유 변수판</title>
+<meta name="note-title" content="Blackboard — BT의 공유 변수판">
+<meta name="note-summary" content="BlackboardData와 BlackboardComponent의 차이, Object·Enum·Vector 등 키 타입, FBlackboardKeySelector, 값 변경을 관찰해 BT를 중단시키는 Observer까지.">
+<meta name="note-tags" content="Blackboard, UBlackboardComponent, BlackboardKey, BlackboardKeySelector, Observer">
+<meta name="note-order" content="24">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+.bb{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin:0 0 16px}
+.bb .hd{display:flex;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--line);font-size:.78rem;color:var(--text-dim)}
+.bb table{margin:0;font-size:.82rem}
+.bb td:first-child{font-family:ui-monospace,Consolas,monospace;color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Blackboard — BT의 공유 변수판</h1>
+<p>Behavior Tree의 노드들은 자기 상태를 오래 들고 있지 않는다. <b>Blackboard</b> 에 목표·집 위치·상태를 적고, Decorator와 Service가 그 값을 읽는다. 값이 바뀌면 <b>Observer</b> 가 트리를 중단시킨다.</p>
+</header>
+
+<nav class="series" aria-label="AI 시리즈">
+<a href="ai-controller.html">AI Controller</a>
+<a href="ai-blackboard.html" aria-current="page">Blackboard</a>
+<a href="ai-behavior-tree.html">BT 구조</a>
+<a href="ai-bt-composites.html">BT 노드</a>
+<a href="ai-bt-tasks.html">BT Task</a>
+<a href="ai-perception.html">Perception</a>
+<a href="ai-eqs.html">EQS</a>
+</nav>
+
+<article>
+
+<h2>1. Blackboard는 "BT 밖의 기억"</h2>
+
+<p>BT는 실행 중인 노드의 스택과 메모리를 갖지만, "적을 봤다", "집은 여기다" 같은 <b>게임 상태</b> 를 노드마다 들고 있으면 트리가 지저분해진다. 그래서 BT는 상태를 Blackboard에 두고, 노드는 키만 참조한다.</p>
+
+<pre><code>AIController
+  ├── BlackboardComponent   ← 런타임 값 (TargetActor, HomeLocation ...)
+  └── BehaviorTreeComponent
+        ├── Decorator: TargetActor Is Set?
+        ├── Service: Update Target
+        └── Task: MoveTo TargetActor</code></pre>
+
+<p>Perception이 적을 발견하면 Blackboard의 <code>TargetActor</code> 를 쓰고, Decorator가 그 키를 보고 분기한다. **관찰자(Observer)** 는 키가 바뀌는 순간 트리에 "다시 평가해라"라고 알려 준다.</p>
+
+<h2>2. Asset과 Component</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>구분</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td><code>UBlackboardData</code></td><td>에셋. 키 목록·타입·부모 Blackboard. 컴파일 타임 정의</td></tr>
+<tr><td><code>UBlackboardComponent</code></td><td>런타임 인스턴스. 컨트롤러마다 하나, 실제 값 보관</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>UBlackboardComponent::InitializeBlackboard(Data)</code> 로 에셋을 연결한다. <code>AAIController::UseBlackboard</code> 가 이 초기화를 대신하고, <code>RunBehaviorTree</code> 는 BT의 <code>BlackboardAsset</code> 을 보고 필요한 Blackboard를 만든다.</p>
+
+<p>Blackboard는 <b>AIController에 붙는 컴포넌트</b> 다. Pawn이나 BT 에셋에 붙는 게 아니다. 같은 Blackboard 에셋을 쓰는 BT라도 컨트롤러마다 값은 따로다.</p>
+
+<h2>3. 키 타입</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>타입</th><th>쓰는 곳</th></tr></thead>
+<tbody>
+<tr><td><code>Object</code></td><td>TargetActor, FocusActor. 가장 많이 쓴다</td></tr>
+<tr><td><code>Class</code></td><td>스폰할 클래스, 필터</td></tr>
+<tr><td><code>Enum</code> · <code>NativeEnum</code></td><td>AI 상태(Idle/Chase/Attack)</td></tr>
+<tr><td><code>Float</code> · <code>Int</code> · <code>Bool</code></td><td>거리, 쿨다운, 조건 플래그</td></tr>
+<tr><td><code>Name</code> · <code>String</code></td><td>태그, 애님 이름</td></tr>
+<tr><td><code>Vector</code> · <code>Rotator</code></td><td>HomeLocation, 순찰 지점, 바라볼 방향</td></tr>
+<tr><td><code>Struct</code></td><td>커스텀 구조체 키</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>키는 에셋에서 이름과 타입을 정한다. 같은 이름이라도 타입이 다르면 다른 키다. 키에 <code>bInstanceSynced</code> 를 켜면 관련 Blackboard로 값이 동기화된다. <code>Object</code> 키에는 <b>Base Class</b> 필터가 있어 "Pawn만", "Actor만"처럼 좁힐 수 있다.</p>
+
+<div class="bb">
+<div class="hd"><span>Blackboard — 예시</span><span>3 keys</span></div>
+<table>
+<tbody>
+<tr><td>TargetActor</td><td>Object (Pawn)</td><td>비어 있음</td></tr>
+<tr><td>HomeLocation</td><td>Vector</td><td>(1200, 400, 0)</td></tr>
+<tr><td>AIState</td><td>Enum (EAIState)</td><td>Idle</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>4. FBlackboardKeySelector</h2>
+
+<p>Decorator·Service·Task는 키 이름을 문자열로 직접 받지 않고 <code>FBlackboardKeySelector</code> 를 쓴다. 이 구조체는 <b>키 이름·타입·ID</b> 를 함께 들고 있어, BT 에디터에서 키를 고르면 타입까지 맞춰진다.</p>
+
+<ul>
+<li><code>SelectedKeyName</code> — 키 이름.</li>
+<li><code>SelectedKeyType</code> — 키 타입.</li>
+<li><code>SelectedKeyID</code> — 런타임 키 ID.</li>
+<li><code>ResolveSelectedKey(BlackboardAsset)</code> — 이름으로 ID/타입을 찾는다.</li>
+<li><code>AllowNoneAsValue(bool)</code> — "키 없음"을 허용할지.</li>
+</ul>
+
+<p>그래서 "TargetActor 키"를 고르면 Object 타입만 고를 수 있고, Decorator는 그 키가 <b>Is Set</b> 인지, <b>Is Not Set</b> 인지 비교한다.</p>
+
+<h2>5. 값 읽고 쓰기</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>계열</th><th>API</th></tr></thead>
+<tbody>
+<tr><td>쓰기</td><td><code>SetValueAsObject</code> · <code>SetValueAsClass</code> · <code>SetValueAsEnum</code> · <code>SetValueAsInt</code> · <code>SetValueAsFloat</code> · <code>SetValueAsBool</code> · <code>SetValueAsName</code> · <code>SetValueAsString</code> · <code>SetValueAsVector</code> · <code>SetValueAsRotator</code></td></tr>
+<tr><td>읽기</td><td><code>GetValueAsObject</code> · <code>GetValueAsClass</code> · <code>GetValueAsEnum</code> · <code>GetValueAsInt</code> · <code>GetValueAsFloat</code> · <code>GetValueAsBool</code> · <code>GetValueAsName</code> · <code>GetValueAsString</code> · <code>GetValueAsVector</code> · <code>GetValueAsRotator</code></td></tr>
+<tr><td>키</td><td><code>GetKeyID(Name)</code> · <code>ClearValue(Name)</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>GetKeyID</code> 는 없는 키에 <code>FBlackboard::InvalidKey</code> 를 돌려준다. 키 이름을 오타 내면 값이 조용히 무시되므로, 가능하면 <code>FBlackboardKeySelector</code> 나 상수 이름을 쓴다.</p>
+
+<h2>6. Observer — 값이 바뀌면 트리를 깨운다</h2>
+
+<p>Decorator는 조건을 매 틱 계산하지 않는다. 대신 관심 있는 키에 <b>Observer</b> 를 등록하고, 값이 바뀔 때만 통지받는다.</p>
+
+<pre><code>FDelegateHandle Handle = Blackboard-&gt;RegisterObserver(
+    KeyID, this, FOnBlackboardChangeNotification::CreateUObject(
+        this, &UMyDecorator::OnBlackboardKeyChanged));</code></pre>
+
+<p>통지 콜백은 <code>EBlackboardNotificationResult</code> 를 돌려준다.</p>
+
+<ul>
+<li><code>ContinueObserving</code> — 계속 관찰.</li>
+<li><code>RemoveObserver</code> — 이 키를 더 보지 않는다.</li>
+</ul>
+
+<p>Decorator의 <code>FlowAbortMode</code>(에디터 표시 <b>Observer Aborts</b>)가 <b>Self</b> 면 자기 가지만, <b>LowerPriority</b> 면 아래쪽 실행을 중단한다. <b>Both</b> 면 둘 다다. 이 중단이 BT에서 "적을 발견하면 순찰을 멈추고 추격" 같은 전환을 만든다. → <a href="ai-bt-composites.html">BT Composite·Decorator</a></p>
+
+<h2>7. 어디에 무엇을 둘까</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>키</th><th>타입</th><th>누가 쓰나</th></tr></thead>
+<tbody>
+<tr><td><code>TargetActor</code></td><td>Object</td><td>Perception이 쓰고, MoveTo/Attack이 읽는다</td></tr>
+<tr><td><code>HomeLocation</code></td><td>Vector</td><td>배회/복귀의 기준점</td></tr>
+<tr><td><code>AIState</code></td><td>Enum</td><td>애님/디버그/분기</td></tr>
+<tr><td><code>LastSeenLocation</code></td><td>Vector</td><td>시야를 잃었을 때 수색</td></tr>
+<tr><td><code>bCanAttack</code></td><td>Bool</td><td>쿨다운·사거리 조건</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>매 프레임 바뀌는 값을 Blackboard에 넣지 않는다. Observer가 계속 깨어나 BT가 매 틱 재평가된다. 위치·거리처럼 자주 변하는 값은 <b>Service가 일정 간격으로 갱신</b>하거나, Task가 직접 계산한다.</p>
+
+<h2>8. 디버깅</h2>
+
+<ul>
+<li><b>Gameplay Debugger</b> (<code>'</code>) — Blackboard 카테고리에서 키/값을 실시간으로 본다.</li>
+<li><code>showdebug AI</code> — 컨트롤러·BT·Blackboard 요약.</li>
+<li>BT 에디터를 PIE 중에 열면 실행 중 노드가 하이라이트된다.</li>
+</ul>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UBlackboardData</code> · <code>UBlackboardKeyType</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/BehaviorTree/BlackboardData.h</code> · <code>Classes/BehaviorTree/Blackboard/BlackboardKeyType.h</code></td></tr>
+<tr><td><code>UBlackboardComponent</code> · <code>RegisterObserver</code> · <code>SetValueAs*</code></td><td><code>Classes/BehaviorTree/BlackboardComponent.h</code> · <code>Private/BehaviorTree/BlackboardComponent.cpp</code></td></tr>
+<tr><td><code>FBlackboardKeySelector</code> · <code>EBlackboardNotificationResult</code></td><td><code>Classes/BehaviorTree/BehaviorTreeTypes.h</code></td></tr>
+<tr><td><code>AAIController::UseBlackboard</code> · <code>RunBehaviorTree</code></td><td><code>Classes/AIController.h</code> · <code>Private/AIController.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>다음은 <a href="ai-behavior-tree.html">Behavior Tree 실행 구조</a>. Blackboard 값이 실제로 어떤 순서로 평가되는지 이어진다.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

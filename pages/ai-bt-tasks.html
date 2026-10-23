@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Behavior Tree ③ — Task와 Latent</title>
+<meta name="note-title" content="Behavior Tree ③ — Task와 Latent">
+<meta name="note-summary" content="ExecuteTask의 네 가지 결과, MoveTo·Wait·PlayAnimation·RunEQSQuery, FinishLatentTask/FinishLatentAbort, 중단 시 FinishLatentAbort와 OnTaskFinished(Aborted), 노드 메모리와 bCreateNodeInstance까지.">
+<meta name="note-tags" content="Behavior Tree, BTTaskNode, Latent Task, MoveTo, FinishLatentTask, AI Task">
+<meta name="note-order" content="27">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Behavior Tree ③ — Task와 Latent</h1>
+<p>Task는 <code>ExecuteTask</code> 로 시작해 <b>Succeeded · Failed · InProgress · Aborted</b> 중 하나를 돌려준다. <code>InProgress</code> 가 <b>Latent Task</b> 이고, 나중에 <code>FinishLatentTask</code> 로 끝낸다.</p>
+</header>
+
+<nav class="series" aria-label="AI 시리즈">
+<a href="ai-controller.html">AI Controller</a>
+<a href="ai-blackboard.html">Blackboard</a>
+<a href="ai-behavior-tree.html">BT 구조</a>
+<a href="ai-bt-composites.html">BT 노드</a>
+<a href="ai-bt-tasks.html" aria-current="page">BT Task</a>
+<a href="ai-perception.html">Perception</a>
+<a href="ai-eqs.html">EQS</a>
+</nav>
+
+<article>
+
+<h2>1. Task의 생애</h2>
+
+<pre><code>UBTTaskNode::ExecuteTask(OwnerComp, NodeMemory)
+  ├── Succeeded  → 부모 Composite에 성공 통보
+  ├── Failed     → 실패 통보
+  ├── Aborted    → 중단됨
+  └── InProgress → Latent. 나중에 FinishLatentTask/FinishLatentAbort</code></pre>
+
+<p>즉시 끝나는 Task는 <code>Succeeded</code>/<code>Failed</code> 를 바로 돌려준다. 이동·대기·몽타주처럼 시간이 걸리는 Task는 <code>InProgress</code> 를 돌려주고, 완료되면 <code>FinishLatentTask(OwnerComp, Result)</code> 를 호출한다.</p>
+
+<p>중단될 때는 <code>AbortTask</code> 가 불리고, Task는 <code>FinishLatentAbort</code> 로 중단을 완료한다. 이때 <code>OnTaskFinished(..., EBTNodeResult::Aborted)</code> 가 통지된다. 이때 <b>이동 취소·타이머 해제·몽타주 정지</b> 를 빼먹으면 "중단했는데 계속 움직인다"가 된다.</p>
+
+<h2>2. 내장 Task</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Task</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>BTTask_MoveTo</code></td><td>Blackboard의 액터/위치로 이동. Latent</td></tr>
+<tr><td><code>BTTask_Wait</code></td><td>지정 시간 대기. Latent</td></tr>
+<tr><td><code>BTTask_WaitBlackboardTime</code></td><td>Blackboard의 Float 시간만큼 대기</td></tr>
+<tr><td><code>BTTask_PlayAnimation</code></td><td>애니메이션 재생</td></tr>
+<tr><td><code>BTTask_RunEQSQuery</code></td><td>EQS 실행 후 결과를 Blackboard에</td></tr>
+<tr><td><code>BTTask_SetKeyValue</code></td><td>Blackboard 키에 값 설정</td></tr>
+<tr><td><code>BTTask_RotateToFaceBBEntry</code></td><td>Blackboard 대상 쪽으로 회전</td></tr>
+<tr><td><code>BTTask_FinishWithResult</code></td><td>지정 결과로 즉시 종료</td></tr>
+<tr><td><code>BTTask_MakeNoise</code></td><td>소리 자극 발생</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>이 Task들은 대부분 <b>Blackboard 키</b> 를 입력으로 받는다. MoveTo는 <code>BlackboardKey</code> (Object/Vector), Wait는 Float, RunEQSQuery는 결과를 넣을 키를 받는다.</p>
+
+<h2>3. MoveTo Task의 값</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>BlackboardKey</code></td><td>목표 액터 또는 위치 키</td></tr>
+<tr><td><code>AcceptableRadius</code></td><td>도착 판정 반경</td></tr>
+<tr><td><code>bObserveBlackboardValue</code></td><td>이동 중 목표 키가 바뀌면 갱신</td></tr>
+<tr><td><code>ObservedBlackboardValueTolerance</code></td><td>목표가 이만큼 움직이면 재이동</td></tr>
+<tr><td><code>bAllowStrafe</code></td><td>옆걸음 허용</td></tr>
+<tr><td><code>bReachTestIncludesAgentRadius</code></td><td>에이전트 반경을 도착 판정에 포함</td></tr>
+<tr><td><code>bReachTestIncludesGoalRadius</code></td><td>목표 반경을 도착 판정에 포함</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note"><code>FAIMoveRequest</code> 의 <code>AcceptanceRadius</code> 와 BT Task의 <code>AcceptableRadius</code> 는 이름이 다르다. Task는 이 값을 MoveRequest로 넘긴다.</p>
+
+<p><code>bObserveBlackboardValue</code> 는 추격 중 목표가 움직일 때 유용하다. 다만 매 틱 목표를 갱신하면 경로 재계산이 잦아지므로 <code>ObservedBlackboardValueTolerance</code> 로 문턱을 둔다.</p>
+
+<h2>4. Latent Task의 완료와 중단</h2>
+
+<div class="panel">
+  <div class="ctl" id="latTabs">
+    <button type="button" data-mode="ok" aria-pressed="true">정상 완료</button>
+    <button type="button" data-mode="abort" aria-pressed="false">중단</button>
+  </div>
+  <div class="stage"><canvas id="latCv" aria-label="Latent Task가 ExecuteTask로 시작해 InProgress 동안 이동하고, 정상 완료 또는 중단으로 끝나는 흐름을 보여 준다."></canvas></div>
+  <p class="verdict" id="latOut"></p>
+</div>
+
+<ul>
+<li><b>정상 완료</b> — <code>ExecuteTask</code> → <code>InProgress</code> → 이동 완료 → <code>FinishLatentTask(Succeeded)</code> → 부모가 다음 자식으로.</li>
+<li><b>중단</b> — Decorator Observer/StopTree → <code>AbortTask</code> → <code>FinishLatentAbort</code> → <code>OnTaskFinished(..., Aborted)</code> → 부모가 <code>Aborted</code> 처리.</li>
+</ul>
+
+<p><code>FinishLatentTask</code> 를 호출하지 않으면 BT는 그 Task에서 영원히 멈춘다. 반대로 이미 끝난 Task에 또 호출하면 경고가 난다. <b>완료를 한 번만</b> 보장하는 게 Latent Task의 핵심이다.</p>
+
+<h2>5. AI Task와 GameplayTask</h2>
+
+<p>MoveTo·EQS 같은 복잡한 Task는 <code>UAITask</code> (<code>UAITask_MoveTo</code>, <code>UAITask_RunEQS</code>)를 사용한다. AI Task는 GameplayTask 기반이라 <b>취소·재시작·소유권</b> 을 엔진이 관리한다.</p>
+
+<ul>
+<li><code>UBTTask_GameplayTaskBase</code> — GameplayTask를 감싸는 BT Task 기반.</li>
+<li><code>UAITask_MoveTo</code> — MoveTo 요청을 AI Task로 감싼 것.</li>
+<li><code>UAITask_RunEQS</code> — EQS를 AI Task로 감싼 것.</li>
+</ul>
+
+<p>직접 Task를 만들 때 MoveTo를 매번 새로 짜기보다 <code>UAITask_MoveTo</code> 를 쓰는 편이 중단/재시작 처리가 안전하다.</p>
+
+<h2>6. 노드 메모리와 인스턴싱</h2>
+
+<p>Task의 상태는 두 곳에 둘 수 있다.</p>
+
+<ul>
+<li><b><code>NodeMemory</code></b> — BT 컴포넌트가 인스턴스마다 할당하는 바이트 배열. <code>GetInstanceMemorySize</code> 로 크기를 정한다. MoveTo는 <code>FBTMoveToTaskMemory</code> 에 AI Task 핸들을 둔다.</li>
+<li><b><code>bCreateNodeInstance</code></b> — 노드 오브젝트 자체를 인스턴스별로 만든다. 멤버 변수에 상태를 둘 수 있지만, 인스턴스 수만큼 오브젝트가 생긴다.</li>
+</ul>
+
+<p>여러 AI가 같은 BT 에셋을 공유하므로, 에셋 노드의 멤버에 상태를 두면 <b>모든 AI가 상태를 공유</b> 한다. 상태는 반드시 NodeMemory나 인스턴스 노드에 둔다.</p>
+
+<h2>7. 커스텀 Task의 뼈대</h2>
+
+<pre><code>EBTNodeResult::Type UMyTask::ExecuteTask(
+    UBehaviorTreeComponent&amp; OwnerComp, uint8* NodeMemory)
+{
+    // 1. Blackboard에서 대상 읽기
+    // 2. 작업 시작
+    // 3. 즉시 끝나면 Succeeded/Failed
+    // 4. 시간이 걸리면 InProgress
+    return EBTNodeResult::InProgress;
+}
+
+void UMyTask::OnTaskFinished(...) { /* 정리 */ }</code></pre>
+
+<p>Latent로 시작했다면 완료 시 <code>FinishLatentTask</code>, 중단 시 <code>FinishLatentAbort</code> 를 반드시 호출한다. 타이머·델리게이트·AI Task를 걸었다면 <code>OnTaskFinished(..., Aborted)</code> 에서 해제한다.</p>
+
+<h2>8. 디버깅</h2>
+
+<ul>
+<li>Gameplay Debugger — ActiveNodes에서 어떤 Task가 <code>InProgress</code> 인지.</li>
+<li>BT 에디터 PIE — 실행 중 Task 하이라이트.</li>
+<li>이동이 안 끝나면 <code>FinishLatentTask</code> 가 불리는지, PathFollowing 결과가 <code>Invalid</code>/<code>Blocked</code> 인지 본다.</li>
+<li><code>stat AIBehaviorTree</code> — Task/트리 평가 비용.</li>
+</ul>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UBTTaskNode</code> · <code>ExecuteTask</code> · <code>FinishLatentTask</code> · <code>FinishLatentAbort</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/BehaviorTree/BTTaskNode.h</code> · <code>Private/BehaviorTree/BTTaskNode.cpp</code></td></tr>
+<tr><td><code>UBTTask_MoveTo</code> · <code>AcceptableRadius</code> · <code>bObserveBlackboardValue</code></td><td><code>Classes/BehaviorTree/Tasks/BTTask_MoveTo.h</code></td></tr>
+<tr><td><code>UBTTask_Wait</code> · <code>WaitTime</code> · <code>RandomDeviation</code></td><td><code>Classes/BehaviorTree/Tasks/BTTask_Wait.h</code></td></tr>
+<tr><td><code>UAITask_MoveTo</code> · <code>UAITask_RunEQS</code></td><td><code>Classes/Tasks/AITask_MoveTo.h</code> · <code>Classes/Tasks/AITask_RunEQS.h</code></td></tr>
+<tr><td><code>UBTTask_GameplayTaskBase</code></td><td><code>Classes/BehaviorTree/Tasks/BTTask_GameplayTaskBase.h</code></td></tr>
+<tr><td><code>EBTNodeResult</code></td><td><code>Classes/BehaviorTree/BehaviorTreeTypes.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>다음은 <a href="ai-perception.html">AI Perception</a>. MoveTo의 목표가 어디서 오는지, 보고 듣는 시스템으로 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* Latent Task 타임라인 */
+function initLatent(){
+  if (!window.Viz) return;
+  var tabs = document.getElementById('latTabs');
+  var out = document.getElementById('latOut');
+  if (!tabs || !out) return;
+
+  var mode = 'ok';
+  var v = Viz.view('latCv', function(){ return 250; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var y = h / 2;
+    var x0 = 50, x1 = w - 50;
+    var steps = mode === 'ok'
+      ? ['ExecuteTask', 'InProgress', '이동 중', 'FinishLatentTask', 'Succeeded']
+      : ['ExecuteTask', 'InProgress', 'AbortTask', 'FinishLatentAbort', 'OnTaskFinished'];
+    var n = steps.length;
+    var gap = (x1 - x0) / (n - 1);
+
+    // 타임라인
+    ctx.strokeStyle = c.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+
+    for (var i = 0; i < n; i++){
+      var x = x0 + gap * i;
+      var active = mode === 'abort' && i >= 2;
+      ctx.fillStyle = active ? c.warn : c.accent;
+      ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = c.surface; ctx.lineWidth = 2; ctx.stroke();
+
+      var label = steps[i];
+      ctx.fillStyle = active ? c.warn : c.text;
+      ctx.font = '9px ui-monospace, Consolas, monospace';
+      ctx.textAlign = 'center';
+      var ty = i % 2 === 0 ? y - 18 : y + 26;
+      ctx.fillText(label, x, ty);
+    }
+
+    Viz.text(ctx, mode === 'ok' ? '정상 완료 — FinishLatentTask(Succeeded)' : '중단 — FinishLatentAbort / OnTaskFinished(Aborted)',
+      w / 2, 22, mode === 'ok' ? c.accent : c.warn, 10, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    var btns = tabs.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-mode') === mode ? 'true' : 'false');
+    }
+    if (mode === 'ok'){
+      out.className = 'verdict ok';
+      out.textContent = 'ExecuteTask가 InProgress를 돌려주고, 이동이 끝나면 FinishLatentTask(Succeeded)로 부모에 알린다.';
+    } else {
+      out.className = 'verdict bad';
+      out.textContent = '중단되면 AbortTask → FinishLatentAbort → OnTaskFinished(Aborted) 순서. 이동·타이머를 여기서 해제해야 한다.';
+    }
+    v.render();
+  }
+
+  var btns = tabs.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      mode = this.getAttribute('data-mode') || 'ok';
+      update();
+    });
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initLatent);
+else initLatent();
+</script>
+
+</body>
+</html>

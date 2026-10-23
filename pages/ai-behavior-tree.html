@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Behavior Tree ① — 실행 구조</title>
+<meta name="note-title" content="Behavior Tree ① — 실행 구조">
+<meta name="note-summary" content="BT 에셋과 BehaviorTreeComponent, StartTree부터 Tick·ProcessExecution까지, InstanceStack과 ActiveNode, 노드 메모리와 bCreateNodeInstance, Blackboard 연결.">
+<meta name="note-tags" content="Behavior Tree, UBehaviorTree, BehaviorTreeComponent, Execution, Instancing, Blackboard">
+<meta name="note-order" content="25">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+.tree{font-family:ui-monospace,Consolas,monospace;font-size:.8rem;line-height:1.7;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:0 0 16px;overflow-x:auto}
+.tree b{color:var(--accent)}
+.tree i{color:var(--text-dim);font-style:normal}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Behavior Tree ① — 실행 구조</h1>
+<p>BT 에셋은 설계도, <code>UBehaviorTreeComponent</code> 는 실행기다. <code>StartTree</code> 로 시작하고, 매 틱 <b>실행 스택</b>을 따라 내려가며 Composite가 자식을 고르고 Task가 결과를 돌려준다.</p>
+</header>
+
+<nav class="series" aria-label="AI 시리즈">
+<a href="ai-controller.html">AI Controller</a>
+<a href="ai-blackboard.html">Blackboard</a>
+<a href="ai-behavior-tree.html" aria-current="page">BT 구조</a>
+<a href="ai-bt-composites.html">BT 노드</a>
+<a href="ai-bt-tasks.html">BT Task</a>
+<a href="ai-perception.html">Perception</a>
+<a href="ai-eqs.html">EQS</a>
+</nav>
+
+<article>
+
+<h2>1. 에셋과 컴포넌트</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>구분</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td><code>UBehaviorTree</code></td><td>에셋. <code>RootNode</code>(트리 최상위), <code>BlackboardAsset</code>, 그래프</td></tr>
+<tr><td><code>UBehaviorTreeComponent</code></td><td>런타임 실행기. 컨트롤러마다 하나</td></tr>
+<tr><td><code>UBrainComponent</code></td><td>BT 컴포넌트의 기반. AI의 "두뇌" 슬롯</td></tr>
+<tr><td><code>UBehaviorTreeManager</code></td><td>BT 에셋 로드/캐시 관리</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>BT 에셋은 여러 AI가 <b>공유</b>한다. 각 컨트롤러는 같은 에셋을 보고 자기 <code>InstanceStack</code> 을 따로 만든다. 그래서 "BT 에셋을 수정하면 모든 AI가 바뀐다"가 성립한다.</p>
+
+<h2>2. 시작과 종료</h2>
+
+<pre><code>// AIController
+RunBehaviorTree(BTAsset);
+  ├── UseBlackboard(BTAsset-&gt;BlackboardAsset)
+  ├── BehaviorTreeComponent 생성/재사용
+  ├── BrainComponent = BehaviorTreeComponent
+  └── StartTree(*BTAsset, EBTExecutionMode::Looped)</code></pre>
+
+<p><code>RunBehaviorTree</code> 는 BT가 요구하는 Blackboard가 없으면 <code>UseBlackboard</code> 로 만들고, <code>UBehaviorTreeComponent</code> 가 없으면 새로 만든다. 그다음 <code>StartTree</code> 로 실행을 시작한다.</p>
+
+<ul>
+<li><code>EBTExecutionMode::Looped</code> — 트리가 끝나면 처음부터 다시. 일반적인 AI.</li>
+<li><code>EBTExecutionMode::SingleRun</code> — 한 번만 실행하고 끝.</li>
+<li><code>StopTree(EBTStopMode::Safe)</code> — 진행 중인 Task를 정리하며 정지.</li>
+<li><code>StopTree(EBTStopMode::Forced)</code> — 즉시 정지.</li>
+</ul>
+
+<p><code>UBrainComponent</code> 쪽에는 <code>StartLogic</code>·<code>StopLogic</code>·<code>PauseLogic</code>·<code>ResumeLogic</code>·<code>IsRunning</code> 이 있다. BT 컴포넌트는 이 두뇌 슬롯에 들어간다.</p>
+
+<h2>3. 한 틱의 흐름</h2>
+
+<div class="tree">
+<b>UBehaviorTreeComponent::TickComponent</b>
+  └─ ProcessExecutionRequest / ProcessExecution
+       └─ InstanceStack[ActiveInstanceIdx]
+            └─ <b>ActiveNode</b> (현재 실행 중인 노드)
+                 ├─ Composite : 다음 자식 선택
+                 ├─ Task      : ExecuteTask
+                 ├─ Decorator : 조건 / Observer
+                 └─ Service   : TickNode
+</div>
+
+<p>BT는 매 틱 트리 전체를 처음부터 다시 도는 게 아니다. <b>현재 활성 노드</b> 를 유지하고, 그 아래로 내려가며 다음 자식을 고른다. Task가 <code>InProgress</code> 를 돌려주면 그 자리에서 멈추고, 완료 통지가 올 때까지 기다린다.</p>
+
+<ul>
+<li><code>RequestExecution</code> — "다시 평가해라" 요청. Blackboard 변경, Decorator Observer, Task 완료가 트리거.</li>
+<li><code>ScheduleExecution</code> — 다음 틱에 실행하도록 예약.</li>
+<li><code>ProcessExecutionRequest</code> — 예약된 요청을 실제로 처리.</li>
+<li><code>PauseLogic</code>/<code>ResumeLogic</code> — BT 전체를 일시정지/재개.</li>
+</ul>
+
+<h2>4. 노드의 네 종류</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>노드</th><th>역할</th><th>핵심 함수</th></tr></thead>
+<tbody>
+<tr><td><b>Composite</b></td><td>자식 실행 순서 제어</td><td><code>GetNextChild</code>, <code>OnChildActivation</code></td></tr>
+<tr><td><b>Task</b></td><td>실제 행동</td><td><code>ExecuteTask</code>, <code>TickTask</code>, <code>FinishLatentTask</code></td></tr>
+<tr><td><b>Decorator</b></td><td>조건/가드</td><td><code>CalculateRawConditionValue</code>, <code>NotifyObserver</code></td></tr>
+<tr><td><b>Service</b></td><td>주기적 갱신</td><td><code>TickNode</code>, <code>OnBecomeRelevant</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Composite는 "어느 자식을 먼저 볼까"를 정하고, Task는 "무엇을 할까"를 실행한다. Decorator는 Composite/Task에 붙어 조건을 걸고, Service는 가지가 활성화된 동안 일정 간격으로 돈다. 자세한 내용은 <a href="ai-bt-composites.html">BT Composite·Decorator·Service</a> 와 <a href="ai-bt-tasks.html">BT Task</a>.</p>
+
+<h2>5. 노드 결과</h2>
+
+<p><code>UBTTaskNode::ExecuteTask</code> 는 <code>EBTNodeResult</code> 를 돌려준다.</p>
+
+<ul>
+<li><code>Succeeded</code> — 성공. Composite가 다음 자식으로.</li>
+<li><code>Failed</code> — 실패. Selector면 다음 자식, Sequence면 전체 실패.</li>
+<li><code>InProgress</code> — 아직 진행 중. 나중에 <code>FinishLatentTask</code> 로 완료를 알린다.</li>
+<li><code>Aborted</code> — 중단됨. <code>OnTaskFinished(..., Aborted)</code> 로 통지된다.</li>
+</ul>
+
+<p>이 반환값이 BT 실행의 기본 신호다. Task가 <code>InProgress</code> 를 돌려주면 BT는 그 가지를 멈춰 두고, 다른 노드를 평가하지 않는다. 완료 통지가 오면 그때 다시 흐른다.</p>
+
+<h2>6. 인스턴싱과 노드 메모리</h2>
+
+<p>BT 에셋의 노드는 기본적으로 <b>공유</b>된다. 노드에 상태(예: 현재 순찰 인덱스)를 두려면 <code>bCreateNodeInstance</code> 를 켜서 <b>인스턴스별 노드 오브젝트</b>를 만들거나, <code>NodeMemory</code> 를 쓴다.</p>
+
+<ul>
+<li><code>bCreateNodeInstance</code> — 노드마다 인스턴스 생성. 상태를 노드 멤버에 둘 수 있다.</li>
+<li><code>GetInstanceMemorySize</code> — 노드별 메모리 크기. BT 컴포넌트가 인스턴스마다 할당.</li>
+<li><code>InitializeMemory</code> — 메모리 초기화 시점.</li>
+<li><code>GetNodeInstance</code> — 인스턴스 노드 얻기.</li>
+</ul>
+
+<p>기본 Task는 상태를 <code>NodeMemory</code> 에 두는 패턴이 많다. 블루프린트 Task는 <code>bCreateNodeInstance</code> 가 켜지는 경우가 있어, C++ Task보다 인스턴스 비용이 클 수 있다.</p>
+
+<h2>7. Blackboard와의 연결</h2>
+
+<p><code>UBehaviorTree::BlackboardAsset</code> 이 BT가 쓸 Blackboard를 지정한다. <code>RunBehaviorTree</code> 는 이 에셋으로 <code>UseBlackboard</code> 를 호출하고, BT 컴포넌트는 그 Blackboard를 통해 키를 읽는다.</p>
+
+<p>Blackboard가 없거나 타입이 맞지 않으면 BT가 시작되지 않거나 키가 Invalid가 된다. BT 에디터에서 Blackboard를 지정하지 않으면 노드의 키 선택이 비어 보이는 이유다.</p>
+
+<h2>8. 디버깅</h2>
+
+<ul>
+<li><b>BT 에디터를 PIE 중에 열기</b> — 실행 중 노드가 하이라이트된다.</li>
+<li><b>Gameplay Debugger</b> (<code>'</code>) — Behavior Tree 카테고리에서 ActiveNode와 Blackboard를 본다.</li>
+<li><code>showdebug AI</code> — 컨트롤러의 경로/포커스 상태. BT/Blackboard는 Gameplay Debugger에서 본다.</li>
+<li><code>stat AIBehaviorTree</code> — BT Tick/Search/Execution 비용.</li>
+</ul>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UBehaviorTree</code> · <code>RootNode</code> · <code>BlackboardAsset</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/BehaviorTree/BehaviorTree.h</code></td></tr>
+<tr><td><code>UBehaviorTreeComponent</code> · <code>StartTree</code> · <code>ProcessExecutionRequest</code> · <code>InstanceStack</code></td><td><code>Classes/BehaviorTree/BehaviorTreeComponent.h</code> · <code>Private/BehaviorTree/BehaviorTreeComponent.cpp</code></td></tr>
+<tr><td><code>UBTNode</code> · <code>bCreateNodeInstance</code> · <code>GetInstanceMemorySize</code></td><td><code>Classes/BehaviorTree/BTNode.h</code> · <code>Private/BehaviorTree/BTNode.cpp</code></td></tr>
+<tr><td><code>EBTNodeResult</code> · <code>EBTExecutionMode</code> · <code>EBTStopMode</code></td><td><code>Classes/BehaviorTree/BehaviorTreeTypes.h</code></td></tr>
+<tr><td><code>UBrainComponent</code></td><td><code>Classes/BrainComponent.h</code></td></tr>
+<tr><td><code>UBehaviorTreeManager</code></td><td><code>Classes/BehaviorTree/BehaviorTreeManager.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>다음은 <a href="ai-bt-composites.html">Composite·Decorator·Service</a>. Selector/Sequence가 자식을 고르는 규칙과 Observer 중단을 자세히 본다.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

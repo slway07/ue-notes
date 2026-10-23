@@ -71,7 +71,7 @@
 </ul>
 </details>
 <details class="cat" data-cat="AI와 길찾기">
-<summary><span class="chev"></span>AI와 길찾기<span class="n">2</span></summary>
+<summary><span class="chev"></span>AI와 길찾기<span class="n">9</span></summary>
 <ul class="toc">
 <li><a href="pages/navmesh-how-it-is-built.html?v=8b334b90">
 <span class="t">NavMesh는 어떻게 만들어지나</span>
@@ -82,6 +82,41 @@
 <span class="t">NavMesh 타일과 레이어</span>
 <span class="s">타일은 바닥을 XY로만 자른다. 높이는 레이어가 맡는다. 둘을 헷갈리면 예산 계산이 어긋난다.</span>
 <span class="tags"><span class="tag">NavMesh</span><span class="tag">Recast</span><span class="tag">내비게이션</span></span>
+</a></li>
+<li><a href="pages/ai-controller.html?v=0a930197">
+<span class="t">AI Controller — Pawn을 조종하는 두뇌</span>
+<span class="s">AAIController가 Pawn을 빙의하고, PathFollowing으로 MoveTo를 수행하며, Focus·Team·Blackboard·BehaviorTree와 어떻게 연결되는지. AutoPossessAI부터 OnMoveCompleted까지.</span>
+<span class="tags"><span class="tag">AI Controller</span><span class="tag">AAIController</span><span class="tag">AutoPossessAI</span><span class="tag">MoveTo</span><span class="tag">PathFollowing</span><span class="tag">Focus</span><span class="tag">Team</span></span>
+</a></li>
+<li><a href="pages/ai-blackboard.html?v=6e791a04">
+<span class="t">Blackboard — BT의 공유 변수판</span>
+<span class="s">BlackboardData와 BlackboardComponent의 차이, Object·Enum·Vector 등 키 타입, FBlackboardKeySelector, 값 변경을 관찰해 BT를 중단시키는 Observer까지.</span>
+<span class="tags"><span class="tag">Blackboard</span><span class="tag">UBlackboardComponent</span><span class="tag">BlackboardKey</span><span class="tag">BlackboardKeySelector</span><span class="tag">Observer</span></span>
+</a></li>
+<li><a href="pages/ai-behavior-tree.html?v=06b11140">
+<span class="t">Behavior Tree ① — 실행 구조</span>
+<span class="s">BT 에셋과 BehaviorTreeComponent, StartTree부터 Tick·ProcessExecution까지, InstanceStack과 ActiveNode, 노드 메모리와 bCreateNodeInstance, Blackboard 연결.</span>
+<span class="tags"><span class="tag">Behavior Tree</span><span class="tag">UBehaviorTree</span><span class="tag">BehaviorTreeComponent</span><span class="tag">Execution</span><span class="tag">Instancing</span><span class="tag">Blackboard</span></span>
+</a></li>
+<li><a href="pages/ai-bt-composites.html?v=863fb81c">
+<span class="t">Behavior Tree ② — Composite · Decorator · Service</span>
+<span class="s">Selector·Sequence·SimpleParallel이 자식을 고르는 규칙, Blackboard/Cooldown/Loop/TimeLimit Decorator, 주기적으로 도는 Service, Observer가 아래쪽 실행을 중단하는 흐름.</span>
+<span class="tags"><span class="tag">Behavior Tree</span><span class="tag">Selector</span><span class="tag">Sequence</span><span class="tag">SimpleParallel</span><span class="tag">Decorator</span><span class="tag">Service</span><span class="tag">FlowAbort</span></span>
+</a></li>
+<li><a href="pages/ai-bt-tasks.html?v=291de91e">
+<span class="t">Behavior Tree ③ — Task와 Latent</span>
+<span class="s">ExecuteTask의 네 가지 결과, MoveTo·Wait·PlayAnimation·RunEQSQuery, FinishLatentTask/FinishLatentAbort, 중단 시 FinishLatentAbort와 OnTaskFinished(Aborted), 노드 메모리와 bCreateNodeInstance까지.</span>
+<span class="tags"><span class="tag">Behavior Tree</span><span class="tag">BTTaskNode</span><span class="tag">Latent Task</span><span class="tag">MoveTo</span><span class="tag">FinishLatentTask</span><span class="tag">AI Task</span></span>
+</a></li>
+<li><a href="pages/ai-perception.html?v=cfba1751">
+<span class="t">AI Perception — 보고 듣고 기억하기</span>
+<span class="s">AIPerceptionComponent와 Sight/Hearing/Damage/Touch 설정, FAIStimulus의 성공/실패와 기억, OnTargetPerceptionUpdated에서 Blackboard로 잇는 법, 진영 필터까지.</span>
+<span class="tags"><span class="tag">AI Perception</span><span class="tag">AIPerceptionComponent</span><span class="tag">Sight</span><span class="tag">Hearing</span><span class="tag">FAIStimulus</span><span class="tag">StimuliSource</span></span>
+</a></li>
+<li><a href="pages/ai-eqs.html?v=e4029c6b">
+<span class="t">EQS — 어디로 갈까</span>
+<span class="s">EnvQuery의 Generator·Test·Context, SingleResult/AllMatching 실행 모드, RunQuery와 Blueprint Wrapper, BT RunEQSQuery, 그리고 EQS를 매 틱 돌리면 안 되는 이유.</span>
+<span class="tags"><span class="tag">EQS</span><span class="tag">EnvQuery</span><span class="tag">EnvQueryManager</span><span class="tag">Generator</span><span class="tag">Test</span><span class="tag">Context</span><span class="tag">RunEQSQuery</span></span>
 </a></li>
 </ul>
 </details>
@@ -157,7 +192,7 @@
 </details>
 </main>
 <footer class="site-foot">
-<p>마지막 갱신 2026-10-23 &middot; 페이지 23개</p>
+<p>마지막 갱신 2026-10-23 &middot; 페이지 30개</p>
 </footer>
 </div>
 <script>

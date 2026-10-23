@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Controller — Pawn을 조종하는 두뇌</title>
+<meta name="note-title" content="AI Controller — Pawn을 조종하는 두뇌">
+<meta name="note-summary" content="AAIController가 Pawn을 빙의하고, PathFollowing으로 MoveTo를 수행하며, Focus·Team·Blackboard·BehaviorTree와 어떻게 연결되는지. AutoPossessAI부터 OnMoveCompleted까지.">
+<meta name="note-tags" content="AI Controller, AAIController, AutoPossessAI, MoveTo, PathFollowing, Focus, Team">
+<meta name="note-order" content="23">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 14px}
+.fstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.fstep b{display:block;font-size:.8rem}
+.fstep span{display:block;font-size:.7rem;color:var(--text-dim);line-height:1.4;margin-top:2px}
+@media (max-width:560px){.flow{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>AI Controller — Pawn을 조종하는 두뇌</h1>
+<p><code>AAIController</code> 는 <code>APlayerController</code> 의 AI 버전이다. Pawn을 빙의하고, <b>PathFollowing</b> 으로 이동하고, <b>BehaviorTree·Blackboard·Perception</b> 을 붙이는 자리.</p>
+</header>
+
+<nav class="series" aria-label="AI 시리즈">
+<a href="ai-controller.html" aria-current="page">AI Controller</a>
+<a href="ai-blackboard.html">Blackboard</a>
+<a href="ai-behavior-tree.html">BT 구조</a>
+<a href="ai-bt-composites.html">BT 노드</a>
+<a href="ai-bt-tasks.html">BT Task</a>
+<a href="ai-perception.html">Perception</a>
+<a href="ai-eqs.html">EQS</a>
+</nav>
+
+<article>
+
+<h2>1. Controller와 Pawn — 빙의</h2>
+
+<p><code>AController</code> 는 Pawn을 조종하는 액터다. 플레이어는 <code>APlayerController</code>, AI는 <code>AAIController</code> 가 맡는다. 둘 다 같은 <code>AController</code> 기반이라 <code>Possess</code>/<code>UnPossess</code>, <code>ControlRotation</code>, <code>GetPawn()</code> 이 같다.</p>
+
+<pre><code>APawn
+  └── Controller (APlayerController 또는 AAIController)
+        ├── ControlRotation
+        └── OnPossess(Pawn) / OnUnPossess()</code></pre>
+
+<p>빙의되면 컨트롤러가 Pawn의 <code>Controller</code> 가 되고, Pawn의 <code>GetController()</code> 로 다시 찾을 수 있다. AI Controller도 빙의해야만 Pawn을 움직일 수 있다.</p>
+
+<h2>2. 누가 AI Controller를 붙이나</h2>
+
+<p>Pawn에는 두 개의 값이 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td><code>AIControllerClass</code></td><td>빙의할 AI Controller 클래스. 비어 있으면 기본 <code>AAIController</code></td></tr>
+<tr><td><code>AutoPossessAI</code></td><td>언제 자동으로 빙의할지. <code>Disabled</code> · <code>PlacedInWorld</code> · <code>Spawned</code> · <code>PlacedInWorldOrSpawned</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>AutoPossessAI</code> 가 켜져 있으면 Pawn이 스폰/배치될 때 <code>SpawnDefaultController()</code> 가 <code>AIControllerClass</code> 의 컨트롤러를 만들고 빙의한다. <code>Disabled</code> 면 직접 <code>SpawnActor&lt;AAIController&gt;()</code> 후 <code>Possess(Pawn)</code> 해야 한다.</p>
+
+<p class="note"><code>AAIController</code> 생성자에서 <code>bStartAILogicOnPossess = false</code>, <code>bStopAILogicOnUnposses = true</code> 다. 빙의했다고 BT가 자동으로 도는 게 아니라, <code>RunBehaviorTree</code> 로 시작해야 한다.</p>
+
+<h2>3. AI Controller가 가진 컴포넌트</h2>
+
+<div class="flow">
+  <div class="fstep"><b>AAIController</b><span>Pawn 빙의</span></div>
+  <div class="fstep"><b>PathFollowing</b><span>기본 생성</span></div>
+  <div class="fstep"><b>BrainComponent</b><span>RunBehaviorTree 때</span></div>
+  <div class="fstep"><b>Blackboard</b><span>UseBlackboard 때</span></div>
+  <div class="fstep"><b>Perception</b><span>직접 추가</span></div>
+  <div class="fstep"><b>Pawn</b><span>최종 이동</span></div>
+</div>
+
+<ul>
+<li><b><code>PathFollowingComponent</code></b> — 생성자에서 기본 생성된다. <code>MoveTo</code> 요청을 경로로 바꾸고 실제 이동을 지휘한다.</li>
+<li><b><code>BrainComponent</code></b> — <code>RunBehaviorTree</code> 가 <code>UBehaviorTreeComponent</code> 를 만들고 여기에 연결한다.</li>
+<li><b><code>Blackboard</code></b> — <code>UseBlackboard</code> 또는 <code>RunBehaviorTree</code> 가 BT의 <code>BlackboardAsset</code> 을 보고 만든다.</li>
+<li><b><code>PerceptionComponent</code></b> — 기본 생성되지 않는다. <code>UAIPerceptionComponent</code> 를 추가하고 설정해야 한다.</li>
+</ul>
+
+<p>즉 "AI Controller를 붙였다"와 "BT가 돈다"는 별개다. 컨트롤러는 빙의만 하고, BT는 <code>RunBehaviorTree</code> 로 명시적으로 시작한다.</p>
+
+<h2>4. MoveTo — 경로 요청</h2>
+
+<p>AI 이동의 입구는 <code>MoveToActor</code>·<code>MoveToLocation</code>·<code>MoveTo(FAIMoveRequest)</code> 다.</p>
+
+<pre><code>FAIMoveRequest MoveReq(GoalActor);
+MoveReq.SetAcceptanceRadius(50.f);
+MoveReq.SetUsePathfinding(true);
+MoveReq.SetAllowPartialPath(true);
+MoveReq.SetProjectGoalLocation(true);
+
+FPathFollowingRequestResult Result = AIController-&gt;MoveTo(MoveReq);</code></pre>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>AcceptanceRadius</code></td><td>목표에 이 거리 안에 들어오면 도착</td></tr>
+<tr><td><code>bStopOnOverlap</code></td><td>목표 액터와 겹치면 멈출지</td></tr>
+<tr><td><code>bUsePathfinding</code></td><td>NavMesh 경로를 쓸지. false면 직선</td></tr>
+<tr><td><code>bAllowPartialPath</code></td><td>완전한 경로가 없어도 갈 수 있는 데까지</td></tr>
+<tr><td><code>bProjectGoalLocation</code></td><td>목표를 NavMesh 위로 투영</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>이미 이동 중이면 <code>MoveToActor</code> 가 <b>기존 요청을 중단</b>하고 새 요청을 시작한다. 한 컨트롤러에 동시에 하나의 경로만 돈다.</p>
+
+<p>완료는 <code>OnMoveCompleted(FAIRequestID, FPathFollowingResult)</code> 로 통보되고, 블루프린트용 <code>ReceiveMoveCompleted</code> 도 있다. 결과는 <code>EPathFollowingResult</code> 의 <b>Success · Blocked · OffPath · Aborted · Invalid</b> 다. 상태는 <code>EPathFollowingStatus</code> 의 <b>Idle · Waiting · Paused · Moving</b>.</p>
+
+<p class="note">NavMesh가 없으면 경로가 <code>Invalid</code> 로 끝난다. 이동이 안 되면 먼저 <code>show Navigation</code> 으로 NavMesh를 확인한다. → <a href="navmesh-how-it-is-built.html">NavMesh는 어떻게 만들어지나</a></p>
+
+<h2>5. Focus — 어디를 바라보나</h2>
+
+<p><code>SetFocus(Actor)</code>·<code>SetFocalPoint(Location)</code> 은 컨트롤러의 <b>관심 지점</b>을 정한다. <code>UpdateControlRotation</code> 이 그 지점을 향하도록 <code>ControlRotation</code> 을 돌리고, Pawn의 회전 설정(<code>bUseControllerRotationYaw</code> 등)에 따라 몸도 돈다.</p>
+
+<ul>
+<li><code>SetFocus(Actor, EAIFocusPriority::Gameplay)</code> — 액터를 바라본다.</li>
+<li><code>SetFocalPoint(Location, Priority)</code> — 좌표를 바라본다.</li>
+<li><code>ClearFocus(Priority)</code> — 그 우선순위의 포커스를 지운다.</li>
+<li><code>EAIFocusPriority</code> — Default(0) · Move(1) · Gameplay(2). 숫자가 클수록 우선순위가 높다.</li>
+</ul>
+
+<p><code>bLOSFlag</code>·<code>bSkipExtraLOSChecks</code> 는 시야 검사 비용과 관련된다. 포커스는 "바라보기"일 뿐, 이동을 멈추지는 않는다.</p>
+
+<h2>6. Team — 적/아군</h2>
+
+<p><code>FGenericTeamId</code> 와 <code>IGenericTeamAgentInterface</code> 로 팀을 표현한다. <code>AAIController</code> 는 이 인터페이스를 구현하고, <code>SetGenericTeamId</code> 로 팀을 바꾼다. 기본은 <code>FGenericTeamId::NoTeam</code>.</p>
+
+<p><code>GetTeamAttitudeTowards(Other)</code> 는 <b>Friendly · Neutral · Hostile</b> 를 돌려준다. Perception의 <code>DetectionByAffiliation</code> 과 전투 대상 선정이 이 값을 쓴다. 팀을 안 정하면 모두 Neutral로 보일 수 있다.</p>
+
+<h2>7. PathFollowing과 NavMovement</h2>
+
+<p><code>PathFollowingComponent</code> 는 경로를 따라가며, 실제 이동은 Pawn의 <code>UNavMovementComponent</code> 에 <code>RequestDirectMove</code> 로 속도를 넘긴다. 캐릭터라면 <code>UCharacterMovementComponent</code> 가 그 속도로 캡슐을 스윕한다.</p>
+
+<p>그래서 AI 이동 문제는 보통 세 층 중 하나다.</p>
+
+<ol>
+<li><b>경로</b> — NavMesh/쿼리 필터/도착지 투영</li>
+<li><b>PathFollowing</b> — AcceptanceRadius, blocked, partial path</li>
+<li><b>Movement</b> — 캐릭터 스윕, collision, MaxSpeed</li>
+</ol>
+
+<h2>8. 디버깅</h2>
+
+<ul>
+<li><code>showdebug AI</code> — 컨트롤러의 경로 추종·포커스 상태. BT/Blackboard/Perception 전체는 Gameplay Debugger에서 본다.</li>
+<li><b>Gameplay Debugger</b> (<code>'</code> 키) — AI, Behavior Tree, Perception, EQS, Navigation 카테고리. AI 작업의 기본 도구.</li>
+<li><code>show Navigation</code> — NavMesh와 경로.</li>
+<li><code>stat AI</code> · <code>stat Navigation</code> — AI/길찾기 비용.</li>
+</ul>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>AAIController</code> · <code>MoveTo</code> · <code>RunBehaviorTree</code> · <code>UseBlackboard</code> · <code>SetFocus</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/AIController.h</code> · <code>Private/AIController.cpp</code></td></tr>
+<tr><td><code>FAIMoveRequest</code> · <code>EPathFollowingStatus</code> · <code>EPathFollowingResult</code></td><td><code>Classes/AITypes.h</code> · <code>Classes/Navigation/PathFollowingComponent.h</code></td></tr>
+<tr><td><code>APawn::AIControllerClass</code> · <code>AutoPossessAI</code> · <code>SpawnDefaultController</code></td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/Pawn.h</code> · <code>Classes/Engine/EngineTypes.h</code></td></tr>
+<tr><td><code>FGenericTeamId</code> · <code>IGenericTeamAgentInterface</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/GenericTeamAgentInterface.h</code></td></tr>
+<tr><td><code>UPathFollowingComponent</code></td><td><code>Classes/Navigation/PathFollowingComponent.h</code> · <code>Private/Navigation/PathFollowingComponent.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 AI Controller의 기본을 다뤘다. 다음은 <a href="ai-blackboard.html">Blackboard</a>, 그다음이 <a href="ai-behavior-tree.html">Behavior Tree 실행 구조</a> 다.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

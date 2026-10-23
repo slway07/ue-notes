@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Behavior Tree ② — Composite · Decorator · Service</title>
+<meta name="note-title" content="Behavior Tree ② — Composite · Decorator · Service">
+<meta name="note-summary" content="Selector·Sequence·SimpleParallel이 자식을 고르는 규칙, Blackboard/Cooldown/Loop/TimeLimit Decorator, 주기적으로 도는 Service, Observer가 아래쪽 실행을 중단하는 흐름.">
+<meta name="note-tags" content="Behavior Tree, Selector, Sequence, SimpleParallel, Decorator, Service, FlowAbort">
+<meta name="note-order" content="26">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.sl{grid-template-columns:auto 1fr auto}
+.sl output{grid-column:auto;text-align:right}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Behavior Tree ② — Composite · Decorator · Service</h1>
+<p>Selector는 "되는 것 하나", Sequence는 "전부", SimpleParallel은 "메인 + 백그라운드". Decorator는 조건과 <b>Observer 중단</b>, Service는 가지가 살아 있는 동안의 주기 갱신이다.</p>
+</header>
+
+<nav class="series" aria-label="AI 시리즈">
+<a href="ai-controller.html">AI Controller</a>
+<a href="ai-blackboard.html">Blackboard</a>
+<a href="ai-behavior-tree.html">BT 구조</a>
+<a href="ai-bt-composites.html" aria-current="page">BT 노드</a>
+<a href="ai-bt-tasks.html">BT Task</a>
+<a href="ai-perception.html">Perception</a>
+<a href="ai-eqs.html">EQS</a>
+</nav>
+
+<article>
+
+<h2>1. Composite — 자식 실행 순서</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Composite</th><th>규칙</th><th>쓰는 곳</th></tr></thead>
+<tbody>
+<tr><td><b>Selector</b></td><td>자식을 차례로 시도, <b>하나 성공하면</b> 성공</td><td>"공격 가능? 추격? 배회?" 우선순위</td></tr>
+<tr><td><b>Sequence</b></td><td>자식을 차례로 실행, <b>하나라도 실패하면</b> 실패</td><td>"문 열고 → 들어가고 → 앉기"</td></tr>
+<tr><td><b>SimpleParallel</b></td><td>메인 Task + 백그라운드 가지</td><td>"이동하는 동안 사격"</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>UBTCompositeNode</code> 는 자식 목록과 <code>GetNextChild</code> 를 갖는다. Selector는 실패한 자식을 다음 후보로 넘기고, Sequence는 성공한 자식을 다음으로 넘긴다. 둘 다 "현재 자식"을 기억하므로 다음 틱에 이어서 평가한다.</p>
+
+<ul>
+<li><code>OnChildActivation</code> — 자식 가지가 활성화될 때.</li>
+<li><code>OnChildDeactivation</code> — 자식 가지가 비활성화될 때.</li>
+<li><code>NotifyChildExecution</code> — 자식 결과를 부모에 알린다.</li>
+</ul>
+
+<h2>2. Decorator — 조건과 가드</h2>
+
+<p>Decorator는 Composite나 Task에 붙어 "이 가지를 실행할 수 있는가"를 판단한다. 핵심 함수는 <code>CalculateRawConditionValue</code> 다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Decorator</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>Blackboard</code></td><td>키 값 비교(Is Set, Is Not Set, 같음, 범위 등)</td></tr>
+<tr><td><code>Cooldown</code></td><td>한 번 실행 후 일정 시간 동안 막는다</td></tr>
+<tr><td><code>Loop</code></td><td>자식을 N회 반복</td></tr>
+<tr><td><code>TimeLimit</code></td><td>자식이 제한 시간을 넘으면 중단</td></tr>
+<tr><td><code>ConditionalLoop</code></td><td>조건이 참인 동안 반복</td></tr>
+<tr><td><code>DoesPathExist</code></td><td>경로 존재 여부</td></tr>
+<tr><td><code>KeepInCone</code></td><td>시야 원뿔 안 유지</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Decorator의 <b><code>FlowAbortMode</code></b> (에디터 표시 <b>Observer Aborts</b>)는 조건이 바뀌었을 때 무엇을 중단할지 정한다.</p>
+
+<ul>
+<li><code>None</code> — 중단하지 않는다. 조건은 다음 평가 때만 본다.</li>
+<li><code>Self</code> — 자기 가지만 중단.</li>
+<li><code>LowerPriority</code> — 아래 우선순위의 실행을 중단.</li>
+<li><code>Both</code> — 자기 가지 + 아래쪽 모두.</li>
+</ul>
+
+<p>Blackboard Decorator는 키에 Observer를 등록한다. <code>TargetActor</code> 가 세팅되면 Observer가 깨어나 <code>LowerPriority</code> 가지를 중단시키고, Selector가 위쪽 추격 가지를 고르게 된다.</p>
+
+<div class="panel">
+  <div class="ctl" id="bbTabs">
+    <button type="button" data-has="0" aria-pressed="false">TargetActor 없음</button>
+    <button type="button" data-has="1" aria-pressed="true">TargetActor 있음</button>
+  </div>
+  <div class="stage"><canvas id="btCv" aria-label="TargetActor Blackboard 값에 따라 Selector가 추격 가지와 순찰 가지 중 어디를 고르는지 보여 준다."></canvas></div>
+  <p class="verdict" id="btOut"></p>
+</div>
+
+<p class="note">그림은 Selector의 위쪽 가지부터 평가하는 모습을 단순화했다. 실제로는 Decorator의 Observer가 값 변경 시점에 트리를 중단·재평가한다.</p>
+
+<h2>3. Service — 가지가 살아 있는 동안 주기적으로</h2>
+
+<p>Service는 Composite/Task에 붙어, 그 가지가 활성화된 동안 <b>일정 간격</b>으로 <code>TickNode</code> 를 실행한다. 매 틱이 아니라 <code>Interval</code> + <code>RandomDeviation</code> 주기다.</p>
+
+<ul>
+<li><code>Interval</code> — 실행 간격(초). 기본 0.5.</li>
+<li><code>RandomDeviation</code> — 간격에 더하는 랜덤 편차. 기본 0.1. 여러 AI가 동시에 도는 것을 막는다.</li>
+<li><code>OnBecomeRelevant</code> / <code>OnCeaseRelevant</code> — 가지 활성/비활성 시점.</li>
+<li><b><code>TickNode</code> 에서 <code>Super</code> 를 호출해야</b> 다음 틱이 예약된다. 오버라이드에서 빼먹으면 Service가 한 번만 돈다.</li>
+</ul>
+
+<p>대표 Service는 <code>DefaultFocus</code>(가장 가까운 적을 포커스)와 <code>RunEQS</code>(주기적으로 EQS)다. Service는 "판단"이 아니라 "상태 갱신"에 쓴다. 공격 가능 여부 같은 조건은 Decorator가 맡는다.</p>
+
+<h2>4. Observer 중단의 실제 순서</h2>
+
+<ol>
+<li>Blackboard의 <code>TargetActor</code> 가 바뀐다.</li>
+<li>그 키를 관찰하던 Decorator의 콜백이 불린다.</li>
+<li>Decorator가 <code>FlowAbortMode</code> 에 따라 중단을 요청한다.</li>
+<li>BT 컴포넌트가 해당 가지의 Task에 <code>AbortTask</code> 를 호출한다.</li>
+<li>Task는 <code>OnTaskFinished(..., Aborted)</code> 에서 정리한다.</li>
+<li>Selector가 다시 평가되어 새 가지를 고른다.</li>
+</ol>
+
+<p>이때 <b>Latent Task</b> (MoveTo, Wait)가 중단되면 진행 중인 이동/대기가 취소된다. 그래서 "적을 발견했는데 이전 MoveTo가 계속 돈다" 같은 문제는 대개 Observer/FlowAbort 설정 누락이다.</p>
+
+<h2>5. SimpleParallel — 메인과 백그라운드</h2>
+
+<p><code>SimpleParallel</code> 은 메인 Task 하나와 백그라운드 트리 하나를 동시에 돌린다. 백그라운드 종료 방식은 <code>AbortBackground</code>(즉시) 또는 <code>WaitForBackground</code>(대기)다. 예: "목표 지점으로 이동하는 동안, 백그라운드에서 주변을 스캔".</p>
+
+<ul>
+<li>메인 Task가 끝나면 전체가 끝난다.</li>
+<li>백그라운드는 메인을 끝내지 못한다.</li>
+<li>백그라운드가 실패해도 메인은 계속된다.</li>
+</ul>
+
+<p>복잡한 병렬 행동은 SimpleParallel보다 <b>Service + 상태 키</b> 로 푸는 편이 디버깅하기 쉽다. SimpleParallel은 정말 독립적인 두 흐름일 때만.</p>
+
+<h2>6. 어떤 노드를 쓸까</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>하고 싶은 것</th><th>노드</th></tr></thead>
+<tbody>
+<tr><td>우선순위대로 시도</td><td>Selector</td></tr>
+<tr><td>순서대로 전부</td><td>Sequence</td></tr>
+<tr><td>조건이 맞을 때만</td><td>Blackboard Decorator</td></tr>
+<tr><td>쿨다운</td><td>Cooldown Decorator</td></tr>
+<tr><td>주기적 갱신</td><td>Service</td></tr>
+<tr><td>동시에 두 가지</td><td>SimpleParallel</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>BT 설계의 원칙은 <b>Task는 행동만, 판단은 Decorator/Service로</b> 다. Task 안에서 "적이 있으면 공격"까지 하기 시작하면 트리를 봐도 흐름을 알 수 없다.</p>
+
+<h2>7. 디버깅</h2>
+
+<ul>
+<li>BT 에디터 PIE — 현재 실행 중인 Composite/Task가 하이라이트.</li>
+<li>Gameplay Debugger — ActiveNodes, Blackboard, Observer 중단을 확인.</li>
+<li>Decorator의 <code>FlowAbortMode</code> 가 <code>None</code> 인지 먼저 본다. 값이 바뀌어도 트리가 안 멈추는 흔한 이유다.</li>
+</ul>
+
+<h2>8. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UBTCompositeNode</code> · <code>GetNextChild</code> · <code>NotifyChildExecution</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/BehaviorTree/BTCompositeNode.h</code></td></tr>
+<tr><td><code>UBTComposite_Selector</code> · <code>UBTComposite_Sequence</code> · <code>UBTComposite_SimpleParallel</code></td><td><code>Classes/BehaviorTree/Composites/</code></td></tr>
+<tr><td><code>UBTDecorator</code> · <code>CalculateRawConditionValue</code> · <code>FlowAbortMode</code></td><td><code>Classes/BehaviorTree/BTDecorator.h</code> · <code>Classes/BehaviorTree/BehaviorTreeTypes.h</code></td></tr>
+<tr><td><code>UBTDecorator_Blackboard</code> · <code>_Cooldown</code> · <code>_Loop</code> · <code>_TimeLimit</code></td><td><code>Classes/BehaviorTree/Decorators/</code></td></tr>
+<tr><td><code>UBTService</code> · <code>TickNode</code> · <code>Interval</code></td><td><code>Classes/BehaviorTree/BTService.h</code></td></tr>
+<tr><td><code>UBTService_DefaultFocus</code> · <code>UBTService_RunEQS</code></td><td><code>Classes/BehaviorTree/Services/</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>다음은 <a href="ai-bt-tasks.html">BT Task</a>. MoveTo·Wait 같은 Latent Task가 어떻게 시작하고 끝나는지.</p>
+</footer>
+
+</div>
+
+<script>
+/* Selector + Blackboard Decorator — TargetActor 유무에 따른 분기 */
+function initBT(){
+  if (!window.Viz) return;
+  var tabs = document.getElementById('bbTabs');
+  var out = document.getElementById('btOut');
+  if (!tabs || !out) return;
+
+  var hasTarget = true;
+  var v = Viz.view('btCv', function(){ return 340; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var rootX = w / 2, rootY = 34;
+    var leftX = w * 0.27, rightX = w * 0.73;
+    var rowY = 112;
+    var taskY = 218;
+
+    function box(x, y, ww, hh, label, active, sub){
+      Viz.roundRect(ctx, x - ww/2, y - hh/2, ww, hh, 7);
+      ctx.fillStyle = active ? 'rgba(63,125,90,0.12)' : c.sf2;
+      ctx.fill();
+      ctx.strokeStyle = active ? c.accent : c.line;
+      ctx.lineWidth = active ? 2.2 : 1;
+      ctx.stroke();
+      Viz.text(ctx, label, x, y - (sub ? 5 : 0), active ? c.accent : c.text, 9, 'center');
+      if (sub) Viz.text(ctx, sub, x, y + 9, c.dim, 7.5, 'center');
+    }
+    function line(x1,y1,x2,y2,active){
+      ctx.strokeStyle = active ? c.accent : c.line;
+      ctx.lineWidth = active ? 2 : 1;
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    }
+
+    // Selector
+    box(rootX, rootY, 130, 34, 'Selector', true, null);
+    line(rootX, rootY + 17, leftX, rowY - 18, hasTarget);
+    line(rootX, rootY + 17, rightX, rowY - 18, !hasTarget);
+
+    // chase branch
+    box(leftX, rowY, 150, 40, 'Sequence', hasTarget, 'TargetActor Is Set');
+    line(leftX, rowY + 20, leftX, taskY - 20, hasTarget);
+    box(leftX, taskY, 150, 34, 'MoveTo Target', hasTarget, null);
+    line(leftX, taskY + 17, leftX, taskY + 48, hasTarget);
+    box(leftX, taskY + 60, 150, 28, 'Wait 0.5', hasTarget, null);
+
+    // patrol branch
+    box(rightX, rowY, 150, 40, 'Sequence', !hasTarget, 'Patrol');
+    line(rightX, rowY + 20, rightX, taskY - 20, !hasTarget);
+    box(rightX, taskY, 150, 34, 'MoveTo Home', !hasTarget, null);
+    line(rightX, taskY + 17, rightX, taskY + 48, !hasTarget);
+    box(rightX, taskY + 60, 150, 28, 'Wait 2.0', !hasTarget, null);
+
+    Viz.text(ctx, hasTarget ? 'TargetActor set → 위쪽 가지' : 'TargetActor none → 아래쪽 가지',
+      w / 2, h - 12, hasTarget ? c.accent : c.warn, 9, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    var btns = tabs.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      btns[i].setAttribute('aria-pressed', (btns[i].getAttribute('data-has') === '1') === hasTarget ? 'true' : 'false');
+    }
+    out.className = hasTarget ? 'verdict ok' : 'verdict';
+    out.textContent = hasTarget
+      ? 'Selector가 위쪽 Sequence를 고른다. TargetActor Decorator가 참이고, MoveTo Target으로 간다.'
+      : '위쪽 Decorator가 거짓이라 Selector가 아래쪽 Sequence로 넘어간다. MoveTo Home으로 배회한다.';
+    v.render();
+  }
+
+  var btns = tabs.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      hasTarget = this.getAttribute('data-has') === '1';
+      update();
+    });
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBT);
+else initBT();
+</script>
+
+</body>
+</html>

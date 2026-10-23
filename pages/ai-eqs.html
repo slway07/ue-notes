@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EQS — 어디로 갈까</title>
+<meta name="note-title" content="EQS — 어디로 갈까">
+<meta name="note-summary" content="EnvQuery의 Generator·Test·Context, SingleResult/AllMatching 실행 모드, RunQuery와 Blueprint Wrapper, BT RunEQSQuery, 그리고 EQS를 매 틱 돌리면 안 되는 이유.">
+<meta name="note-tags" content="EQS, EnvQuery, EnvQueryManager, Generator, Test, Context, RunEQSQuery">
+<meta name="note-order" content="29">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>EQS — 어디로 갈까</h1>
+<p>Environment Query System. <b>Generator</b> 가 후보 지점을 만들고, <b>Test</b> 가 점수를 매기거나 걸러 낸다. "숨을 곳", "공격할 자리", "배회할 지점"을 공간 질의로 고른다.</p>
+</header>
+
+<nav class="series" aria-label="AI 시리즈">
+<a href="ai-controller.html">AI Controller</a>
+<a href="ai-blackboard.html">Blackboard</a>
+<a href="ai-behavior-tree.html">BT 구조</a>
+<a href="ai-bt-composites.html">BT 노드</a>
+<a href="ai-bt-tasks.html">BT Task</a>
+<a href="ai-perception.html">Perception</a>
+<a href="ai-eqs.html" aria-current="page">EQS</a>
+</nav>
+
+<article>
+
+<h2>1. EQS의 세 단계</h2>
+
+<pre><code>Generator  →  Test  →  결과
+후보 생성      점수/필터    SingleResult / AllMatching</code></pre>
+
+<p>EQS는 "어떤 지점이 좋은가"를 한 번에 계산한다. BT의 <code>RunEQSQuery</code> Task가 대표적이고, 블루프린트에서 <code>RunEQSQuery</code> 함수로 직접 호출할 수도 있다.</p>
+
+<h2>2. EnvQuery 에셋</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>구성</th><th>역할</th></tr></thead>
+<tbody>
+<tr><td><code>UEnvQuery</code></td><td>쿼리 에셋. Option 목록</td></tr>
+<tr><td><code>UEnvQueryOption</code></td><td>Generator + Test 목록 한 묶음</td></tr>
+<tr><td><code>UEnvQueryGenerator</code></td><td>후보 지점/액터 생성</td></tr>
+<tr><td><code>UEnvQueryTest</code></td><td>후보 점수/필터</td></tr>
+<tr><td><code>UEnvQueryContext</code></td><td>Generator/Test에 넘길 기준 위치/액터</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Option이 여러 개면 각각 독립적으로 후보를 만들고, 가장 좋은 결과를 고른다. 보통은 Option 하나에 Generator 하나 + Test 여러 개를 둔다.</p>
+
+<h2>3. Generator — 후보 만들기</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Generator</th><th>만드는 후보</th></tr></thead>
+<tbody>
+<tr><td><code>SimpleGrid</code></td><td>중심 주변 격자 점</td></tr>
+<tr><td><code>Donut</code></td><td>도넛 모양 링 위의 점</td></tr>
+<tr><td><code>OnCircle</code></td><td>원 위의 점</td></tr>
+<tr><td><code>ActorsOfClass</code></td><td>특정 클래스 액터들</td></tr>
+<tr><td><code>CurrentLocation</code></td><td>현재 위치 하나</td></tr>
+<tr><td><code>PerceivedActors</code></td><td>Perception이 감지한 액터들</td></tr>
+<tr><td><code>Composite</code></td><td>여러 Generator를 합침</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>SimpleGrid는 <code>GridSize</code>, <code>SpaceBetween</code>, <code>GenerateAround</code> 로 격자를 만든다. 격자 크기 × 간격이 후보 수를 결정하므로, EQS 비용의 첫 번째 변수다.</p>
+
+<h2>4. Test — 점수와 필터</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Test</th><th>보는 것</th></tr></thead>
+<tbody>
+<tr><td><code>Distance</code></td><td>기준 컨텍스트와의 거리</td></tr>
+<tr><td><code>Dot</code></td><td>방향(정면/후면) 일치도</td></tr>
+<tr><td><code>Trace</code></td><td>시야/LOS 차단</td></tr>
+<tr><td><code>Overlap</code></td><td>특정 볼륨/액터와 겹침</td></tr>
+<tr><td><code>Pathfinding</code></td><td>경로 존재/길이</td></tr>
+<tr><td><code>Project</code></td><td>NavMesh 위로 투영</td></tr>
+<tr><td><code>Random</code></td><td>무작위 점수</td></tr>
+<tr><td><code>Volume</code></td><td>볼륨 안/밖</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>각 Test는 <code>TestPurpose</code> 를 갖는다.</p>
+
+<ul>
+<li><b>Filter</b> — 조건을 못 넘으면 후보를 버린다.</li>
+<li><b>Score</b> — 점수만 매긴다.</li>
+<li><b>FilterAndScore</b> — 둘 다.</li>
+</ul>
+
+<p><code>ScoringFactor</code> 는 점수 가중치, <code>ClampMin</code>/<code>ClampMax</code> 는 점수 범위, <code>FilterType</code> 은 최소/최대/범위/일치 조건을 정한다. "거리는 가깝게, 시야는 트여 있게"를 동시에 원하면 Test 두 개를 넣고 가중치를 조절한다.</p>
+
+<div class="panel">
+  <div class="ctl" id="eqsCtl">
+    <button type="button" data-mode="near" aria-pressed="true">Target에 가깝게</button>
+    <button type="button" data-mode="far" aria-pressed="false">Target에서 멀게</button>
+  </div>
+  <div class="stage"><canvas id="eqsCv" aria-label="격자 후보 중 Target과의 거리 점수에 따라 가장 좋은 지점이 어떻게 바뀌는지 보여 준다."></canvas></div>
+  <p class="verdict" id="eqsOut"></p>
+</div>
+
+<p class="note">그림은 SimpleGrid + Distance Test 하나의 개념도다. 실제 EQS는 여러 Test의 점수를 합산하고, Filter Test는 후보를 아예 제거한다.</p>
+
+<h2>5. Context — 기준은 누구인가</h2>
+
+<p>Generator와 Test는 "무엇을 기준으로" 계산할지 Context를 받는다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Context</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>EnvQueryContext_Querier</code></td><td>쿼리를 요청한 AI 자신</td></tr>
+<tr><td><code>EnvQueryContext_Item</code></td><td>현재 평가 중인 후보</td></tr>
+<tr><td><code>EnvQueryContext_NavigationData</code></td><td>NavData</td></tr>
+<tr><td><code>EnvQueryContext_BlueprintBase</code></td><td>블루프린트 커스텀 컨텍스트</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>"플레이어와의 거리"를 보고 싶다면 Distance Test의 Context를 플레이어로 바꾼다. 커스텀 Context는 블루프린트에서 위치/액터 배열을 돌려주도록 만든다.</p>
+
+<h2>6. 실행 — RunQuery</h2>
+
+<pre><code>FEnvQueryRequest Request(QueryTemplate, Querier);
+
+UEnvQueryManager::RunQuery(Request, EEnvQueryRunMode::SingleResult, FinishDelegate);
+// 또는 Request.Execute(EEnvQueryRunMode::SingleResult, FinishDelegate);</code></pre>
+
+<p><code>UEnvQueryManager::RunQuery</code> 는 쿼리 인스턴스를 만들고, 완료 델리게이트로 결과를 준다. 블루프린트에서는 <code>UEnvQueryManager::RunEQSQuery</code> 가 <code>UEnvQueryInstanceBlueprintWrapper</code> 를 돌려준다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>RunMode</th><th>결과</th></tr></thead>
+<tbody>
+<tr><td><code>SingleResult</code></td><td>가장 좋은 하나</td></tr>
+<tr><td><code>RandomBest5Pct</code></td><td>상위 5% 중 무작위</td></tr>
+<tr><td><code>RandomBest25Pct</code></td><td>상위 25% 중 무작위</td></tr>
+<tr><td><code>AllMatching</code></td><td>조건을 통과한 전부</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>UEnvQueryInstanceBlueprintWrapper</code> 는 <code>GetResultsAsActors</code>·<code>GetResultsAsLocations</code> 로 결과를 꺼내고, <code>OnQueryFinishedEvent</code> 로 완료를 받는다.</p>
+
+<h2>7. BT에서 — RunEQSQuery</h2>
+
+<p><code>UBTTask_RunEQSQuery</code> 는 <code>EQSRequest</code>(<code>FEQSParametrizedQueryExecutionRequest</code>)를 받아 EQS를 실행하고, 결과를 Blackboard 키에 넣는다. <code>UBTService_RunEQS</code> 는 가지가 살아 있는 동안 주기적으로 실행한다.</p>
+
+<ul>
+<li>Task는 "한 번" 질의하고 결과로 행동을 시작.</li>
+<li>Service는 "주기적으로" 갱신. 매 틱이 아니다.</li>
+<li>결과 키는 Object 또는 Vector 타입이어야 한다.</li>
+</ul>
+
+<h2>8. 성능 — EQS는 비싸다</h2>
+
+<p>EQS는 후보 수 × Test 수만큼 계산한다. SimpleGrid 20×20 = 400 후보에 Test 4개면 1,600번 평가다. 매 틱 돌리면 AI 수만큼 곱해진다.</p>
+
+<ul>
+<li>격자 크기/간격을 줄여 후보 수를 줄인다.</li>
+<li>Service는 <code>Interval</code> 을 크게, Task는 정말 필요할 때만.</li>
+<li>Pathfinding Test는 특히 비싸다. 모든 후보에 경로를 묻지 않는다.</li>
+<li>멀리 있는 AI는 EQS를 덜 돌린다(중요도/거리 티어링).</li>
+</ul>
+
+<h2>9. 디버깅</h2>
+
+<ul>
+<li><b>Gameplay Debugger</b> (<code>'</code>) — EQS 카테고리에서 후보 점수/필터 결과를 본다.</li>
+<li><b>EQS Testing Pawn</b> — 에디터에서 쿼리를 직접 돌려 후보를 시각화.</li>
+<li>결과가 비면 Generator 후보 0개인지, Filter Test가 전부 버렸는지부터 확인한다.</li>
+</ul>
+
+<h2>10. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>UEnvQuery</code> · <code>UEnvQueryOption</code></td><td><code>Engine/Source/Runtime/AIModule/Classes/EnvironmentQuery/EnvQuery.h</code> · <code>EnvQueryOption.h</code></td></tr>
+<tr><td><code>UEnvQueryManager</code> · <code>FEnvQueryRequest</code> · <code>RunQuery</code> · <code>RunEQSQuery</code></td><td><code>Classes/EnvironmentQuery/EnvQueryManager.h</code> · <code>Private/EnvironmentQuery/EnvQueryManager.cpp</code></td></tr>
+<tr><td><code>UEnvQueryGenerator</code> · <code>UEnvQueryTest</code></td><td><code>Classes/EnvironmentQuery/EnvQueryGenerator.h</code> · <code>EnvQueryTest.h</code></td></tr>
+<tr><td><code>UEnvQueryGenerator_SimpleGrid</code> · <code>_Donut</code> · <code>_ActorsOfClass</code></td><td><code>Classes/EnvironmentQuery/Generators/</code></td></tr>
+<tr><td><code>UEnvQueryTest_Distance</code> · <code>_Trace</code> · <code>_Pathfinding</code></td><td><code>Classes/EnvironmentQuery/Tests/</code></td></tr>
+<tr><td><code>UEnvQueryInstanceBlueprintWrapper</code></td><td><code>Classes/EnvironmentQuery/EnvQueryInstanceBlueprintWrapper.h</code></td></tr>
+<tr><td><code>UBTTask_RunEQSQuery</code> · <code>UBTService_RunEQS</code></td><td><code>Classes/BehaviorTree/Tasks/BTTask_RunEQSQuery.h</code> · <code>Classes/BehaviorTree/Services/BTService_RunEQS.h</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>AI 시리즈의 시작은 <a href="ai-controller.html">AI Controller</a>. BT의 실행 구조는 <a href="ai-behavior-tree.html">Behavior Tree ①</a>.</p>
+</footer>
+
+</div>
+
+<script>
+/* SimpleGrid + Distance Test — 가까이/멀리 */
+function initEQS(){
+  if (!window.Viz) return;
+  var ctl = document.getElementById('eqsCtl');
+  var out = document.getElementById('eqsOut');
+  if (!ctl || !out) return;
+
+  var near = true;
+  var v = Viz.view('eqsCv', function(){ return 300; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cx = w * 0.28, cy = h * 0.56;
+    var targetX = w * 0.82, targetY = h * 0.30;
+    var cell = 42;
+    var best = null, bestScore = -Infinity;
+    var pts = [];
+
+    for (var gx = -2; gx <= 2; gx++){
+      for (var gy = -2; gy <= 2; gy++){
+        var x = cx + gx * cell, y = cy + gy * cell;
+        if (x < 20 || x > w - 20 || y < 40 || y > h - 30) continue;
+        var d = Math.hypot(x - targetX, y - targetY);
+        var score = near ? -d : d;
+        pts.push({x:x,y:y,score:score});
+        if (score > bestScore){ bestScore = score; best = {x:x,y:y}; }
+      }
+    }
+
+    // target
+    ctx.fillStyle = c.warn;
+    ctx.beginPath(); ctx.arc(targetX, targetY, 9, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Target', targetX, targetY - 16, c.warn, 9, 'center');
+
+    // querier
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Querier', cx, cy + 18, c.accent, 9, 'center');
+
+    // candidates
+    for (var i = 0; i < pts.length; i++){
+      var p = pts[i];
+      var isBest = best && p.x === best.x && p.y === best.y;
+      ctx.fillStyle = isBest ? c.accent : c.dim;
+      ctx.beginPath(); ctx.arc(p.x, p.y, isBest ? 6 : 3, 0, Math.PI * 2); ctx.fill();
+      if (isBest){
+        ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+
+    Viz.text(ctx, near ? 'Distance Score — 가까울수록 높음' : 'Distance Score — 멀수록 높음',
+      w / 2, 18, c.text, 9.5, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    var btns = ctl.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      btns[i].setAttribute('aria-pressed', (btns[i].getAttribute('data-mode') === 'near') === near ? 'true' : 'false');
+    }
+    out.className = 'verdict';
+    out.textContent = near
+      ? '가까울수록 높은 점수 — Target에 가장 가까운 후보가 선택된다. Filter Test가 있으면 그 전에 후보가 걸러진다.'
+      : '멀수록 높은 점수 — Target에서 가장 먼 후보가 선택된다. 도망/엄폐 위치 찾기에 쓰는 식이다.';
+    v.render();
+  }
+
+  var btns = ctl.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      near = this.getAttribute('data-mode') === 'near';
+      update();
+    });
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initEQS);
+else initEQS();
+</script>
+
+</body>
+</html>
