@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lumen · Nanite · VSM — 무엇이 무엇 없이 돌아가나</title>
-<meta name="note-title" content="Lumen · Nanite · VSM — 무엇이 무엇 없이 돌아가나">
-<meta name="note-summary" content="UE5 에서 같이 소개된 기능들이라 한 묶음처럼 보이지만 대부분 서로 독립적이다. 딱 한 군데만 진짜 의존이 있다.">
-<meta name="note-tags" content="Rendering, Nanite, Lumen, Virtual Shadow Maps">
+<title>Lumen · Nanite · VSM — 의존 관계와 Nanite 해부</title>
+<meta name="note-title" content="Lumen · Nanite · VSM — 의존 관계와 Nanite 해부">
+<meta name="note-summary" content="기능 사이의 의존 관계를 정리하고, Nanite 를 파이프라인·메시 종류·메시별 설정으로 나눠 해부한다. VSM 이 왜 Nanite 지원을 요구하는지도 여기서 나온다.">
+<meta name="note-tags" content="Rendering, Nanite, Lumen, Virtual Shadow Maps, GPU Driven">
 <meta name="note-order" content="10">
 <meta name="note-category" content="렌더링">
 <link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
@@ -16,6 +16,32 @@
 .yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
 .yn.dep{color:var(--warn);font-weight:600}
 .yn.ok{color:var(--accent)}
+.need{display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;font-size:.68rem;font-weight:600;white-space:nowrap}
+.need.ok{background:var(--accent-dim);color:var(--accent)}
+.need.dep{background:var(--surface-2);color:var(--warn)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.tablewrap table.cfg td:first-child{width:38%}
+.pipe{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.pstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.pstep .pn{display:block;font-family:ui-monospace,Consolas,monospace;color:var(--accent);font-size:.72rem}
+.pstep b{display:block;font-size:.8rem;margin:2px 0 4px}
+.pstep .pd{display:block;font-size:.68rem;color:var(--text-dim);line-height:1.45}
+#nkCtl label{display:block;line-height:1.5}
+#nkCtl input{margin-right:6px}
+.nklist{margin:0 0 4px}
+.nkrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:.88rem}
+.nkrow:first-child{border-top:0}
+.nkrow label{display:flex;gap:7px;align-items:center;flex-wrap:wrap;cursor:pointer}
+.nkrow .nst{flex:none;font-family:ui-monospace,Consolas,monospace;font-size:.8rem;font-weight:600}
+.nkrow .nst.on{color:var(--accent)}
+.nkrow .nst.off{color:var(--warn)}
+@media (max-width:560px){
+  .pipe{grid-template-columns:repeat(2,1fr)}
+  .pstep:last-child{grid-column:span 2}
+}
 </style>
 </head>
 <body>
@@ -24,8 +50,8 @@
 <p><a class="back" href="../index.html">&larr; 목차</a></p>
 
 <header class="site-head">
-<h1>Lumen · Nanite · VSM — 무엇이 무엇 없이 돌아가나</h1>
-<p>UE5 에서 같이 소개된 기능들이라 한 묶음처럼 보이지만 대부분 서로 독립적이다. 딱 한 군데만 진짜 의존이 있다.</p>
+<h1>Lumen · Nanite · VSM — 의존 관계와 Nanite 해부</h1>
+<p>기능 사이의 의존 관계를 정리하고, Nanite 를 파이프라인·메시 종류·메시별 설정으로 나눠 해부한다. VSM 이 왜 Nanite 지원을 요구하는지도 여기서 나온다.</p>
 </header>
 
 <article>
@@ -35,6 +61,8 @@
 <p>Lumen, Nanite, Virtual Shadow Maps, TSR, World Partition, HLOD. 이 여섯은 UE5 소개 자료에 늘 함께 나온다. 그래서 <b>하나를 끄면 다른 것도 못 쓰는 것 아닌가</b> 하는 인상을 받기 쉽다.</p>
 
 <p>실제로는 <b>대부분 서로를 모른다.</b> 코드를 열어 보면 include 조차 하지 않는 조합이 많다. 다만 <b>딱 한 쌍</b>에 진짜 의존이 있고, 그것이 가장 자주 오해되는 쌍이기도 하다.</p>
+
+<p>이 글은 둘로 나뉜다. <b>1~4절</b>은 기능 사이의 관계를 정리하고, <b>5절부터</b>는 그 관계에서 계속 걸림돌이 되는 <b>Nanite 하나를 해부</b>한다. "Nanite 메시는 안 쓰는데 Nanite 는 켜 둔다" 가 왜 성립하는지도 거기서 나온다.</p>
 
 <h2>2. 의존 지도</h2>
 
@@ -57,6 +85,8 @@
   <div class="stage"><canvas id="cvDeps" aria-label="여섯 기능의 의존 관계 지도. Virtual Shadow Maps 에서 Nanite 로만 굵은 실선이 있고, 나머지는 점선이거나 선이 없다. Nanite 를 끄면 Virtual Shadow Maps 도 같이 꺼진다."></canvas></div>
   <p class="verdict" id="depsVerdict"></p>
 </div>
+
+<p class="note">이 그림의 <b>Nanite</b> 는 <b>기능(파이프라인)</b>이다. 메시 에셋에서 Nanite 데이터를 안 쓰는 것(4절 ④)은 이 스위치와 별개다 — 그래서 Nanite 는 켜 두고 메시만 일반으로 두는 구성이 성립한다.</p>
 
 <p class="try"><b>해 볼 것.</b> <b>Nanite 를 눌러 꺼 보라.</b> Virtual Shadow Maps 가 같이 흐려진다. 이것이 이 그림에서 유일한 연쇄다. 반대로 <b>World Partition 을 꺼 보면</b> HLOD 만 따라 꺼지고 <b>렌더링 기능 넷(Lumen · VSM · TSR · Nanite)은 아무 영향이 없다</b> &mdash; 렌더링 쪽은 World Partition 을 전혀 모른다.</p>
 
@@ -146,18 +176,164 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 "우리는 프로젝트에서 Nanite 지원을 껐다" = ②. <b>VSM 도 못 쓴다.</b></blockquote>
 
 
-<h2>5. 실제로 쓰는 구성 네 가지</h2>
+<h2>5. Nanite 안쪽 — 메시가 화면에 오기까지 다섯 단계</h2>
 
-<p>앞 절의 층위를 알면 <b>섞어 쓰는 구성</b>이 보인다. 특히 아래 ②가 처음 보면 이상해 보이지만 실무에서 자주 나온다.</p>
+<p>여기까지는 <b>켜고 끄는 층</b>이었다. 이제 그 안을 연다. Nanite 는 스위치 하나가 아니라 <b>다섯 단계짜리 파이프라인</b>이고, 단계마다 따로 멈출 수 있다.</p>
+
+<figure>
+  <div class="pipe">
+    <div class="pstep"><span class="pn">①</span><b>클러스터 계층</b><span class="pd">빌드 타임<br>삼각형 &le;128</span></div>
+    <div class="pstep"><span class="pn">②</span><b>페이지 스트리밍</b><span class="pd">필요한 페이지만<br>GPU 로</span></div>
+    <div class="pstep"><span class="pn">③</span><b>GPU 컬링</b><span class="pd">화면 오차로<br>클러스터 선택</span></div>
+    <div class="pstep"><span class="pn">④</span><b>래스터</b><span class="pd">가시성 버퍼<br>VisBuffer64</span></div>
+    <div class="pstep"><span class="pn">⑤</span><b>머티리얼 평가</b><span class="pd">픽셀당 한 번<br>GBuffer</span></div>
+  </div>
+  <figcaption>①만 에셋에 저장된다. ②~⑤는 실행 중에 매 프레임 돈다. ①이 없으면 그릴 것이 없고, ②~⑤가 꺼지면 폴백 메시로 내려간다.</figcaption>
+</figure>
+
+<ol>
+<li><b>클러스터 계층.</b> 에셋을 빌드할 때 메시를 <b>삼각형 128개 이하 묶음(클러스터)</b>으로 자르고, 단순화한 클러스터를 부모로 묶어 트리를 만든다. <code>FCluster::ClusterSize = 128</code>. 이 트리가 메시 LOD 를 대신한다.</li>
+<li><b>페이지 스트리밍.</b> 클러스터를 페이지에 담아 두고 <b>화면에 필요한 페이지만</b> GPU 메모리로 올린다. 메시별 <code>TargetMinimumResidencyInKB</code> 만큼은 항상 상주시킬 수 있다.</li>
+<li><b>GPU 컬링.</b> 인스턴스와 클러스터를 GPU 에서 고른다. 기준은 화면 오차 &mdash; <b>삼각형 변이 몇 픽셀인가</b>다. <code>r.Nanite.MaxPixelsPerEdge</code> 기본 1.0px, 앞 프레임 깊이를 쓰는 2패스 occlusion 이 기본으로 켜져 있다.</li>
+<li><b>래스터.</b> 고른 클러스터를 그린다. 큰 삼각형은 하드웨어(기본 32px 이상), 작은 삼각형은 compute 로 간다. 결과는 색이 아니라 <b>픽셀마다 "어느 클러스터의 몇 번 삼각형인가"</b> &mdash; <code>VisBuffer64</code> 다.</li>
+<li><b>머티리얼 평가.</b> 그 버퍼를 읽어 픽셀당 머티리얼을 <b>한 번만</b> 평가하고 GBuffer 를 채운다. 앞에서 여러 번 겹쳐 그려진 픽셀은 셰이딩 자체를 하지 않는다.</li>
+</ol>
+
+<p><b>그래서 빠른 이유가 셋이다.</b> 픽셀당 셰이딩이 한 번이라 오버드로우가 셰이딩 비용을 만들지 않고, LOD 선택이 메시가 아니라 클러스터 단위이며, 메시마다 드로우 콜을 만들지 않고 GPU 가 목록을 처리한다.</p>
+
+<p><b>대신 값이 있다.</b> 클러스터 데이터·페이지·폴백 메시·레이 트레이싱용 프록시가 디스크와 메모리를 먹는다. Nanite 는 공짜 디테일이 아니라 <b>메모리를 내고 디테일과 드로우 콜을 사는</b> 거래다.</p>
+
+<blockquote>"Nanite 에는 LOD 가 없다" 는 말은 정확하지 않다. <b>메시 LOD 가 없고, 클러스터 트리가 그 자리를 대신한다.</b> 그래서 LOD 전환이 메시 전체에서 뚝 끊기지 않는다.</blockquote>
+
+<h3>LOD 를 고르는 단위가 메시가 아니다</h3>
+
+<p>아래 그림은 메시 하나를 클러스터 트리로 그린 것이다. <b>위쪽을 먼 쪽, 아래쪽을 가까운 쪽</b>이라고 두고, 슬라이더로 <b>화면에서 차지하는 크기</b>를 바꿔 보라. 지금 어느 단계의 클러스터를 그리는지 보인다.</p>
+
+<div class="panel">
+  <div class="sl">
+    <label for="ccSize">화면 크기</label>
+    <input type="range" id="ccSize" min="0" max="100" value="0">
+    <output id="ccSizeOut">작다</output>
+  </div>
+  <div class="stage"><canvas id="cvCluster" aria-label="메시 하나의 클러스터 트리. 화면에서 작게 보이면 가장 거친 클러스터 하나로, 크게 보이면 잘게 나눈 클러스터 여덟 개로 그린다. 가운데 크기에서는 위쪽은 거칠게, 아래쪽은 잘게 그리는 혼합 단계가 된다."></canvas></div>
+  <p class="verdict" id="ccOut"></p>
+</div>
+
+<p>가운데 단계를 보라. <b>한 메시 안에서 클러스터마다 다른 단계</b>가 선택된다. 가까운 쪽은 잘게, 먼 쪽은 거칠게 &mdash; 메시 전체가 같은 LOD 로 묶이지 않는다. 이것이 "LOD 팝이 없다" 는 말의 정체다.</p>
+
+<h2>6. Nanite 메시는 스태틱 메시만이 아니다</h2>
+
+<p>"Nanite Mesh" 하면 스태틱 메시 에셋의 체크박스를 떠올리기 쉽다. 그런데 Nanite 로 그릴 수 있는 것은 여러 종류이고, <b>종류마다 켜는 스위치가 따로</b> 있다. 게다가 <b>실험 단계인 종류는 기본값이 0</b> 이다.</p>
+
+<p class="note">표의 스위치 이름에는 모두 <code>r.Nanite.</code> 접두사가 붙는다. 예: <code>r.Nanite.AllowSkinnedMeshes</code>.</p>
 
 <div class="tablewrap">
 <table>
-<thead><tr><th></th><th>구성</th><th>Nanite 메시</th><th>VSM</th><th>왜 이렇게 하나</th></tr></thead>
+<thead><tr><th>종류</th><th>켜는 스위치</th><th>기본값</th></tr></thead>
 <tbody>
-<tr><td><b>①</b></td><td>둘 다 쓴다</td><td class="yn ok">쓴다</td><td class="yn ok">쓴다</td><td>UE5 의 기본 구성. 디테일과 그림자 품질을 둘 다 가져간다</td></tr>
-<tr><td><b>②</b></td><td><b>Nanite 지원만 켜고<br>Nanite 메시는 안 쓴다</b></td><td class="yn dep">안 쓴다</td><td class="yn ok">쓴다</td><td><b>VSM 을 쓰려고</b> Nanite 지원을 켜 두는 것. 메시는 전부 일반 LOD 로 간다</td></tr>
-<tr><td><b>③</b></td><td>Nanite 메시는 쓰고<br>VSM 은 끈다</td><td class="yn ok">쓴다</td><td class="yn dep">끈다</td><td>VSM 비용이 부담될 때. 그림자는 기존 방식으로</td></tr>
-<tr><td><b>④</b></td><td>Nanite 지원을 끈다</td><td class="yn dep">불가</td><td class="yn dep">불가</td><td>셰이더 수를 줄인다. 모바일 타깃이거나 SM5 로 가는 경우</td></tr>
+<tr><td><b>스태틱 메시</b><br><span class="small">가장 흔한 경로. 인스턴스도 이 데이터를 쓴다</span></td><td>에셋 <b>Nanite Settings → Enable Nanite</b> + <code>r.Nanite</code></td><td class="yn">에셋 꺼짐<br>전역 1</td></tr>
+<tr><td><b>스켈레탈</b><br><span class="small">본으로 변형되는 메시. 에셋에도 같은 Nanite Settings 가 있다</span></td><td><code>AllowSkinnedMeshes</code> + <code>RenderNanite</code></td><td class="yn ok">1 / 1</td></tr>
+<tr><td><b>스플라인</b><br><span class="small">스플라인 컴포넌트가 Nanite 데이터를 쓸지</span></td><td><code>AllowSplineMeshes</code></td><td class="yn ok">1</td></tr>
+<tr><td><b>폴리지</b><br><span class="small">켜면 어셈블리·복셀 경로도 함께 열린다</span></td><td>프로젝트 설정 <b>Nanite Foliage (Experimental)</b> = <code>r.Nanite.Foliage</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>어셈블리</b><br><span class="small">조각을 조립한 메시</span></td><td><code>AllowAssemblies</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>복셀</b><br><span class="small">먼 거리 형태 보존용 복셀 래스터</span></td><td><code>AllowVoxels</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>커브</b><br><span class="small">헤어·그룸 같은 커브</span></td><td><code>AllowCurves</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>반투명</b><br><span class="small">엔진 주석에 Heavy WIP / R&amp;D 라고 적혀 있다</span></td><td><code>AllowTranslucency</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>테셀레이션</b><br><span class="small">셋 다 켜져야 하고, 머티리얼도 Tessellation·Displacement 를 써야 한다</span></td><td><code>Tessellation</code> + <code>ProgrammableRaster</code> + <code>ComputeRasterization</code></td><td class="yn ok">1 / 1 / 1</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note">기본값 0 은 "실험 단계라 기본으로 꺼 둔다" 는 뜻이다. 켜면 셰이더가 더 컴파일되고, 검증되지 않은 경로를 타게 된다.</p>
+
+<h3>지금 설정에서 각 종류가 Nanite 로 그려지나</h3>
+
+<p>스위치를 눌러 보라. <b>파이프라인이 켜져 있어도 종류별 스위치가 꺼져 있으면 그 종류만 폴백</b> 으로 내려간다.</p>
+
+<div class="panel">
+  <div class="ctl" id="nkCtl" style="flex-direction:column;align-items:stretch">
+    <label><input type="checkbox" id="nkPipe" checked> Nanite 파이프라인이 켜져 있다 (플랫폼 · <code>r.Nanite.ProjectEnabled</code> · <code>r.Nanite</code>)</label>
+    <label><input type="checkbox" id="nkData" checked> 이 메시에 Nanite 데이터가 있다 (Enable Nanite)</label>
+  </div>
+  <div class="nklist">
+    <div class="nkrow"><span>스태틱 <span class="small">r.Nanite</span></span><span class="nst" data-k="static"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kSkinned" checked> 스킨드 <span class="small">AllowSkinnedMeshes + RenderNanite</span></label><span class="nst" data-k="skinned"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kSpline" checked> 스플라인 <span class="small">AllowSplineMeshes</span></label><span class="nst" data-k="spline"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kFoliage"> 폴리지 <span class="small">r.Nanite.Foliage</span></label><span class="nst" data-k="foliage"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kAssembly"> 어셈블리 <span class="small">AllowAssemblies</span></label><span class="nst" data-k="assembly"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kVoxel"> 복셀 <span class="small">AllowVoxels</span></label><span class="nst" data-k="voxel"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kCurve"> 커브 <span class="small">AllowCurves</span></label><span class="nst" data-k="curve"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kTranslucency"> 반투명 <span class="small">AllowTranslucency</span></label><span class="nst" data-k="translucency"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kTess" checked> 테셀레이션 <span class="small">Tessellation + Programmable + Compute</span></label><span class="nst" data-k="tess"></span></div>
+  </div>
+  <p class="verdict" id="nkVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>Nanite Foliage 를 켜 보라.</b> 폴리지뿐 아니라 <b>어셈블리와 복셀도 같이 열린다</b> &mdash; 엔진의 지원 판정이 셋을 묶어 두었기 때문이다. 이제 <b>반투명을 켜 보라.</b> 이번에는 다른 종류가 따라 열리지 않는다.</p>
+
+<h2>7. 메시 하나에 딸린 설정 — "Enable Nanite" 는 시작일 뿐</h2>
+
+<p>스태틱 메시 에셋을 열어 Nanite Settings 를 보면 체크박스 하나가 아니다. 이 값들이 <b>메모리·품질·폴백</b>을 정한다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>설정</th><th>기본값</th><th>무엇을 정하나</th></tr></thead>
+<tbody>
+<tr><td>Enable Nanite</td><td>꺼짐</td><td>Nanite 데이터를 만들지</td></tr>
+<tr><td>Position Precision</td><td>자동</td><td>2<sup>-n</sup> cm 격자. 낮추면 메모리가 줄고 표면이 각져진다</td></tr>
+<tr><td>Normal / Tangent Precision</td><td>자동</td><td>노멀·탄젠트에 쓸 비트 수</td></tr>
+<tr><td>KeepPercentTriangles</td><td>1.0</td><td>원본 삼각형을 얼마나 남길지</td></tr>
+<tr><td>TrimRelativeError</td><td>0</td><td>이 오차에 닿을 때까지 감축</td></tr>
+<tr><td>ShapePreservation</td><td>None</td><td>멀리서 형태를 유지하는 법 &mdash; 없음 / 면적 유지 / 복셀화</td></tr>
+<tr><td>TargetMinimumResidencyInKB</td><td>0</td><td>스트리밍에서 항상 상주시킬 양 (0 = 최소 한 페이지)</td></tr>
+<tr><td>Generate Fallback Mesh 계열</td><td>플랫폼 기본</td><td>Nanite 가 꺼졌을 때 그릴 메시를 만들지, 얼마나 단순화할지</td></tr>
+<tr><td>MaxEdgeLengthFactor</td><td>0</td><td>WPO·스플라인처럼 변형되는 메시가 과하게 단순화되지 않게</td></tr>
+<tr><td>DisplacementMaps / DisplacementUVChannel</td><td>없음 / 0</td><td>테셀레이션에 쓸 변위 맵과 UV 채널</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>그래서 <b>"이 메시는 Nanite 다"</b> 는 <b>데이터가 있다</b>는 뜻이고, <b>"이 메시를 Nanite 로 그린다"</b> 는 <b>그 데이터를 지금 파이프라인이 쓰고 있다</b>는 뜻이다. 둘은 다르다. 아래 8~9절이 그 차이를 다룬다.</p>
+
+<blockquote><b>여기서 한 가지가 따라 나온다.</b> Nanite 데이터에는 <b>폴백 메시</b>가 같이 들어간다. 그래서 Nanite 를 꺼도 메시가 사라지지 않고 디테일만 줄어든다(16절).</blockquote>
+
+
+<h2>8. "Nanite 를 켠다" 와 "Nanite 메시를 쓴다" 는 별개다</h2>
+
+<p>이제 처음 질문으로 돌아온다. <b>Nanite 메시는 하나도 안 쓰면서 Nanite 는 켜 두는 것</b>이 가능한가? 가능하다. 어디까지가 Nanite 를 요구하고 어디부터가 Nanite 메시를 요구하는지 표로 나눠 보면 이렇다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>쓰고 싶은 것</th><th>필요한 것</th></tr></thead>
+<tbody>
+<tr><td><b>Virtual Shadow Maps</b> <span class="need ok">메시 불필요</span></td><td>Nanite 지원(플랫폼·프로젝트·런타임) + <code>r.Shadow.Virtual.Enable</code></td></tr>
+<tr><td><b>SceneCulling</b> (5.8) <span class="need ok">메시 불필요</span></td><td><code>UseNanite()</code> &mdash; 즉 <code>r.Nanite</code> 까지 켜져 있을 것</td></tr>
+<tr><td><b>Nanite 스태틱 메시</b> <span class="need dep">메시 필요</span></td><td>Nanite 지원 + <code>r.Nanite</code> + 에셋의 Nanite 데이터</td></tr>
+<tr><td><b>Nanite 그림자 (VSM 페이지)</b> <span class="need dep">메시 필요</span></td><td>VSM + Nanite 메시 &mdash; 페이지를 Nanite 래스터로 채운다</td></tr>
+<tr><td><b>Nanite 스킨드·스플라인·복셀·커브·폴리지</b> <span class="need dep">메시 필요</span></td><td>Nanite 스태틱 조건 + 6절의 <code>Allow*</code> 스위치</td></tr>
+<tr><td><b>Nanite 테셀레이션</b> <span class="need dep">메시 필요</span></td><td>Nanite 스태틱 조건 + 테셀레이션 스위치 셋 + 머티리얼의 Tessellation·Displacement</td></tr>
+<tr><td><b>Nanite RT (Lumen HWRT·레이 트레이싱)</b> <span class="need dep">메시 필요</span></td><td>Nanite 메시 + Lumen HWRT 또는 <code>r.RayTracing</code></td></tr>
+<tr><td><b>Lumen GI·반사</b> <span class="need ok">메시 불필요</span></td><td>Nanite 와 무관</td></tr>
+</tbody>
+</table>
+</div>
+
+<blockquote><b>Nanite 메시 없이 Nanite 를 켜 두는 이유는 사실상 VSM 하나다.</b> 5.8 에서 Nanite 런타임을 요구하는 것은 VSM 과 <b>SceneCulling</b>(인스턴스 계층 컬링) 둘인데, SceneCulling 은 켜 두면 따라오는 성능 경로이지 그것 때문에 Nanite 를 켜지는 않는다. 나머지는 전부 Nanite 메시가 있어야 의미가 있다.</blockquote>
+
+<p class="note">SceneCulling 은 <code>r.SceneCulling.*</code> 로 조절하는 공간 해시 기반 컬링이다. Nanite 를 끄면 이 경로도 함께 꺼지지만 일반 컬링으로 그려지므로 화면이 비지는 않는다 &mdash; <b>성능 경로가 사라지는 것</b>이지 기능이 사라지는 것이 아니다.</p>
+
+<h3>실무에서 나오는 네 가지 구성</h3>
+
+<p>이제 <b>섞어 쓰는 구성</b>이 보인다. 특히 아래 ②가 처음 보면 이상해 보이지만 실무에서 자주 나온다.</p>
+
+<div class="tablewrap">
+<table class="cfg">
+<thead><tr><th>구성</th><th>왜 이렇게 하나</th></tr></thead>
+<tbody>
+<tr><td><b>①</b> 둘 다 쓴다<br><span class="small">Nanite 메시 O · VSM O</span></td><td>UE5 의 기본 구성. 디테일과 그림자 품질을 둘 다 가져간다</td></tr>
+<tr><td><b>②</b> <b>Nanite 지원만 켜고<br>메시는 안 쓴다</b><br><span class="small">Nanite 메시 X · VSM O</span></td><td><b>VSM 을 쓰려고</b> Nanite 지원을 켜 두는 것. 메시는 전부 일반 LOD 로 간다</td></tr>
+<tr><td><b>③</b> Nanite 메시는 쓰고<br>VSM 은 끈다<br><span class="small">Nanite 메시 O · VSM X</span></td><td>VSM 비용이 부담될 때. 그림자는 기존 방식으로</td></tr>
+<tr><td><b>④</b> Nanite 지원을 끈다<br><span class="small">Nanite 메시 X · VSM X</span></td><td>셰이더 수를 줄인다. 모바일 타깃이거나 SM5 로 가는 경우</td></tr>
 </tbody>
 </table>
 </div>
@@ -166,7 +342,7 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 
 <p>예를 들어 <b>원경 맵에서 그림자 품질 때문에 VSM 을 쓰고 싶다.</b> 그런데 에셋은 기존 LOD 파이프라인으로 만들어져 있어 Nanite 로 바꿀 생각이 없다. 이때 <b>Nanite 지원은 켜 두고 메시에는 Nanite 를 안 쓰는</b> 구성이 된다.</p>
 
-<p>앞 절에서 본 그대로다. VSM 이 요구하는 것은 <code>r.Nanite.ProjectEnabled</code> 이지 <b>장면에 Nanite 메시가 있는지</b>가 아니다. Nanite 메시가 하나도 없어도 VSM 은 정상 동작하고, 일반 메시들은 <code>r.Shadow.Virtual.NonNanite.ProjectEnabled</code> 경로로 그림자를 드리운다.</p>
+<p>3절에서 본 그대로다. VSM 이 요구하는 것은 <code>r.Nanite.ProjectEnabled</code> 이지 <b>장면에 Nanite 메시가 있는지</b>가 아니다. Nanite 메시가 하나도 없어도 VSM 은 정상 동작하고, 일반 메시들은 <code>r.Shadow.Virtual.NonNanite.ProjectEnabled</code> 경로로 그림자를 드리운다.</p>
 
 <blockquote><b>대신 치르는 비용이 있다.</b> <code>r.Nanite.ProjectEnabled</code> 를 켜 두면 <b>Nanite 용 셰이더 퍼뮤테이션이 함께 컴파일된다.</b> 이 설정의 엔진 설명문이 그것을 그대로 말한다 &mdash; 지원하는 플랫폼에서 <b>셰이더 수를 줄이려고</b> 끄는 스위치라고. 즉 ②는 <b>쓰지도 않는 Nanite 셰이더를 안고 가는 대가로 VSM 을 얻는</b> 구성이다. 빌드 시간과 셰이더 용량이 그 값이다.</blockquote>
 
@@ -174,14 +350,44 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 
 <p class="note">반대 방향도 가능하다. Nanite 메시를 쓰면서 VSM 만 끄는 ③ 구성이다. <code>r.Shadow.Virtual.Enable</code> 은 독립된 스위치라서 Nanite 와 무관하게 끌 수 있다. <b>Nanite → VSM 은 "VSM 이 Nanite 를 요구한다" 는 한 방향뿐이고, 그 반대는 성립하지 않는다.</b></p>
 
-<h2>6. 플랫폼마다 다르다 — 모바일에서는 무엇이 되나</h2>
+<h2>9. Nanite 가 조용히 꺼지는 조건</h2>
 
-<p>앞 절은 <b>끌 수 있는 것</b>을 다뤘다. 그런데 <b>애초에 안 되는 것</b>도 있다. 플랫폼이 지원하지 않으면 설정을 어떻게 두든 켜지지 않는다.</p>
+<p>Nanite 는 "켰는데 안 켜져 있다" 가 잘 생긴다. 에러도 경고도 없이 <b>폴백 메시로 그려질 뿐</b>이다. 엔진이 프록시를 만들 때 보는 것을 그대로 옮기면 이렇다.</p>
+
+<pre><code>ShouldCreateNaniteProxy()
+  = 컴포넌트가 금지하지 않음
+    &amp;&amp; UseNanite()
+    &amp;&amp; 메시에 Nanite 데이터가 있음
+    &amp;&amp; 머티리얼 감사 통과
+
+UseNanite()
+  = r.Nanite
+    &amp;&amp; 머티리얼 품질 &gt;= r.Nanite.MinMaterialQuality
+    &amp;&amp; DoesRuntimeSupportNanite()
+
+DoesRuntimeSupportNanite()
+  = 플랫폼 지원 &amp;&amp; 64bit 원자 연산 &amp;&amp; !포워드 셰이딩</code></pre>
+
+<ol>
+<li><b>전역 스위치</b> &mdash; <code>r.Nanite</code>, <code>r.Nanite.ProjectEnabled</code>, 플랫폼 지원(10절), 머티리얼 품질(<code>r.Nanite.MinMaterialQuality</code>, 기본 0 이라 게이트 없음)</li>
+<li><b>64비트 원자 연산</b> &mdash; 없으면 안 된다. DX11 이 막히는 이유이고, <code>r.Nanite.RequireDX12</code> 기본 1 이 DX11 을 걸러 낸다</li>
+<li><b>포워드 셰이딩</b> &mdash; <code>DoesRuntimeSupportNanite</code> 가 <b>포워드 셰이딩이면 무조건 false</b> 다. 이 한 줄 때문에 "Nanite 는 되는데 왜 안 되지" 가 생긴다</li>
+<li><b>메시 데이터</b> &mdash; <code>HasValidNaniteData()</code>. Nanite 페이지 스트리밍 상태가 비어 있으면 데이터가 없는 것으로 친다</li>
+<li><b>컴포넌트</b> &mdash; <code>bDisallowNanite</code>(폴백 강제), <code>bForceDisableNanite</code>(런타임 강제), 에디터의 <b>Nanite Fallback Mesh</b> 표시</li>
+<li><b>머티리얼 감사</b> &mdash; 마스킹 머티리얼은 월드 설정 <code>bAllowMaskedMaterials</code> · <code>r.Nanite.AllowMaskedMaterials</code> · 컴포넌트 <code>bForceNaniteForMasked</code> 를 통과해야 한다. 재질이 맞지 않으면 여기서 걸린다</li>
+<li><b>종류별 스위치</b> &mdash; 6절의 <code>Allow*</code> 와 테셀레이션 세 종</li>
+</ol>
+
+<p class="note">문제는 대부분 <b>4~6번</b>에서 생긴다. 전역 스위치는 눈에 띄지만, 마스킹 재질 하나 때문에 그 메시만 폴백으로 내려가는 것은 로그가 없다. 6절의 판정기로 종류별 스위치를, 16절로 폴백 결과를 확인하면 된다.</p>
+
+<h2>10. 플랫폼마다 다르다 — 모바일에서는 무엇이 되나</h2>
+
+<p>9절의 첫 조건이 <b>플랫폼 지원</b>이었다. 그 판정은 코드가 아니라 플랫폼별 설정 파일이 정한다. <b>애초에 안 되는 플랫폼</b>에서는 설정을 어떻게 두든 켜지지 않는다.</p>
 
 <p>이 판정은 코드에 박혀 있지 않고 <b>플랫폼별 설정 파일</b>에 들어 있다. <code>Engine/Config/&lt;플랫폼&gt;/DataDrivenPlatformInfo.ini</code> 의 셰이더 플랫폼 항목마다 <code>bSupportsNanite</code>, <code>bSupportsLumenGI</code>, <code>bSupportsGen5TemporalAA</code>(TSR) 같은 값이 적혀 있고, 엔진은 그 값을 읽어 판단한다.</p>
 
 <div class="tablewrap">
-<table>
+<table class="wide">
 <thead><tr><th>셰이더 플랫폼</th><th>모바일</th><th>Nanite</th><th>VSM</th><th>Lumen GI</th><th>TSR</th></tr></thead>
 <tbody>
 <tr><td><code>PCD3D_SM5</code><br><span class="small">Windows DX11 / DX12 SM5</span></td><td>&mdash;</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn ok">✓</td><td class="yn ok">✓</td></tr>
@@ -205,7 +411,7 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 
 <blockquote><b>그래서 "모바일 지원인가?" 라는 질문도 쪼개야 한다.</b> 묻는 것이 <b>기기</b>(안드로이드·iOS)인지 <b>렌더링 경로</b>(ES3.1 모바일 렌더러인지 SM5/SM6 데스크톱 렌더러인지)인지에 따라 답이 다르다. iOS 기기에서도 <code>METAL_ES3_1_IOS</code> 로 돌면 Nanite 는 없다.</blockquote>
 
-<h2>7. Lumen 과 Nanite — 선택적 활용</h2>
+<h2>11. Lumen 과 Nanite — 선택적 활용</h2>
 
 <p>Lumen 은 Nanite 없이 동작한다. Lumen 의 플랫폼 지원을 판정하는 <code>DoesPlatformSupportLumenGI</code> 는 Nanite 를 전혀 검사하지 않는다.</p>
 
@@ -218,7 +424,9 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 
 <p>즉 Nanite 는 <b>빠른 길이 하나 더 생기는 것</b>이지 없으면 안 되는 것이 아니다.</p>
 
-<h2>8. Nanite 와 World Partition — 서로 모른다</h2>
+<p>레이 트레이싱도 같다. Nanite 메시가 있으면 Lumen HWRT 는 그 메시를 <b>Nanite RT 지오메트리</b>로 잡고, 없으면 일반 레이 트레이싱 씬으로 같은 계산을 한다. Nanite 는 Lumen 의 전제 조건이 아니라 <b>더 나은 지오메트리 경로</b>다. 반대로 Nanite RT 를 쓰려면 Nanite 메시가 있어야 한다 &mdash; 8절 표의 Nanite RT 줄이 그 이야기다.</p>
+
+<h2>12. Nanite 와 World Partition — 서로 모른다</h2>
 
 <p>이 둘 사이에는 <b>코드 의존이 양방향 모두 없다.</b> Nanite 렌더러 폴더 전체에서 <code>WorldPartition</code> 이라는 문자열이 한 번도 나오지 않고, World Partition 의 스트리밍 코어에도 Nanite 호출이 없다.</p>
 
@@ -226,7 +434,7 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 
 <p>Nanite 는 <b>메시 하나를 어떻게 그릴지</b>의 문제이고, World Partition 은 <b>레벨의 어느 조각을 메모리에 올릴지</b>의 문제다. 다루는 층이 다르다.</p>
 
-<h2>9. HLOD 는 두 종류다</h2>
+<h2>13. HLOD 는 두 종류다</h2>
 
 <p>"HLOD 가 World Partition 에 의존하는가" 라는 질문에 하나로 답할 수 없다. <b>구현이 둘이기 때문이다.</b></p>
 
@@ -244,22 +452,26 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 
 <p>둘이 섞이지 않도록 엔진이 막아 두기까지 했다. World Settings 의 레거시 HLOD 설정들에는 <code>EditCondition = "WorldPartition == nullptr"</code> 이 붙어 있어서, <b>World Partition 맵에서는 아예 편집되지 않는다.</b></p>
 
-<h2>10. TSR 은 아무것도 요구하지 않는다</h2>
+<h2>14. TSR 은 아무것도 요구하지 않는다</h2>
 
 <p>TSR 구현 파일은 Nanite·Lumen·VSM 헤더를 하나도 포함하지 않는다. 유일하게 Nanite 를 언급하는 곳은 <code>r.Nanite.Foliage</code> 값을 읽어 얇은 지오메트리 판정의 기본값을 정하는 부분과, 디버그 표시 플래그를 보는 부분뿐이다.</p>
 
 <p>TSR 은 <b>이미 그려진 화면을 받아 해상도를 올리는 단계</b>라서, 그 앞에서 무엇이 어떻게 그려졌는지는 알 필요가 없다.</p>
 
-<h2>11. 콘솔 명령 한눈에</h2>
+<h2>15. 콘솔 명령 한눈에</h2>
 
 <p>이 페이지에 나온 설정을 모았다. <b>런타임 변경</b> 칸이 ✗ 인 것은 <code>ECVF_ReadOnly</code> 라서 게임이 뜬 뒤에는 바꿀 수 없다 &mdash; <code>DefaultEngine.ini</code> 에 적고 다시 띄워야 하고, 셰이더가 다시 컴파일될 수 있다.</p>
 
 <div class="tablewrap">
-<table>
+<table class="wide">
 <thead><tr><th>콘솔 명령</th><th>무엇을 정하나</th><th>엔진 기본값</th><th>런타임 변경</th></tr></thead>
 <tbody>
 <tr><td><code>r.Nanite.ProjectEnabled</code></td><td>프로젝트의 Nanite 지원. 끄면 <b>VSM 도 죽는다</b></td><td>1</td><td class="yn dep">✗</td></tr>
 <tr><td><code>r.Nanite</code></td><td>런타임 Nanite 렌더링. 꺼도 VSM 은 산다</td><td>1</td><td class="yn ok">✓</td></tr>
+<tr><td><code>r.Nanite.MaxPixelsPerEdge</code></td><td>클러스터를 고를 때 목표로 하는 삼각형 변 길이(px)</td><td>1.0</td><td class="yn ok">✓</td></tr>
+<tr><td><code>r.Nanite.MinPixelsPerEdgeHW</code></td><td>이 크기 이상인 삼각형은 하드웨어 래스터로</td><td>32</td><td class="yn ok">✓</td></tr>
+<tr><td><code>r.Nanite.Culling.TwoPass</code></td><td>앞 프레임 깊이를 쓰는 2패스 occlusion 컬링</td><td>1</td><td class="yn ok">✓</td></tr>
+<tr><td><code>r.Nanite.Tessellation</code></td><td>Nanite 테셀레이션. <code>ProgrammableRaster</code>·<code>ComputeRasterization</code> 도 함께 켜져야 한다</td><td>1</td><td class="yn ok">✓</td></tr>
 <tr><td><code>r.Shadow.Virtual.Enable</code></td><td>Virtual Shadow Maps 켜기</td><td>0</td><td class="yn ok">✓</td></tr>
 <tr><td><code>r.Shadow.Virtual.ProjectEnabled</code></td><td>프로젝트에서 VSM 허용</td><td>1</td><td class="yn dep">✗</td></tr>
 <tr><td><code>r.Shadow.Virtual.NonNanite.ProjectEnabled</code></td><td>일반(비 Nanite) 메시를 VSM 에 그릴지. 끄면 <b>그 메시들이 그림자를 못 만든다</b></td><td>1</td><td class="yn dep">✗</td></tr>
@@ -273,16 +485,22 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 </table>
 </div>
 
-<p class="note">World Partition 에는 전용 콘솔 변수가 없다. 맵 단위 설정(<code>UWorldPartition::bEnableStreaming</code>)과 새 맵 기본값(<code>bNewMapsEnableWorldPartition</code>, 기본 false)으로 정해진다.</p>
+<p class="note">World Partition 에는 전용 콘솔 변수가 없다. 맵 단위 설정(<code>UWorldPartition::bEnableStreaming</code>)과 새 맵 기본값(<code>bNewMapsEnableWorldPartition</code>, 기본 false)으로 정해진다. Nanite 종류별 <code>Allow*</code> 스위치는 6절 표에 모아 두었다 &mdash; 전부 <code>ECVF_ReadOnly</code> 라 실행 중에 바꿀 수 없다.</p>
 
-<h2>12. Nanite 를 끄면 메시는 어떻게 그려지나</h2>
+<h2>16. Nanite 를 끄면 메시는 어떻게 그려지나</h2>
 
 <p>Nanite 로 만든 스태틱 메시라도 Nanite 가 꺼져 있으면 <b>폴백 메시</b>로 그려진다. 엔진이 프록시를 만들 때 Nanite 사용 가능 여부를 보고, 안 되면 일반 <code>FStaticMeshSceneProxy</code> 를 만든다. 그래서 Nanite 를 끄는 것만으로 메시가 사라지지는 않는다 &mdash; 디테일이 줄어들 뿐이다.</p>
 
-<h2>13. 소스 위치</h2>
+<p>그 판단은 <b>프록시를 만드는 순간</b>에 한 번 내려진다. <code>ShouldCreateNaniteProxy()</code> 가 참이면 <code>Nanite::FSceneProxy</code>, 거짓이면 <code>FStaticMeshSceneProxy</code> 다. 그래서 <code>r.Nanite</code> 를 바꾸면 컴포넌트의 렌더 상태가 통째로 다시 만들어진다 &mdash; 즉시 반영되지만 그 순간 비용이 있다.</p>
+
+<blockquote>폴백은 "Nanite 가 꺼졌을 때의 안전망" 이다. 그래서 Nanite 를 켜 두고 메시에만 안 쓰는 구성(8절 ②)에서도 화면은 똑같이 나온다 &mdash; 그 메시들은 처음부터 폴백 프록시로 만들어지기 때문이다.</blockquote>
+
+<blockquote><b>한 문장으로.</b> Nanite 는 <b>파이프라인</b>과 <b>메시 데이터</b> 두 층이다. VSM 은 파이프라인만 요구하고, 메시가 Nanite 로 안 그려지면 <b>데이터·재질·컴포넌트</b> 중 하나가 걸린 것이다.</blockquote>
+
+<h2>17. 소스 위치</h2>
 
 <div class="tablewrap">
-<table>
+<table class="wide">
 <thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
 <tbody>
 <tr><td><code>UseVirtualShadowMaps</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1520~1527</td></tr>
@@ -302,7 +520,24 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 <tr><td><code>UseNanite</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1478~1483</td></tr>
 <tr><td><code>r.Nanite.ProjectEnabled</code> 선언 (ReadOnly)</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>31~38</td></tr>
 <tr><td><code>r.Shadow.Virtual.NonNanite.ProjectEnabled</code> 선언</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>77~84</td></tr>
-<tr><td>메시별 <code>bEnabled</code> (Nanite 데이터 생성)</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>3284~3286</td></tr>
+<tr><td>메시별 <code>bEnabled</code> (Nanite 데이터 생성)</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>3286</td></tr>
+<tr><td><code>NaniteAtomicsSupported</code> (DX11 차단)</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1298~1335</td></tr>
+<tr><td>Nanite 종류별 지원 함수 &mdash; 스플라인·스킨드·반투명·어셈블리·복셀·커브</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1349~1396</td></tr>
+<tr><td><code>UseNaniteTessellation</code> (세 스위치)</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1411~1423</td></tr>
+<tr><td><code>FCluster::ClusterSize = 128</code></td><td><code>Engine/Source/Developer/NaniteBuilder/Private/Cluster.h</code></td><td>269</td></tr>
+<tr><td>가시성 버퍼 <code>VisBuffer64</code></td><td><code>Engine/Source/Runtime/Renderer/Private/Nanite/NaniteShared.h</code></td><td>388</td></tr>
+<tr><td><code>r.Nanite.MaxPixelsPerEdge</code> · <code>r.Nanite.MinPixelsPerEdgeHW</code></td><td><code>Engine/Source/Runtime/Renderer/Private/Nanite/NaniteCullRaster.cpp</code></td><td>133~145</td></tr>
+<tr><td>Nanite 스트리밍 cvar (<code>r.Nanite.Streaming.*</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteStreamingManager.cpp</code></td><td>66~95</td></tr>
+<tr><td>Nanite 종류별 <code>Allow*</code> 선언 (ReadOnly)</td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>95~143</td></tr>
+<tr><td><code>r.Nanite.MinMaterialQuality</code> (기본 0)</td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>228~235</td></tr>
+<tr><td>메시별 <code>FMeshNaniteSettings</code> 전체</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>3280~3441</td></tr>
+<tr><td><code>ShouldCreateNaniteProxy</code> (전역·데이터·머티리얼 감사)</td><td><code>Engine/Source/Runtime/Engine/Public/Rendering/NaniteResourcesHelper.h</code></td><td>155~193</td></tr>
+<tr><td><code>IsMaskingAllowed</code></td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>3412~3425</td></tr>
+<tr><td>월드 설정 <code>bAllowMaskedMaterials</code></td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/WorldSettings.h</code></td><td>292</td></tr>
+<tr><td>컴포넌트 <code>bForceNaniteForMasked</code> · <code>bDisallowNanite</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Components/StaticMeshComponent.h</code></td><td>162~166</td></tr>
+<tr><td><code>UseSceneCulling</code> = <code>UseNanite</code></td><td><code>Engine/Source/Runtime/Renderer/Private/SceneCulling/SceneCulling.cpp</code></td><td>285~288</td></tr>
+<tr><td><code>r.Nanite</code> 선언 (Scalability)</td><td><code>Engine/Source/Runtime/Engine/Private/StaticMeshSceneProxy.cpp</code></td><td>109~119</td></tr>
+<tr><td><code>Nanite::FSceneProxy</code> 생성 분기</td><td><code>Engine/Source/Runtime/Engine/Private/StaticMeshSceneProxy.cpp</code></td><td>2966~2982</td></tr>
 <tr><td>안티앨리어싱 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/SceneView.cpp</code></td><td>237~244</td></tr>
 </tbody>
 </table>
@@ -313,7 +548,7 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 </article>
 
 <footer class="site-foot">
-<p>이 페이지는 여섯 기능이 서로를 필요로 하는지만 다뤘다. 각 기능이 내부에서 어떻게 동작하는지는 다루지 않았다.</p>
+<p>이 페이지는 기능 사이의 의존 관계와 Nanite 의 다섯 단계를 다뤘다. 래스터라이저·셰이더 구현과 단계별 성능 수치는 다루지 않았다.</p>
 </footer>
 
 </div>
@@ -325,7 +560,7 @@ function initDepsFigure(){
 
   // id, 이름, 화면 위치(0~1), 이 기능이 필수로 요구하는 것, 선택적으로 활용하는 것
   var NODES = [
-    { id:'nanite', name:'Nanite',           sub:'메시 디테일',   x:0.50, y:0.26, needs:[],         uses:[] },
+    { id:'nanite', name:'Nanite',           sub:'가상 지오메트리', x:0.50, y:0.26, needs:[],         uses:[] },
     { id:'vsm',    name:'Virtual Shadow Maps', sub:'동적 그림자', x:0.18, y:0.26, needs:['nanite'], uses:[] },
     { id:'lumen',  name:'Lumen',            sub:'간접광 · 반사',  x:0.82, y:0.26, needs:[],         uses:['nanite'] },
     { id:'tsr',    name:'TSR',              sub:'업스케일',      x:0.18, y:0.74, needs:[],         uses:[] },
@@ -511,6 +746,166 @@ function initNaniteLevels(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initNaniteLevels);
 else initNaniteLevels();
+</script>
+
+<script>
+/* 클러스터 트리 — 화면 크기에 따라 어느 단계의 클러스터를 고르는지.
+   실제 엔진은 클러스터마다 화면 오차를 따로 계산한다. 여기서는 그 선택이
+   메시 전체가 아니라 클러스터 단위로 일어난다는 것만 보여 준다. */
+function initClusterCut(){
+  if (!window.Viz) return;
+  var slider = document.getElementById('ccSize');
+  var sizeOut = document.getElementById('ccSizeOut');
+  var out = document.getElementById('ccOut');
+  var level = 0;
+  var v = Viz.view('cvCluster', function(){ return 300; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var top = 46, bot = h - 46;
+    var x0 = Math.max(32, w * 0.08);
+    var x1 = w * 0.38;
+    var x2 = w * 0.72;
+    var r0 = 11, r = 7.5;
+    var L1 = [0,1,2,3], L2 = [0,1,2,3,4,5,6,7];
+
+    function Y(i, n){ return top + (bot - top) * (n === 1 ? 0.5 : i / (n - 1)); }
+    function onRoot(){ return level === 0; }
+    function onL1(i){ return level === 1 && i < 2; }
+    function onL2(i){ return level === 2 || (level === 1 && i >= 4); }
+
+    // 선 — 선택된 노드로 이어지는 가지만 강조
+    function edge(xa, ya, xb, yb, live){
+      ctx.strokeStyle = live ? c.accent : c.line;
+      ctx.lineWidth = live ? 2 : 1;
+      ctx.beginPath(); ctx.moveTo(xa, ya); ctx.lineTo(xb, yb); ctx.stroke();
+    }
+    for (var i = 0; i < L1.length; i++){
+      var live1 = onRoot() || onL1(i) || onL2(i * 2) || onL2(i * 2 + 1);
+      edge(x0, Y(0,1), x1, Y(i,4), live1);
+      for (var k = 0; k < 2; k++){
+        var j = i * 2 + k;
+        edge(x1, Y(i,4), x2, Y(j,8), onL2(j));
+      }
+    }
+
+    function node(x, y, rad, on, label){
+      ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2);
+      ctx.fillStyle = on ? c.accent : c.sf2;
+      ctx.globalAlpha = on ? 1 : 0.8;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = on ? 2 : 1;
+      ctx.strokeStyle = on ? c.accent : c.line;
+      ctx.stroke();
+      if (label) Viz.text(ctx, label, x, y + rad + 12, on ? c.accent : c.dim, 9, 'center');
+    }
+
+    node(x0, Y(0,1), r0, onRoot(), '메시 전체');
+    for (var i2 = 0; i2 < L1.length; i2++) node(x1, Y(i2,4), r, onL1(i2), '');
+    for (var j2 = 0; j2 < L2.length; j2++) node(x2, Y(j2,8), r, onL2(j2), '');
+
+    Viz.text(ctx, '거칠게', x1, 20, c.dim, 10, 'center');
+    Viz.text(ctx, '잘게', x2, 20, c.dim, 10, 'center');
+
+    var n = level === 0 ? 1 : (level === 1 ? 6 : 8);
+    Viz.text(ctx, '지금 그리는 클러스터 ' + n + '개', w / 2, h - 14, c.text, 11, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    var size = parseInt(slider.value, 10) || 0;
+    level = size < 34 ? 0 : (size < 67 ? 1 : 2);
+    sizeOut.textContent = level === 0 ? '작다' : (level === 1 ? '중간' : '크다');
+    if (level === 0){
+      out.className = 'verdict';
+      out.textContent = '클러스터 1개. 메시 전체를 가장 거친 단계 하나로 그린다.';
+    } else if (level === 1){
+      out.className = 'verdict ok';
+      out.textContent = '클러스터 6개. 위쪽(먼 쪽)은 거친 덩어리 2개, 아래쪽(가까운 쪽)은 잘게 나눈 4개 — 한 메시 안에서 단계가 갈린다.';
+    } else {
+      out.className = 'verdict ok';
+      out.textContent = '클러스터 8개. 전부 잘게 나눈 단계로 그린다. 그래도 화면 픽셀보다 작은 삼각형은 GPU 가 버린다.';
+    }
+    v.render();
+  }
+
+  slider.addEventListener('input', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initClusterCut);
+else initClusterCut();
+</script>
+
+<script>
+/* Nanite 메시 종류별 판정 — 엔진의 지원 함수와 같은 규칙으로 계산한다.
+   Foliage 는 어셈블리·복셀 지원까지 함께 열고, 테셀레이션은 세 스위치가 모두 필요하다. */
+function initNaniteKinds(){
+  var out = document.getElementById('nkVerdict');
+  if (!out) return;
+
+  var INPUTS = ['nkPipe','nkData','kSkinned','kSpline','kFoliage','kAssembly','kVoxel','kCurve','kTranslucency','kTess'];
+  var NAMES = {
+    static:'스태틱', skinned:'스킨드', spline:'스플라인', foliage:'폴리지',
+    assembly:'어셈블리', voxel:'복셀', curve:'커브', translucency:'반투명', tess:'테셀레이션'
+  };
+  var KINDS = ['static','skinned','spline','foliage','assembly','voxel','curve','translucency','tess'];
+
+  function checked(id){
+    var el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
+
+  function update(){
+    var pipe = checked('nkPipe');
+    var data = checked('nkData');
+    var foliage = checked('kFoliage');
+    var s = {
+      static: true,
+      skinned: checked('kSkinned'),
+      spline: checked('kSpline'),
+      foliage: foliage,
+      assembly: checked('kAssembly') || foliage,
+      voxel: checked('kVoxel') || foliage,
+      curve: checked('kCurve'),
+      translucency: checked('kTranslucency'),
+      tess: checked('kTess')
+    };
+
+    var live = [];
+    for (var i = 0; i < KINDS.length; i++){
+      var k = KINDS[i];
+      var ok = pipe && data && s[k];
+      var cell = document.querySelector('.nst[data-k="' + k + '"]');
+      if (cell){
+        cell.textContent = ok ? 'Nanite' : '폴백';
+        cell.className = 'nst ' + (ok ? 'on' : 'off');
+      }
+      if (ok) live.push(NAMES[k]);
+    }
+
+    if (!pipe){
+      out.className = 'verdict bad';
+      out.textContent = 'Nanite 파이프라인이 꺼져 있어 모든 메시가 폴백으로 그려진다. 플랫폼·프로젝트·r.Nanite 중 하나라도 꺼진 상태다.';
+    } else if (!data){
+      out.className = 'verdict bad';
+      out.textContent = '이 메시에는 Nanite 데이터가 없어 파이프라인이 켜져 있어도 폴백이다. 에셋의 Enable Nanite 가 꺼진 상태다.';
+    } else if (live.length === KINDS.length){
+      out.className = 'verdict ok';
+      out.textContent = '아홉 종류가 전부 Nanite 로 그려진다. 실험 단계 스위치까지 다 켠 상태다.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = 'Nanite 로 그려지는 종류: ' + live.join(', ') + '. 나머지는 종류별 스위치가 꺼져 있어 폴백으로 간다.';
+    }
+  }
+
+  for (var i = 0; i < INPUTS.length; i++){
+    var el = document.getElementById(INPUTS[i]);
+    if (el) el.addEventListener('change', update);
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initNaniteKinds);
+else initNaniteKinds();
 </script>
 
 </body>
