@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Collision — Preset · Channel · Trace</title>
 <meta name="note-title" content="Collision — Preset · Channel · Trace">
-<meta name="note-summary" content="프리셋·채널·응답으로 충돌을 거르는 법과, Line·Sweep·Overlap 트레이스를 고르는 법. 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지도.">
+<meta name="note-summary" content="프리셋·채널·응답으로 충돌을 거르는 법과, ByChannel·ByObjectType·ByProfile, Line·Sweep·Overlap 트레이스를 고르는 법.">
 <meta name="note-tags" content="Collision, Collision Channel, Collision Preset, Trace, Physics">
 <meta name="note-order" content="11">
 <meta name="note-category" content="충돌과 물리">
@@ -30,6 +30,7 @@ select{font:inherit;font-size:.88rem;padding:7px 9px;border:1px solid var(--line
 .axis td:first-child{white-space:nowrap}
 .api td:first-child{white-space:nowrap}
 .cmp td:first-child{white-space:nowrap}
+.bpt td:first-child{white-space:nowrap}
 .params{list-style:none;margin:0 0 16px;padding:0;display:grid;gap:8px}
 .params li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
 .params .small{margin-left:4px}
@@ -60,7 +61,7 @@ select{font:inherit;font-size:.88rem;padding:7px 9px;border:1px solid var(--line
 
 <header class="site-head">
 <h1>Collision — Preset · Channel · Trace</h1>
-<p>프리셋·채널·응답으로 충돌을 거르는 법과, Line·Sweep·Overlap 트레이스를 고르는 법. 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지도.</p>
+<p>프리셋·채널·응답으로 충돌을 거르는 법과, ByChannel·ByObjectType·ByProfile, Line·Sweep·Overlap 트레이스를 고르는 법. 두 물체가 막히려면 왜 양쪽이 모두 Block이어야 하는지도.</p>
 </header>
 
 <article>
@@ -272,7 +273,7 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 <tbody>
 <tr><td><b>모양</b></td><td>Line · Sweep · Overlap</td><td><code>LineTrace…</code> · <code>Sweep…</code> · <code>Overlap…</code></td></tr>
 <tr><td><b>개수</b></td><td>Single · Multi · Test</td><td><code>…Single…</code> · <code>…Multi…</code> · <code>…Test…</code></td></tr>
-<tr><td><b>필터</b></td><td>Channel · ObjectType</td><td><code>…ByChannel</code> · <code>…ByObjectType</code></td></tr>
+<tr><td><b>필터</b></td><td>Channel · ObjectType · Profile</td><td><code>…ByChannel</code> · <code>…ByObjectType</code> · <code>…ByProfile</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -322,19 +323,20 @@ FCollisionResponseParams(ECollisionResponse DefaultResponse = ECR_Block)</code><
 
 <p><b>Single 은 Overlap 을 무시한다.</b> 엔진이 Single·Test 에서는 <code>bIgnoreTouches</code> 를 강제로 켜기 때문이다. 첫 Block 만 <code>FHitResult</code> 로 돌려주고, 맞은 것이 Overlap 뿐이면 결과가 비어 있다. <b>Multi 는 Overlap 도 모은다.</b> 대신 Block 을 만나면 그 뒤로는 보지 않는다. <b>Test 는 bool 만</b> 돌려준다 &mdash; 어디에 맞았는지, 몇 개 맞았는지는 알려 주지 않는다. 가장 싸다.</p>
 
-<h2>8. Channel 로 쏘나, ObjectType 으로 쏘나</h2>
+<h2>8. Channel · ObjectType · Profile — 세 가지 필터</h2>
 
-<p>거르는 방식도 둘이다. <b>ByChannel</b> 은 채널 하나를 정하고 <b>오브젝트의 응답</b>을 본다. <b>ByObjectType</b> 은 오브젝트 타입 여러 개를 정하고 <b>그 타입인지</b>만 본다.</p>
+<p>거르는 방식이 셋이다. <b>ByChannel</b> 은 채널 하나를 정하고 <b>오브젝트의 응답</b>을 본다. <b>ByObjectType</b> 은 오브젝트 타입 여러 개를 정하고 <b>그 타입인지</b>만 본다. <b>ByProfile</b> 은 프리셋 이름을 받아 <b>ByChannel 로 풀어서</b> 쏜다.</p>
+
+<p>앞의 둘은 서로 다른 축이지만, ByProfile 은 세 번째 축이라기보다 <b>ByChannel 의 다른 입력 방식</b>에 가깝다. 헷갈리는 지점이 거기서 나온다.</p>
 
 <div class="tablewrap">
 <table class="cmp">
 <thead><tr><th></th><th>ByChannel</th><th>ByObjectType</th></tr></thead>
 <tbody>
-<tr><td>고르는 것</td><td>채널 하나 (<code>ECC_Visibility</code> 등)</td><td>오브젝트 타입 여러 개 (<code>ECC_Pawn</code>, <code>ECC_Vehicle</code> …)</td></tr>
-<tr><td>응답</td><td><b>본다</b></td><td><b>안 본다</b> &mdash; 타입이 맞으면 맞는다</td></tr>
-<tr><td>쿼리 응답</td><td><code>FCollisionResponseParams</code></td><td>없다</td></tr>
-<tr><td>대표 함수</td><td><code>LineTraceSingleByChannel</code></td><td><code>LineTraceSingleByObjectType</code></td></tr>
-<tr><td>쓰는 곳</td><td>무기·카메라처럼 오브젝트의 필터 정책을 존중해야 할 때</td><td>"Pawn·Vehicle 만" 같은 타입 스캔</td></tr>
+<tr><td>고르는 것</td><td>채널 하나</td><td>타입 여러 개</td></tr>
+<tr><td>응답</td><td>본다</td><td>안 본다 (타입만)</td></tr>
+<tr><td>쿼리 쪽</td><td>ResponseParams</td><td>없다</td></tr>
+<tr><td>쓰는 곳</td><td>필터 정책을 존중</td><td>타입 스캔</td></tr>
 </tbody>
 </table>
 </div>
@@ -350,6 +352,77 @@ World-&gt;LineTraceSingleByObjectType(Hit, Start, End, ObjParams, Params);</code
 <blockquote><b>오브젝트 타입 쿼리는 응답을 보지 않는다.</b> Chaos 필터의 <code>ObjectTypeNarrowFilter</code> 는 쿼리 타입 마스크와 오브젝트의 채널 비트만 비교한다. 그래서 <b>모든 채널을 Ignore 로 둔 오브젝트도</b> 타입이 맞으면 오브젝트 타입 쿼리에는 맞는다. Collision Enabled(쿼리 트리에 있나)와 무시 목록은 여전히 적용된다.</blockquote>
 
 <p>반대로 채널 쿼리는 6절의 규칙을 그대로 따른다. 오브젝트의 응답과 쿼리 쪽 응답의 <b>min</b> 이 결과를 정한다.</p>
+
+<h3>ByProfile — 프리셋을 <b>쿼리 쪽 설정</b>으로 쓴다</h3>
+
+<p>ByProfile 은 이름만 보면 "이 프리셋을 가진 오브젝트를 찾는다" 처럼 읽힌다. 실제로는 <b>프리셋을 채널과 응답으로 풀어서</b> ByChannel 을 호출한다.</p>
+
+<pre><code>// 엔진이 하는 일
+GetCollisionProfileChannelAndResponseParams(ProfileName, Channel, ResponseParam);
+// Channel       = 프리셋의 ObjectType
+// ResponseParam = 프리셋의 ResponseToChannels
+
+return LineTraceSingleByChannel(..., Channel, Params, ResponseParam);</code></pre>
+
+<p>ByProfile 에도 Line·Sweep·Overlap, Single·Multi·Test 변형이 있다. 예를 들어 <code>LineTraceSingleByProfile(..., "Pawn", Params)</code> 은 <code>LineTraceSingleByChannel(..., ECC_Pawn, Params, ResponseParams(Pawn))</code> 과 같다. <b>대상의 프리셋 이름을 보는 것이 아니라, 내가 그 프리셋을 가진 객체인 것처럼 쏘는 것</b>이다.</p>
+
+<div class="tablewrap">
+<table class="bpt">
+<thead><tr><th>프리셋</th><th>해석과 결과</th></tr></thead>
+<tbody>
+<tr><td><code>Pawn</code><br><span class="small">채널 ECC_Pawn</span></td><td>대상 오브젝트 타입 응답이 전부 Block. 대상이 Pawn 채널을 Block 하면 맞는다</td></tr>
+<tr><td><code>Spectator</code><br><span class="small">채널 ECC_Pawn</span></td><td>대상 오브젝트 타입 중 WorldStatic 만 Block. 그래서 <b>WorldStatic 만 맞는다</b></td></tr>
+<tr><td><code>NoCollision</code><br><span class="small">채널 ECC_WorldStatic</span></td><td>대상 오브젝트 타입 응답이 전부 Block. <b>여전히 맞는다</b> &mdash; Enabled 는 안 본다</td></tr>
+<tr><td><code>Trigger</code><br><span class="small">채널 ECC_WorldDynamic</span></td><td>대상 오브젝트 타입 응답이 전부 Overlap. Single 은 Overlap 을 무시해 안 맞는다</td></tr>
+</tbody>
+</table>
+</div>
+
+<blockquote><b>가장 헷갈리는 두 가지.</b><br>
+1. ByProfile 은 <b>대상의 프리셋</b>을 필터로 쓰지 않는다. 대상은 자기 응답으로만 참여한다.<br>
+2. 프리셋의 <b>CollisionEnabled 는 쓰지 않는다.</b> ObjectType 과 응답만 꺼내 쓴다. 그래서 <code>NoCollision</code> 프로필로도 트레이스가 맞는다.</blockquote>
+
+<h3>같은 질문, 세 가지 방식</h3>
+
+<p>"내 앞의 Pawn 을 맞나?" 를 세 방식으로 물으면 답이 갈린다.</p>
+
+<ul>
+<li><b>ByChannel</b> &mdash; <code>LineTraceSingleByChannel(..., ECC_Visibility, ...)</code><br>대상의 <b>Visibility 응답</b>을 본다. Pawn 프리셋을 쓴 캐릭터는 Visibility 가 Ignore 라 <b>안 맞는다</b>.</li>
+<li><b>ByObjectType</b> &mdash; <code>LineTraceSingleByObjectType(..., ObjectQueryParams(Pawn), ...)</code><br>대상의 <b>ObjectType 이 Pawn</b> 이면 맞는다. Visibility 응답은 보지 않는다.</li>
+<li><b>ByProfile</b> &mdash; <code>LineTraceSingleByProfile(..., "Pawn", ...)</code><br>채널 <code>ECC_Pawn</code> + Pawn 프리셋의 쿼리 응답으로 쏜다. 대상의 <b>Pawn 채널 응답</b>을 본다. Visibility 와는 무관하다.</li>
+</ul>
+
+<p>없는 프리셋 이름을 넣으면 경고를 남기고 <code>ECC_WorldStatic</code> + 기본 응답(전부 Block)으로 떨어진다. 조용히 다른 결과가 나오는 셈이라, 이름은 문자열을 흩뿌리지 말고 한 곳에 두는 편이 낫다.</p>
+
+<div class="panel">
+  <div class="presetctl">
+    <label for="bpProfile">Profile</label>
+    <select id="bpProfile">
+      <option>Pawn</option>
+      <option>Spectator</option>
+      <option>NoCollision</option>
+      <option>Trigger</option>
+    </select>
+    <label for="bpType">대상 ObjectType</label>
+    <select id="bpType">
+      <option>WorldStatic</option>
+      <option>WorldDynamic</option>
+      <option>Pawn</option>
+      <option>PhysicsBody</option>
+    </select>
+  </div>
+  <div class="presetctl">
+    <label for="bpResp">대상의 응답 (해석된 채널)</label>
+    <select id="bpResp">
+      <option value="2">Block</option>
+      <option value="1">Overlap</option>
+      <option value="0">Ignore</option>
+    </select>
+  </div>
+  <p class="verdict" id="bpOut"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> Profile 을 <code>Spectator</code> 로, 대상 ObjectType 을 <code>Pawn</code> 으로 두라. 대상이 채널을 Block 해도 <b>맞지 않는다</b> &mdash; 스펙테이터 프리셋의 쿼리 쪽 응답이 Pawn 을 Ignore 하기 때문이다. 이제 Profile 을 <code>Pawn</code> 으로 바꾸면 맞는다.</p>
 
 <h2>9. Query Params — 무엇을 켜고 끄나</h2>
 
@@ -610,6 +683,10 @@ if (GetWorld()-&gt;SweepSingleByChannel(Hit, Start, End, Rot, ECC_Pawn, Capsule,
 <tr><td><code>FHitResult</code> 필드</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/HitResult.h</code></td><td>20~160</td></tr>
 <tr><td><code>FOverlapResult</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/OverlapResult.h</code></td><td>12</td></tr>
 <tr><td><code>FCollisionShape</code> · <code>MakeSphere/Capsule/Box</code></td><td><code>Engine/Source/Runtime/PhysicsCore/Public/CollisionShape.h</code></td><td>20 · 284~316</td></tr>
+<tr><td>ByProfile 선언</td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/World.h</code></td><td>2149~2441</td></tr>
+<tr><td>ByProfile → ByChannel 변환</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/WorldCollision.cpp</code></td><td>285~365</td></tr>
+<tr><td><code>GetChannelAndResponseParams</code> (프리셋 해석)</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/CollisionProfile.cpp</code></td><td>98</td></tr>
+<tr><td>없는 프리셋 이름의 폴백</td><td><code>Engine/Source/Runtime/Engine/Private/World.cpp</code></td><td>2052</td></tr>
 </tbody>
 </table>
 </div>
@@ -1054,6 +1131,60 @@ function initMultiFig(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initMultiFig);
 else initMultiFig();
+</script>
+
+
+<script>
+/* ByProfile 해석기 — 프리셋은 쿼리 쪽 (채널 + 응답) 으로 풀린다. */
+function initByProfile(){
+  var prof = document.getElementById('bpProfile');
+  var type = document.getElementById('bpType');
+  var resp = document.getElementById('bpResp');
+  var out = document.getElementById('bpOut');
+  if (!prof || !type || !resp || !out) return;
+
+  // BaseEngine.ini 의 오브젝트 타입별 응답만 추린 것
+  var PROFILES = {
+    Pawn:        { ch:'ECC_Pawn',        r:{ WorldStatic:'Block', WorldDynamic:'Block', Pawn:'Block', PhysicsBody:'Block' } },
+    Spectator:   { ch:'ECC_Pawn',        r:{ WorldStatic:'Block', WorldDynamic:'Ignore', Pawn:'Ignore', PhysicsBody:'Ignore' } },
+    NoCollision: { ch:'ECC_WorldStatic', r:{ WorldStatic:'Block', WorldDynamic:'Block', Pawn:'Block', PhysicsBody:'Block' } },
+    Trigger:     { ch:'ECC_WorldDynamic',r:{ WorldStatic:'Overlap', WorldDynamic:'Overlap', Pawn:'Overlap', PhysicsBody:'Overlap' } }
+  };
+  var VALUE = { Ignore:0, Overlap:1, Block:2 };
+  var NAME = ['Ignore', 'Overlap', 'Block'];
+
+  function update(){
+    var name = prof.value;
+    var p = PROFILES[name];
+    var q = p.r[type.value];
+    var t = parseInt(resp.value, 10);
+    var min = Math.min(VALUE[q], t);
+
+    var head = '해석: LineTraceSingleByChannel(..., ' + p.ch + ', Params, ResponseParams(' + name + '))';
+    var detail = '쿼리 쪽 → ' + type.value + ': ' + q + ' · 대상의 ' + p.ch + ' 응답: ' + NAME[t] + ' → min ' + NAME[min] + '.';
+    var tail;
+    if (min === 2){
+      tail = 'Blocking hit 이 생긴다. 맞는다.';
+    } else if (min === 1){
+      tail = 'Overlap 이라 막지 않는다. Single 은 무시하고 Multi 는 받는다.';
+    } else {
+      tail = 'Ignore 라 맞지 않는다.';
+    }
+    if (name === 'NoCollision'){
+      tail += ' (프리셋의 CollisionEnabled 는 ByProfile 이 쓰지 않는다.)';
+    }
+
+    out.className = 'verdict' + (min === 2 ? ' ok' : (min === 0 ? ' bad' : ''));
+    out.textContent = head + ' — ' + detail + ' ' + tail;
+  }
+
+  prof.addEventListener('change', update);
+  type.addEventListener('change', update);
+  resp.addEventListener('change', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initByProfile);
+else initByProfile();
 </script>
 
 </body>
