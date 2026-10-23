@@ -107,16 +107,25 @@ RunBehaviorTree(BTAsset);
 <li><code>PauseLogic</code>/<code>ResumeLogic</code> — BT 전체를 일시정지/재개.</li>
 </ul>
 
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="btRunPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="btRunReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="btRunCv" aria-label="Sequence 아래 MoveTo, Wait, Attack Task가 순서대로 실행되고 끝나면 다시 도는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="btRunOut"></p>
+</div>
+
 <h2>4. 노드의 네 종류</h2>
 
 <div class="tablewrap">
 <table>
-<thead><tr><th>노드</th><th>역할</th><th>핵심 함수</th></tr></thead>
+<thead><tr><th>노드</th><th>역할과 핵심 함수</th></tr></thead>
 <tbody>
-<tr><td><b>Composite</b></td><td>자식 실행 순서 제어</td><td><code>GetNextChild</code>, <code>OnChildActivation</code></td></tr>
-<tr><td><b>Task</b></td><td>실제 행동</td><td><code>ExecuteTask</code>, <code>TickTask</code>, <code>FinishLatentTask</code></td></tr>
-<tr><td><b>Decorator</b></td><td>조건/가드</td><td><code>CalculateRawConditionValue</code>, <code>NotifyObserver</code></td></tr>
-<tr><td><b>Service</b></td><td>주기적 갱신</td><td><code>TickNode</code>, <code>OnBecomeRelevant</code></td></tr>
+<tr><td><b>Composite</b></td><td>자식 실행 순서 제어. <code>GetNextChild</code>, <code>OnChildActivation</code></td></tr>
+<tr><td><b>Task</b></td><td>실제 행동. <code>ExecuteTask</code>, <code>TickTask</code>, <code>FinishLatentTask</code></td></tr>
+<tr><td><b>Decorator</b></td><td>조건/가드. <code>CalculateRawConditionValue</code>, <code>NotifyObserver</code></td></tr>
+<tr><td><b>Service</b></td><td>주기적 갱신. <code>TickNode</code>, <code>OnBecomeRelevant</code></td></tr>
 </tbody>
 </table>
 </div>
@@ -189,6 +198,92 @@ RunBehaviorTree(BTAsset);
 </footer>
 
 </div>
+
+
+<script>
+/* BT 실행 — Sequence가 Task를 순서대로 실행 */
+(function(){
+  var cv = document.getElementById('btRunCv');
+  var play = document.getElementById('btRunPlay');
+  var reset = document.getElementById('btRunReset');
+  var out = document.getElementById('btRunOut');
+  if (!cv || !out) return;
+
+  var steps = [
+    {name:'MoveTo', dur:1.4, color:'accent'},
+    {name:'Wait', dur:0.9, color:'accent'},
+    {name:'Attack', dur:1.1, color:'accent'}
+  ];
+  var idx = 0, timer = 0, running = true;
+
+  var v = Viz.view('btRunCv', function(){ return 250; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var rootX = w / 2, rootY = 34;
+    var rowY = 92;
+    var gap = (w - 50) / steps.length;
+    var bw = Math.min(96, gap - 10);
+
+    function box(x, y, ww, hh, label, active, sub){
+      Viz.roundRect(ctx, x - ww/2, y - hh/2, ww, hh, 7);
+      ctx.fillStyle = active ? 'rgba(63,125,90,0.14)' : c.sf2; ctx.fill();
+      ctx.strokeStyle = active ? c.accent : c.line; ctx.lineWidth = active ? 2.2 : 1; ctx.stroke();
+      Viz.text(ctx, label, x, y - (sub ? 6 : 0), active ? c.accent : c.text, 9, 'center');
+      if (sub) Viz.text(ctx, sub, x, y + 9, c.dim, 7.5, 'center');
+    }
+
+    box(rootX, rootY, 120, 32, 'Sequence', true, null);
+    for (var i = 0; i < steps.length; i++){
+      var x = 25 + gap * i + gap / 2;
+      var active = i === idx;
+      ctx.strokeStyle = active ? c.accent : c.line;
+      ctx.lineWidth = active ? 2 : 1;
+      ctx.beginPath(); ctx.moveTo(rootX, rootY + 16); ctx.lineTo(x, rowY - 18); ctx.stroke();
+      box(x, rowY, bw, 40, steps[i].name, active, active ? Math.round((timer / steps[i].dur) * 100) + '%' : null);
+
+      if (active){
+        var p = Math.min(1, timer / steps[i].dur);
+        ctx.fillStyle = c.sf2; ctx.fillRect(x - bw/2, rowY + 30, bw, 5);
+        ctx.fillStyle = c.accent; ctx.fillRect(x - bw/2, rowY + 30, bw * p, 5);
+      }
+    }
+
+    // 현재 실행 순서
+    var names = [];
+    for (var k = 0; k < steps.length; k++){
+      names.push(k < idx ? '✓' : (k === idx ? '▶' : '·'));
+    }
+    Viz.text(ctx, 'Sequence: ' + names.join(' '), rootX, h - 28, c.text, 9, 'center');
+    Viz.text(ctx, 'Task가 Succeeded를 돌려주면 다음 자식으로', rootX, h - 12, c.dim, 8, 'center');
+  });
+
+  if (!v) return;
+
+  function output(){
+    out.className = 'verdict';
+    out.textContent = 'Sequence는 ' + steps[idx].name + '를 실행 중이다. Succeeded면 다음 Task로, Failed면 Sequence 전체가 실패한다.';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    timer += 1 / 60;
+    if (timer >= steps[idx].dur){
+      timer = 0;
+      idx = (idx + 1) % steps.length;
+      output();
+    }
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+  });
+  reset.addEventListener('click', function(){
+    idx = 0; timer = 0; output(); v.render();
+  });
+  output();
+})();
+</script>
 
 </body>
 </html>

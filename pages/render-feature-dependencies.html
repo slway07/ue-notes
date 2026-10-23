@@ -549,6 +549,15 @@ DoesRuntimeSupportNanite()
 
 <p class="src">출처 — 위 표의 파일과 줄 번호 (UE 5.8).</p>
 
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="rfPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="rfReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="rfCv" aria-label="Depth, Base, Lighting, Translucency, Post Pass가 의존성 순서대로 진행되는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="rfOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -910,6 +919,74 @@ function initNaniteKinds(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initNaniteKinds);
 else initNaniteKinds();
+</script>
+
+
+<script>
+/* Render Feature Dependencies — 패스 순서 */
+(function(){
+  var cv = document.getElementById('rfCv');
+  var play = document.getElementById('rfPlay');
+  var reset = document.getElementById('rfReset');
+  var out = document.getElementById('rfOut');
+  if (!cv || !out) return;
+
+  var stages = ['Depth', 'Base', 'Lighting', 'Translucency', 'Post'];
+  var stage = 0, timer = 0, running = true, last = null;
+
+  var v = Viz.view('rfCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var gap = (w - 40) / stages.length;
+    var bw = Math.min(58, gap - 8);
+    var y = h / 2;
+
+    for (var i = 0; i < stages.length; i++){
+      var x = 20 + gap * i + gap / 2;
+      var active = i === stage;
+      var done = i < stage;
+      if (i > 0){
+        ctx.strokeStyle = i <= stage ? c.accent : c.line;
+        ctx.lineWidth = i <= stage ? 2 : 1;
+        ctx.beginPath(); ctx.moveTo(x - gap + bw / 2, y); ctx.lineTo(x - bw / 2, y); ctx.stroke();
+      }
+      Viz.roundRect(ctx, x - bw/2, y - 22, bw, 44, 6);
+      ctx.fillStyle = active ? 'rgba(63,125,90,0.14)' : c.sf2; ctx.fill();
+      ctx.strokeStyle = active ? c.accent : (done ? c.accent : c.line);
+      ctx.lineWidth = active ? 2.2 : 1; ctx.stroke();
+      Viz.text(ctx, stages[i], x, y, active || done ? c.accent : c.text, 8.5, 'center');
+    }
+
+    Viz.text(ctx, 'Pass ' + (stage + 1) + '/5 — ' + stages[stage] + ' 대기/실행', w / 2, 18, c.text, 9.5, 'center');
+    Viz.text(ctx, stage === 0 ? 'Depth가 없으면 Base가 그릴 수 없다' :
+      stage === 1 ? 'Base Color/GBuffer를 채운다' :
+      stage === 2 ? 'Lighting이 GBuffer를 읽는다' :
+      stage === 3 ? 'Translucency는 Depth/Base 뒤에' : 'Post는 전체 결과 위에', w / 2, h - 16, c.dim, 8, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    out.className = 'verdict';
+    out.textContent = '현재 패스: ' + stages[stage] + '. 앞 패스의 결과가 없으면 이 패스는 시작할 수 없다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    timer += dt;
+    if (timer >= 1.2){ timer = 0; stage = (stage + 1) % stages.length; output(); }
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ stage = 0; timer = 0; last = null; output(); v.render(); });
+  output();
+})();
 </script>
 
 </body>

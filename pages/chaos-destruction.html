@@ -173,6 +173,17 @@
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="sl"><label for="desRadius">필드 반경</label><input type="range" id="desRadius" min="40" max="130" value="90" step="1"><output id="desRadiusO">90</output></div>
+  <div class="sl"><label for="desPower">세기</label><input type="range" id="desPower" min="10" max="100" value="60" step="1"><output id="desPowerO">60</output></div>
+  <div class="ctl">
+    <button type="button" id="desPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="desReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="desCv" aria-label="Radial 필드 펄스가 반경 안의 블록을 깨뜨리고 떨어뜨리는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="desOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -262,6 +273,121 @@ function initField(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initField);
 else initField();
+</script>
+
+
+<script>
+/* Destruction — Radial 필드 펄스와 블록 파괴 */
+(function(){
+  var cv = document.getElementById('desCv');
+  var radius = document.getElementById('desRadius');
+  var power = document.getElementById('desPower');
+  var radiusO = document.getElementById('desRadiusO');
+  var powerO = document.getElementById('desPowerO');
+  var play = document.getElementById('desPlay');
+  var reset = document.getElementById('desReset');
+  var out = document.getElementById('desOut');
+  if (!cv || !out) return;
+
+  var blocks = [];
+  var pulse = 0, timer = 0, running = true, last = null;
+
+  function seed(){
+    blocks = [];
+    for (var gx = 0; gx < 5; gx++){
+      for (var gy = 0; gy < 3; gy++){
+        blocks.push({x: 0, y: 0, gx: gx, gy: gy, broken: false, vy: 0, rot: 0});
+      }
+    }
+    pulse = 0; timer = 0;
+  }
+  seed();
+
+  var v = Viz.view('desCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cx = w / 2, cy = h / 2;
+    var r = parseFloat(radius.value);
+    var pw = parseFloat(power.value);
+
+    // 필드
+    ctx.globalAlpha = 0.08; ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    Viz.text(ctx, 'RadialFalloff ' + r, cx, cy + r + 12, c.dim, 8, 'center');
+
+    for (var i = 0; i < blocks.length; i++){
+      var b = blocks[i];
+      var bx = cx - 4 * 30 + b.gx * 30;
+      var by = cy - 1 * 30 + b.gy * 30;
+      if (!b.broken){
+        b.x = bx; b.y = by;
+        ctx.fillStyle = c.sf2; ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.fillRect(bx - 11, by - 11, 22, 22); ctx.strokeRect(bx - 11, by - 11, 22, 22);
+      } else {
+        b.x += b.vx || 0; b.y += b.vy || 0; b.vy = (b.vy || 0) + 0.6;
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.rot || 0);
+        ctx.fillStyle = 'rgba(154,91,18,0.25)'; ctx.strokeStyle = c.warn; ctx.lineWidth = 1;
+        ctx.fillRect(-11, -11, 22, 22); ctx.strokeRect(-11, -11, 22, 22);
+        ctx.restore();
+      }
+    }
+
+    Viz.text(ctx, '펄스 ' + Math.round(pulse * 100) + '% · 세기 ' + pw,
+      w / 2, 18, c.text, 9, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    radiusO.value = radius.value; powerO.value = power.value;
+    var broken = 0;
+    for (var i = 0; i < blocks.length; i++) if (blocks[i].broken) broken++;
+    out.className = broken > 0 ? 'verdict bad' : 'verdict';
+    out.textContent = '파괴된 블록 ' + broken + ' / ' + blocks.length + '. 펄스가 반경 안에 닿고 세기가 임계값을 넘으면 조각이 분리된다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    timer += dt;
+    pulse = Math.min(1, timer / 1.2);
+    if (timer > 2.2){ timer = 0; pulse = 0; }
+    var r = parseFloat(radius.value);
+    var pw = parseFloat(power.value);
+    var cx = v.w / 2, cy = v.h / 2;
+    for (var i = 0; i < blocks.length; i++){
+      var b = blocks[i];
+      if (b.broken) continue;
+      var bx = cx - 4 * 30 + b.gx * 30;
+      var by = cy - 1 * 30 + b.gy * 30;
+      var d = Math.hypot(bx - cx, by - cy);
+      if (pulse > 0.8 && d < r && pw > 35){
+        b.broken = true;
+        b.vx = (bx - cx) / Math.max(1, d) * 1.5;
+        b.vy = -1.5;
+        b.rot = (Math.random() - 0.5) * 0.2;
+        b.x = bx; b.y = by;
+      }
+    }
+    output();
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running){
+      last = null;
+      if (timer > 2.2 || timer === 0){ timer = 1.3; pulse = 0.5; }
+    }
+  });
+  reset.addEventListener('click', function(){ seed(); last = null; output(); v.render(); });
+  radius.addEventListener('input', function(){ output(); v.render(); });
+  power.addEventListener('input', function(){ output(); v.render(); });
+  output();
+})();
 </script>
 
 </body>

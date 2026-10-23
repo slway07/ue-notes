@@ -175,6 +175,20 @@ PC-&gt;SetViewTarget(NewTarget, Params);</code></pre>
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="sl">
+    <label for="camBlend">BlendTime</label>
+    <input type="range" id="camBlend" min="0.2" max="3" value="0.8" step="0.1">
+    <output id="camBlendO">0.8</output>
+  </div>
+  <div class="ctl">
+    <button type="button" id="camPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="camReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="camBlendCv" aria-label="ViewTarget이 Player에서 CameraActor로 블렌드되는 동안 POV가 이동하는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="camBlendOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -182,6 +196,105 @@ PC-&gt;SetViewTarget(NewTarget, Params);</code></pre>
 </footer>
 
 </div>
+
+
+<script>
+/* ViewTarget 블렌드 — POV가 두 대상 사이를 보간 */
+(function(){
+  var cv = document.getElementById('camBlendCv');
+  var blend = document.getElementById('camBlend');
+  var blendO = document.getElementById('camBlendO');
+  var play = document.getElementById('camPlay');
+  var reset = document.getElementById('camReset');
+  var out = document.getElementById('camBlendOut');
+  if (!cv || !out) return;
+
+  var from = 0, to = 1, alpha = 0, hold = 0, running = true, last = null;
+  var v = Viz.view('camBlendCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var a = from === 0 ? {x: w*0.18, y: h*0.62, label:'Player'} : {x: w*0.82, y: h*0.38, label:'CameraActor'};
+    var b = to === 0 ? {x: w*0.18, y: h*0.62, label:'Player'} : {x: w*0.82, y: h*0.38, label:'CameraActor'};
+
+    function target(p, active){
+      ctx.fillStyle = active ? 'rgba(63,125,90,0.12)' : c.sf2;
+      ctx.strokeStyle = active ? c.accent : c.line;
+      ctx.lineWidth = active ? 2 : 1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      Viz.text(ctx, p.label, p.x, p.y + 34, active ? c.accent : c.dim, 9, 'center');
+    }
+    target(a, alpha < 0.5); target(b, alpha >= 0.5);
+
+    var px = a.x + (b.x - a.x) * alpha;
+    var py = a.y + (b.y - a.y) * alpha;
+    ctx.setLineDash([3,3]); ctx.strokeStyle = c.line;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+
+    // POV 카메라
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = c.surface; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'POV', px, py - 16, c.accent, 8.5, 'center');
+
+    // FOV
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 30, py - 18); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px + 30, py + 18); ctx.stroke();
+
+    // 블렌드 바
+    ctx.fillStyle = c.sf2; ctx.fillRect(24, h - 28, w - 48, 6);
+    ctx.fillStyle = c.accent; ctx.fillRect(24, h - 28, (w - 48) * alpha, 6);
+
+    Viz.text(ctx, 'BlendPct ' + Math.round(alpha * 100) + '% · ' + (alpha >= 1 ? 'OnBlendComplete' : 'BlendViewInfo'),
+      w / 2, 18, alpha >= 1 ? c.accent : c.text, 9.5, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    blendO.value = parseFloat(blend.value).toFixed(1);
+    if (alpha >= 1){
+      out.className = 'verdict ok';
+      out.textContent = '블렌드 완료 — PendingViewTarget이 ViewTarget으로 승격되고 OnBlendComplete가 나간다.';
+    } else if (alpha > 0){
+      out.className = 'verdict';
+      out.textContent = 'BlendPct ' + Math.round(alpha * 100) + '% — 위치·회전·FOV를 BlendViewInfo로 섞는 중이다.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = '전환 시작 — PendingViewTarget에 새 대상이 들어가고 BlendTimeToGo가 줄어든다.';
+    }
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    if (hold > 0){
+      hold -= dt;
+      if (hold <= 0){
+        var oldFrom = from;
+        from = to;
+        to = oldFrom;
+        alpha = 0;
+      }
+      output(); return;
+    }
+    alpha += dt / Math.max(0.2, parseFloat(blend.value));
+    if (alpha >= 1){ alpha = 1; hold = 0.9; }
+    output();
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){
+    from = 0; to = 1; alpha = 0; hold = 0; last = null; output(); v.render();
+  });
+  blend.addEventListener('input', function(){ alpha = 0; hold = 0; output(); v.render(); });
+  output();
+})();
+</script>
 
 </body>
 </html>

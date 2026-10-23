@@ -46,6 +46,24 @@
 .tablewrap{overflow-x:auto;margin:0 0 16px}
 .tablewrap table{margin:0;min-width:520px}
 </style>
+
+<style id="sim-style">
+:root{--text:var(--fg);--text-dim:var(--muted);--accent:var(--simple);--warn:var(--complex);--surface-2:var(--chip);--radius:12px}
+.panel{border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 22px;background:var(--surface)}
+.stage{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0 0 12px;overflow:hidden}
+.stage canvas{display:block;width:100%;height:auto}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.ctl button{font:inherit;font-size:.85rem;padding:6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--chip);color:var(--fg);cursor:pointer}
+.ctl button[aria-pressed="true"]{border-color:var(--simple);color:var(--simple);background:var(--surface)}
+.verdict{margin:10px 0 0;padding:10px 12px;border-radius:10px;font-size:.9rem;background:var(--chip)}
+.verdict.ok{color:var(--simple)}
+.verdict.bad{color:var(--complex)}
+.sl{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin:0 0 8px}
+.sl label{font-family:var(--mono);font-size:.8rem;color:var(--simple)}
+.sl output{font-family:var(--mono);font-size:.85rem}
+@media(max-width:460px){.sl{grid-template-columns:auto 1fr}.sl output{grid-column:2;text-align:left}}
+</style>
+<script src="../assets/viz.js?v=32ab0c43"></script>
 </head>
 <body>
 <div class="wrap">
@@ -168,6 +186,15 @@
 </div>
 
 <p class="src">출처 — 위 표의 파일과 줄 번호.</p>
+
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="afPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="afReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="afCv" aria-label="Tick, AnimGraph, Pose, Bone, Render 순서로 한 프레임이 진행되는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="afOut"></p>
+</div>
 
 </article>
 
@@ -614,6 +641,81 @@
   }
 
   refresh();
+})();
+</script>
+
+
+<script>
+/* AnimBP One Frame — 업데이트 순서 */
+(function(){
+  var cv = document.getElementById('afCv');
+  var play = document.getElementById('afPlay');
+  var reset = document.getElementById('afReset');
+  var out = document.getElementById('afOut');
+  if (!cv || !out) return;
+
+  var stages = ['Tick', 'AnimGraph', 'Pose', 'Bone', 'Render'];
+  var stage = 0, timer = 0, running = true, last = null, frame = 0;
+
+  var v = Viz.view('afCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var gap = (w - 40) / stages.length;
+    var bw = Math.min(60, gap - 8);
+    var y = h * 0.52;
+    for (var i = 0; i < stages.length; i++){
+      var x = 20 + gap * i + gap / 2;
+      var active = i === stage;
+      Viz.roundRect(ctx, x - bw/2, y - 22, bw, 44, 6);
+      ctx.fillStyle = active ? 'rgba(63,125,90,0.14)' : c.sf2; ctx.fill();
+      ctx.strokeStyle = active ? c.accent : c.line; ctx.lineWidth = active ? 2.2 : 1; ctx.stroke();
+      Viz.text(ctx, stages[i], x, y, active ? c.accent : c.text, 8, 'center');
+      if (i > 0){
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x - gap + bw/2, y); ctx.lineTo(x - bw/2, y); ctx.stroke();
+      }
+    }
+
+    // frame pulse
+    var px = 20 + gap * stage + gap / 2;
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(px, y + 38, 4, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Frame ' + frame + ' · ' + stages[stage], w / 2, 18, c.text, 9.5, 'center');
+    Viz.text(ctx, stage === 0 ? '입력/상태 갱신' : stage === 1 ? 'AnimGraph 평가' :
+      stage === 2 ? 'Pose 확정' : stage === 3 ? '본 변환' : '렌더에 넘김', w / 2, h - 12, c.dim, 8, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    out.className = 'verdict';
+    out.textContent = 'Stage ' + (stage + 1) + '/5 — ' + stages[stage] + '. ' +
+      (stage === 0 ? 'Tick에서 입력·상태가 갱신된다.' :
+       stage === 1 ? 'AnimGraph가 매 틱 평가된다.' :
+       stage === 2 ? '최종 Pose가 정해진다.' :
+       stage === 3 ? '본 트랜스폼이 갱신된다.' : '렌더가 그 프레임의 포즈를 쓴다.');
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    timer += dt;
+    if (timer >= 0.8){
+      timer = 0;
+      stage++;
+      if (stage >= stages.length){ stage = 0; frame++; }
+      output();
+    }
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ stage = 0; timer = 0; frame = 0; last = null; output(); v.render(); });
+  output();
 })();
 </script>
 

@@ -18,7 +18,7 @@
 <details class="cat" data-cat="충돌과 물리">
 <summary><span class="chev"></span>충돌과 물리<span class="n">10</span></summary>
 <ul class="toc">
-<li><a href="pages/collision-simple-vs-complex.html?v=c1b9c63b">
+<li><a href="pages/collision-simple-vs-complex.html?v=748e3cb1">
 <span class="t">Collision — Simple vs Complex</span>
 <span class="s">Simple은 속이 찬 솔리드, Complex는 속이 빈 껍데기. 공을 끌어 넣어 보며 차이를 확인한다.</span>
 <span class="tags"><span class="tag">Collision</span><span class="tag">Static Mesh</span><span class="tag">Trace</span></span>
@@ -38,12 +38,12 @@
 <span class="s">PerformMovement가 한 틱에 하는 순서, PhysWalking이 바닥을 찾고 계단을 오르는 법, MovementBase가 움직이는 발판을 따라가는 법, PhysFalling의 중력·공중 제어·점프.</span>
 <span class="tags"><span class="tag">CharacterMovement</span><span class="tag">PhysWalking</span><span class="tag">StepUp</span><span class="tag">FindFloor</span><span class="tag">MovementBase</span><span class="tag">PhysFalling</span></span>
 </a></li>
-<li><a href="pages/movement-network.html?v=460b90a0">
+<li><a href="pages/movement-network.html?v=a308f789">
 <span class="t">CharacterMovement — 네트워크 예측과 보정</span>
 <span class="s">클라이언트는 먼저 움직이고 서버가 검사한다. FSavedMove_Character, ReplicateMoveToServer, ServerMove, ClientAdjustPosition, SavedMoves 재생, NetworkSmoothing까지.</span>
 <span class="tags"><span class="tag">CharacterMovement</span><span class="tag">Network</span><span class="tag">Prediction</span><span class="tag">Replication</span><span class="tag">ClientAdjustPosition</span><span class="tag">Smoothing</span></span>
 </a></li>
-<li><a href="pages/movement-root-motion.html?v=6bd4b385">
+<li><a href="pages/movement-root-motion.html?v=26bbbee3">
 <span class="t">Root Motion — 애니메이션이 이동을 소유할 때</span>
 <span class="s">ERootMotionMode의 네 값, FRootMotionSource의 우선순위·누적, 몽타주 루트 모션의 실제 스위치, CharacterMovement가 루트 모션을 속도로 바꿔 충돌시키는 순서, 네트워크 보정까지.</span>
 <span class="tags"><span class="tag">Root Motion</span><span class="tag">Animation</span><span class="tag">CharacterMovement</span><span class="tag">Montage</span><span class="tag">Network</span></span>
@@ -53,17 +53,17 @@
 <span class="s">발사체의 중력·바운스·호밍·정지, 충돌 없이 회전하는 Rotating, 제어점을 잇는 InterpTo, 입력으로 뜨는 Floating, 그리고 직접 만드는 커스텀 무브먼트.</span>
 <span class="tags"><span class="tag">ProjectileMovement</span><span class="tag">RotatingMovement</span><span class="tag">InterpToMovement</span><span class="tag">FloatingPawnMovement</span><span class="tag">Custom Movement</span></span>
 </a></li>
-<li><a href="pages/chaos-body.html?v=3c0ecf45">
+<li><a href="pages/chaos-body.html?v=0c747740">
 <span class="t">Chaos — Body와 Simulation</span>
 <span class="s">PrimitiveComponent·FBodyInstance·UBodySetup의 관계, SimulatePhysics가 켜질 때 일어나는 일, 질량·감쇠·중력·힘과 충격, 물리 머티리얼, 서브스텝·비동기·CCD까지.</span>
 <span class="tags"><span class="tag">Chaos</span><span class="tag">Physics</span><span class="tag">FBodyInstance</span><span class="tag">UBodySetup</span><span class="tag">SimulatePhysics</span><span class="tag">PhysicalMaterial</span></span>
 </a></li>
-<li><a href="pages/chaos-constraints.html?v=a6238c4a">
+<li><a href="pages/chaos-constraints.html?v=4855da83">
 <span class="t">Chaos — Constraints · Ragdoll</span>
 <span class="s">두 바디를 잇는 Constraint의 선형·각도 제한과 드라이브, Physics Asset의 바디·관절, 랙돌로 만드는 순서, PhysicalAnimation으로 애니메이션과 물리를 섞는 법.</span>
 <span class="tags"><span class="tag">Chaos</span><span class="tag">Constraint</span><span class="tag">Physics Asset</span><span class="tag">Ragdoll</span><span class="tag">Physical Animation</span></span>
 </a></li>
-<li><a href="pages/chaos-destruction.html?v=efd9203d">
+<li><a href="pages/chaos-destruction.html?v=f4d7ae9a">
 <span class="t">Chaos — Fields · Destruction</span>
 <span class="s">Geometry Collection의 클러스터와 DamageThreshold, ApplyExternalStrain·Crumble·Break 이벤트, FieldSystem의 RadialFalloff·UniformVector·MetaData로 파괴와 힘을 영역으로 주는 법.</span>
 <span class="tags"><span class="tag">Chaos Destruction</span><span class="tag">Geometry Collection</span><span class="tag">Field System</span><span class="tag">Fracture</span><span class="tag">Strain</span></span>
@@ -73,47 +73,47 @@
 <details class="cat" data-cat="AI와 길찾기">
 <summary><span class="chev"></span>AI와 길찾기<span class="n">9</span></summary>
 <ul class="toc">
-<li><a href="pages/navmesh-how-it-is-built.html?v=8b334b90">
+<li><a href="pages/navmesh-how-it-is-built.html?v=81470a53">
 <span class="t">NavMesh는 어떻게 만들어지나</span>
 <span class="s">지형이 걷기면이 되기까지. 네 개의 Agent 값이 바닥을 어떻게 깎는지 단면으로 본다.</span>
 <span class="tags"><span class="tag">NavMesh</span><span class="tag">Recast</span><span class="tag">내비게이션</span></span>
 </a></li>
-<li><a href="pages/navmesh-tiles-and-layers.html?v=694d0fec">
+<li><a href="pages/navmesh-tiles-and-layers.html?v=b9e819f7">
 <span class="t">NavMesh 타일과 레이어</span>
 <span class="s">타일은 바닥을 XY로만 자른다. 높이는 레이어가 맡는다. 둘을 헷갈리면 예산 계산이 어긋난다.</span>
 <span class="tags"><span class="tag">NavMesh</span><span class="tag">Recast</span><span class="tag">내비게이션</span></span>
 </a></li>
-<li><a href="pages/ai-controller.html?v=0a930197">
+<li><a href="pages/ai-controller.html?v=78a568d7">
 <span class="t">AI Controller — Pawn을 조종하는 두뇌</span>
 <span class="s">AAIController가 Pawn을 빙의하고, PathFollowing으로 MoveTo를 수행하며, Focus·Team·Blackboard·BehaviorTree와 어떻게 연결되는지. AutoPossessAI부터 OnMoveCompleted까지.</span>
 <span class="tags"><span class="tag">AI Controller</span><span class="tag">AAIController</span><span class="tag">AutoPossessAI</span><span class="tag">MoveTo</span><span class="tag">PathFollowing</span><span class="tag">Focus</span><span class="tag">Team</span></span>
 </a></li>
-<li><a href="pages/ai-blackboard.html?v=6e791a04">
+<li><a href="pages/ai-blackboard.html?v=7b9bc097">
 <span class="t">Blackboard — BT의 공유 변수판</span>
 <span class="s">BlackboardData와 BlackboardComponent의 차이, Object·Enum·Vector 등 키 타입, FBlackboardKeySelector, 값 변경을 관찰해 BT를 중단시키는 Observer까지.</span>
 <span class="tags"><span class="tag">Blackboard</span><span class="tag">UBlackboardComponent</span><span class="tag">BlackboardKey</span><span class="tag">BlackboardKeySelector</span><span class="tag">Observer</span></span>
 </a></li>
-<li><a href="pages/ai-behavior-tree.html?v=06b11140">
+<li><a href="pages/ai-behavior-tree.html?v=f38da74d">
 <span class="t">Behavior Tree ① — 실행 구조</span>
 <span class="s">BT 에셋과 BehaviorTreeComponent, StartTree부터 Tick·ProcessExecution까지, InstanceStack과 ActiveNode, 노드 메모리와 bCreateNodeInstance, Blackboard 연결.</span>
 <span class="tags"><span class="tag">Behavior Tree</span><span class="tag">UBehaviorTree</span><span class="tag">BehaviorTreeComponent</span><span class="tag">Execution</span><span class="tag">Instancing</span><span class="tag">Blackboard</span></span>
 </a></li>
-<li><a href="pages/ai-bt-composites.html?v=863fb81c">
+<li><a href="pages/ai-bt-composites.html?v=e1a4defb">
 <span class="t">Behavior Tree ② — Composite · Decorator · Service</span>
 <span class="s">Selector·Sequence·SimpleParallel이 자식을 고르는 규칙, Blackboard/Cooldown/Loop/TimeLimit Decorator, 주기적으로 도는 Service, Observer가 아래쪽 실행을 중단하는 흐름.</span>
 <span class="tags"><span class="tag">Behavior Tree</span><span class="tag">Selector</span><span class="tag">Sequence</span><span class="tag">SimpleParallel</span><span class="tag">Decorator</span><span class="tag">Service</span><span class="tag">FlowAbort</span></span>
 </a></li>
-<li><a href="pages/ai-bt-tasks.html?v=291de91e">
+<li><a href="pages/ai-bt-tasks.html?v=b14f3cf9">
 <span class="t">Behavior Tree ③ — Task와 Latent</span>
 <span class="s">ExecuteTask의 네 가지 결과, MoveTo·Wait·PlayAnimation·RunEQSQuery, FinishLatentTask/FinishLatentAbort, 중단 시 FinishLatentAbort와 OnTaskFinished(Aborted), 노드 메모리와 bCreateNodeInstance까지.</span>
 <span class="tags"><span class="tag">Behavior Tree</span><span class="tag">BTTaskNode</span><span class="tag">Latent Task</span><span class="tag">MoveTo</span><span class="tag">FinishLatentTask</span><span class="tag">AI Task</span></span>
 </a></li>
-<li><a href="pages/ai-perception.html?v=cfba1751">
+<li><a href="pages/ai-perception.html?v=5609060a">
 <span class="t">AI Perception — 보고 듣고 기억하기</span>
 <span class="s">AIPerceptionComponent와 Sight/Hearing/Damage/Touch 설정, FAIStimulus의 성공/실패와 기억, OnTargetPerceptionUpdated에서 Blackboard로 잇는 법, 진영 필터까지.</span>
 <span class="tags"><span class="tag">AI Perception</span><span class="tag">AIPerceptionComponent</span><span class="tag">Sight</span><span class="tag">Hearing</span><span class="tag">FAIStimulus</span><span class="tag">StimuliSource</span></span>
 </a></li>
-<li><a href="pages/ai-eqs.html?v=e4029c6b">
+<li><a href="pages/ai-eqs.html?v=81f9fd86">
 <span class="t">EQS — 어디로 갈까</span>
 <span class="s">EnvQuery의 Generator·Test·Context, SingleResult/AllMatching 실행 모드, RunQuery와 Blueprint Wrapper, BT RunEQSQuery, 그리고 EQS를 매 틱 돌리면 안 되는 이유.</span>
 <span class="tags"><span class="tag">EQS</span><span class="tag">EnvQuery</span><span class="tag">EnvQueryManager</span><span class="tag">Generator</span><span class="tag">Test</span><span class="tag">Context</span><span class="tag">RunEQSQuery</span></span>
@@ -123,7 +123,7 @@
 <details class="cat" data-cat="애니메이션">
 <summary><span class="chev"></span>애니메이션<span class="n">7</span></summary>
 <ul class="toc">
-<li><a href="pages/animbp-one-frame.html?v=2ebc1a90">
+<li><a href="pages/animbp-one-frame.html?v=f11994e4">
 <span class="t">AnimBP는 한 프레임에 무엇을 하나</span>
 <span class="s">Update는 게임 스레드와 워커 스레드로 갈린다. 어느 쪽에서 도는지를 알면 스레드 세이프 규칙이 암기가 아니게 된다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">멀티스레드</span></span>
@@ -148,12 +148,12 @@
 <span class="s">상반신만 떼어내 런타임에 갈아끼우는 장치. 쓸 경우와 쓰지 않을 경우, 그리고 설정 네 단계.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">Linked Anim Layer</span></span>
 </a></li>
-<li><a href="pages/animbp-layers-inside.html?v=4ea31999">
+<li><a href="pages/animbp-layers-inside.html?v=257166ed">
 <span class="t">AnimBP 레이어 ② 안에서 무슨 일이 일어나나</span>
 <span class="s">레이어는 그래프 조각이 아니라 별도의 AnimInstance 객체다. 그 사실 하나가 비용과 스레드 규칙을 설명한다.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">AnimInstance</span></span>
 </a></li>
-<li><a href="pages/animbp-layers-pitfalls.html?v=5ada013a">
+<li><a href="pages/animbp-layers-pitfalls.html?v=62ba9570">
 <span class="t">AnimBP 레이어 ③ 흔한 실수와 런타임 교체</span>
 <span class="s">되돌리지 않는 경우, 인터페이스 없이 쓰는 경우, 조용히 느는 비용. 그리고 런타임 교체 함수.</span>
 <span class="tags"><span class="tag">Animation</span><span class="tag">AnimBP</span><span class="tag">Linked Anim Layer</span></span>
@@ -163,7 +163,7 @@
 <details class="cat" data-cat="렌더링">
 <summary><span class="chev"></span>렌더링<span class="n">1</span></summary>
 <ul class="toc">
-<li><a href="pages/render-feature-dependencies.html?v=5f9e7080">
+<li><a href="pages/render-feature-dependencies.html?v=2f05d578">
 <span class="t">Lumen · Nanite · VSM — 의존 관계와 Nanite 해부</span>
 <span class="s">기능 사이의 의존 관계를 정리하고, Nanite 를 파이프라인·메시 종류·메시별 설정으로 나눠 해부한다. VSM 이 왜 Nanite 지원을 요구하는지도 여기서 나온다.</span>
 <span class="tags"><span class="tag">Rendering</span><span class="tag">Nanite</span><span class="tag">Lumen</span><span class="tag">Virtual Shadow Maps</span><span class="tag">GPU Driven</span></span>
@@ -173,12 +173,12 @@
 <details class="cat" data-cat="카메라">
 <summary><span class="chev"></span>카메라<span class="n">3</span></summary>
 <ul class="toc">
-<li><a href="pages/camera-view.html?v=59fc2279">
+<li><a href="pages/camera-view.html?v=dd0e3c79">
 <span class="t">Camera — View는 누가 결정하나</span>
 <span class="s">CameraComponent는 제안만 하고, PlayerCameraManager가 최종 POV를 만든다. ViewTarget·전환·CalcCamera·모디파이어, 그리고 액터 틱이 끝난 뒤 카메라가 갱신되는 순서.</span>
 <span class="tags"><span class="tag">Camera</span><span class="tag">PlayerCameraManager</span><span class="tag">ViewTarget</span><span class="tag">CameraComponent</span><span class="tag">POV</span></span>
 </a></li>
-<li><a href="pages/camera-spring-arm.html?v=dc711d75">
+<li><a href="pages/camera-spring-arm.html?v=18ad2308">
 <span class="t">SpringArm — 카메라의 거리·회전·충돌</span>
 <span class="s">SpringArm이 카메라를 어디에 두고 어떻게 돌리는지. TargetArmLength, bUsePawnControlRotation, bInheritPitch/Yaw/Roll, ProbeChannel 충돌 스윕, 카메라 랙까지.</span>
 <span class="tags"><span class="tag">SpringArm</span><span class="tag">CameraComponent</span><span class="tag">Camera Collision</span><span class="tag">Camera Lag</span><span class="tag">Control Rotation</span></span>

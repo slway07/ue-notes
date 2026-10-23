@@ -227,6 +227,15 @@
 <a href="animbp-linked-layers.html">&larr; ① 왜 나누고 어떻게 쓰나</a>
 <a href="animbp-layers-pitfalls.html">③ 흔한 실수와 런타임 교체 &rarr;</a>
 </div>
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="alPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="alReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="alCv" aria-label="Base Layer와 Upper Body Layer의 블렌드 가중치가 시간에 따라 바뀌는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="alOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -366,5 +375,72 @@ function initBoneFigure(){
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBoneFigure);
 else initBoneFigure();
 </script>
+
+<script>
+/* Anim Layers — 가중치 블렌드 */
+(function(){
+  var cv = document.getElementById('alCv');
+  var play = document.getElementById('alPlay');
+  var reset = document.getElementById('alReset');
+  var out = document.getElementById('alOut');
+  if (!cv || !out) return;
+
+  var phase = 0, running = true, last = null;
+  var v = Viz.view('alCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var weight = 0.5 + 0.5 * Math.sin(phase);
+    var base = 1 - weight * 0.55;
+    var upper = weight;
+
+    function bar(x, y, ww, val, label, color){
+      ctx.fillStyle = c.sf2; ctx.fillRect(x, y, ww, 10);
+      ctx.fillStyle = color; ctx.fillRect(x, y, ww * val, 10);
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(x, y, ww, 10);
+      Viz.text(ctx, label + ' ' + Math.round(val * 100) + '%', x, y - 10, color, 8, 'left');
+    }
+    bar(30, 44, w - 60, base, 'Base', c.accent);
+    bar(30, 82, w - 60, upper, 'Upper', c.warn);
+
+    // character
+    var cx = w / 2, cy = h * 0.62;
+    ctx.strokeStyle = c.text; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 34); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy - 44, 8, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+    // upper arm blend
+    ctx.strokeStyle = c.warn; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx, cy - 26); ctx.lineTo(cx + 26 + upper * 12, cy - 42 - upper * 10); ctx.stroke();
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx, cy - 26); ctx.lineTo(cx - 26, cy - 10); ctx.stroke();
+
+    Viz.text(ctx, 'Upper Body ' + Math.round(upper * 100) + '%', w / 2, h - 16, c.text, 9, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    var weight = 0.5 + 0.5 * Math.sin(phase);
+    out.className = 'verdict';
+    out.textContent = 'Upper Layer 가중치 ' + Math.round(weight * 100) + '%. Layer 노드는 Base Pose 위에 자기 Pose를 블렌드한다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    phase += dt * 1.2;
+    output();
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ phase = 0; last = null; output(); v.render(); });
+  output();
+})();
+</script>
+
 </body>
 </html>

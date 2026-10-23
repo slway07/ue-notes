@@ -16,6 +16,16 @@
 | `assets/` | 공용 CSS / 이미지 |
 | `tools/` | 검사·배포 스크립트 |
 
+## 시뮬레이션
+
+**시간에 따라 상태가 변하는 주제는 정적 다이어그램만으로 끝내지 않는다.**
+`Viz.animate()`로 실제로 진행되는 인터랙티브 시뮬레이션을 최소 1개 넣는다.
+재생·일시정지·리셋이 있어야 하고, 슬라이더를 바꾸면 다음 프레임부터 결과에 반영되어야 한다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-simulations.ps1 -Root "D:\Work\Notes"
+```
+
 ## 배포
 
 `tools/` 의 배포 스크립트를 통해서만 커밋·푸시한다.

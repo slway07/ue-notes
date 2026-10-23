@@ -225,6 +225,16 @@
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="rmToggle" aria-pressed="true">Root Motion 켬</button>
+    <button type="button" id="rmPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="rmReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="rmCv" aria-label="Root Motion이 켜지면 캐릭터가 실제로 이동하고, 꺼지면 제자리에서 달리는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="rmOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -232,6 +242,67 @@
 </footer>
 
 </div>
+
+
+<script>
+/* Root Motion — 이동 vs 제자리 */
+(function(){
+  var cv = document.getElementById('rmCv');
+  var toggle = document.getElementById('rmToggle');
+  var play = document.getElementById('rmPlay');
+  var reset = document.getElementById('rmReset');
+  var out = document.getElementById('rmOut');
+  if (!cv || !out) return;
+
+  var x = 50, phase = 0, rootOn = true, running = true, last = null;
+  var v = Viz.view('rmCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ground = h - 36;
+    Viz.ground(ctx, 20, w - 20, ground, x, c);
+    // 거리 표시
+    for (var gx = 40; gx < w - 20; gx += 50){
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(gx, ground); ctx.lineTo(gx, ground - 6); ctx.stroke();
+    }
+    Viz.runner(ctx, x, ground, phase, 26, c, 1);
+    Viz.text(ctx, rootOn ? 'Root Motion ON — 캡슐이 실제로 이동' : 'Root Motion OFF — 애니메이션만 재생',
+      w / 2, 18, rootOn ? c.accent : c.warn, 9, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    toggle.setAttribute('aria-pressed', rootOn ? 'true' : 'false');
+    toggle.textContent = rootOn ? 'Root Motion 켬' : 'Root Motion 끔';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+    out.className = rootOn ? 'verdict ok' : 'verdict bad';
+    out.textContent = rootOn
+      ? 'Root Motion이 캡슐을 실제로 움직인다. 애니메이션의 root 궤적이 이동 거리와 속도를 결정한다.'
+      : '제자리 애니메이션 — 발은 움직이지만 캡슐은 그 자리에 있다. 이동은 코드/입력이 따로 해야 한다.';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    phase += dt * 2.2;
+    if (rootOn){
+      x += 55 * dt;
+      if (x > v.w - 50) x = 50;
+    }
+    output();
+  });
+
+  toggle.addEventListener('click', function(){ rootOn = !rootOn; output(); v.render(); });
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ x = 50; phase = 0; last = null; output(); v.render(); });
+  output();
+})();
+</script>
 
 </body>
 </html>

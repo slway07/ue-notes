@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  금칙어 게이트 -> 에셋 스탬프 -> 목차 생성 -> 금칙어 게이트 -> 커밋 -> 푸시 순서로 배포한다.
+  금칙어 게이트 -> 시뮬레이션 게이트 -> 에셋 스탬프 -> 목차 생성 -> 금칙어 게이트 -> 커밋 -> 푸시 순서로 배포한다.
 .DESCRIPTION
   하나라도 실패하면 거기서 멈추고 push 하지 않는다.
   게이트를 건너뛰는 옵션은 두지 않는다.
@@ -11,6 +11,7 @@ param(
 )
 
 $checkScript = Join-Path $Root "tools\check-forbidden.ps1"
+$simScript = Join-Path $Root "tools\check-simulations.ps1"
 $indexScript = Join-Path $Root "tools\build-index.ps1"
 $stampScript = Join-Path $Root "tools\stamp-assets.ps1"
 $siteUrl = "https://slway07.github.io/ue-notes/"
@@ -27,7 +28,7 @@ if (-not (Test-Path -LiteralPath $checkScript -PathType Leaf)) {
     exit 2
 }
 
-Write-Host "[1/7] 1차 금칙어 게이트 실행"
+Write-Host "[1/8] 1차 금칙어 게이트 실행"
 & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript -Root $Root
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[중단] 1차 금칙어 게이트 실패 (종료 코드 $LASTEXITCODE). 배포하지 않습니다." -ForegroundColor Red
@@ -35,7 +36,23 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------
-# 2. 에셋 캐시 무효화 (style.css / viz.js 링크에 내용 해시 주입)
+# 2. 시뮬레이션 게이트
+#    모든 학습 페이지에 실제 Viz.animate 시뮬레이션이 있는지 확인한다.
+# ---------------------------------------------------------------
+if (-not (Test-Path -LiteralPath $simScript -PathType Leaf)) {
+    Write-Host "[중단] 시뮬레이션 게이트 스크립트가 없습니다: $simScript" -ForegroundColor Red
+    exit 2
+}
+
+Write-Host "[2/8] 시뮬레이션 게이트 실행"
+& powershell -NoProfile -ExecutionPolicy Bypass -File $simScript -Root $Root
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[중단] 시뮬레이션 게이트 실패 (종료 코드 $LASTEXITCODE). 배포하지 않습니다." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+# ---------------------------------------------------------------
+# 3. 에셋 캐시 무효화 (style.css / viz.js 링크에 내용 해시 주입)
 #    없으면 CSS/JS 를 고쳐도 브라우저가 캐시된 옛 파일을 계속 쓴다.
 # ---------------------------------------------------------------
 if (-not (Test-Path -LiteralPath $stampScript -PathType Leaf)) {
@@ -43,7 +60,7 @@ if (-not (Test-Path -LiteralPath $stampScript -PathType Leaf)) {
     exit 2
 }
 
-Write-Host "[2/7] 에셋 캐시 무효화"
+Write-Host "[3/8] 에셋 캐시 무효화"
 & powershell -NoProfile -ExecutionPolicy Bypass -File $stampScript -Root $Root
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[중단] 에셋 스탬프 실패 (종료 코드 $LASTEXITCODE). 배포하지 않습니다." -ForegroundColor Red
@@ -51,14 +68,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------
-# 3. 목차 생성
+# 4. 목차 생성
 # ---------------------------------------------------------------
 if (-not (Test-Path -LiteralPath $indexScript -PathType Leaf)) {
     Write-Host "[중단] 목차 생성 스크립트가 없습니다: $indexScript" -ForegroundColor Red
     exit 2
 }
 
-Write-Host "[3/7] 목차 생성"
+Write-Host "[4/8] 목차 생성"
 & powershell -NoProfile -ExecutionPolicy Bypass -File $indexScript -Root $Root
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[중단] 목차 생성 실패 (종료 코드 $LASTEXITCODE). 배포하지 않습니다." -ForegroundColor Red
@@ -66,9 +83,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------
-# 4. 2차 금칙어 게이트 (생성된 index.html 포함 재검사)
+# 5. 2차 금칙어 게이트 (생성된 index.html 포함 재검사)
 # ---------------------------------------------------------------
-Write-Host "[4/7] 2차 금칙어 게이트 실행 (생성된 index.html 포함)"
+Write-Host "[5/8] 2차 금칙어 게이트 실행 (생성된 index.html 포함)"
 & powershell -NoProfile -ExecutionPolicy Bypass -File $checkScript -Root $Root
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[중단] 2차 금칙어 게이트 실패 (종료 코드 $LASTEXITCODE). 배포하지 않습니다." -ForegroundColor Red
@@ -76,9 +93,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------
-# 5. 변경 확인
+# 6. 변경 확인
 # ---------------------------------------------------------------
-Write-Host "[5/7] 변경 확인"
+Write-Host "[6/8] 변경 확인"
 $status = @(git -C $Root status --porcelain)
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[중단] git status 실패 (종료 코드 $LASTEXITCODE). Root 가 Git 저장소인지 확인하세요." -ForegroundColor Red
@@ -91,9 +108,9 @@ if ($changed.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------
-# 6. 커밋
+# 7. 커밋
 # ---------------------------------------------------------------
-Write-Host "[6/7] 커밋: $Message"
+Write-Host "[7/8] 커밋: $Message"
 git -C $Root add -A
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[실패] git add 실패 (종료 코드 $LASTEXITCODE)" -ForegroundColor Red
@@ -106,9 +123,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ---------------------------------------------------------------
-# 7. 푸시
+# 8. 푸시
 # ---------------------------------------------------------------
-Write-Host "[7/7] 푸시: origin main"
+Write-Host "[8/8] 푸시: origin main"
 git -C $Root push origin main
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[실패] git push 실패 (종료 코드 $LASTEXITCODE)" -ForegroundColor Red

@@ -193,6 +193,18 @@
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="sl"><label for="bodyMass">Mass (kg)</label><input type="range" id="bodyMass" min="1" max="20" value="5" step="1"><output id="bodyMassO">5</output></div>
+  <div class="sl"><label for="bodyDamp">LinearDamping</label><input type="range" id="bodyDamp" min="0" max="3" value="0.1" step="0.1"><output id="bodyDampO">0.1</output></div>
+  <div class="ctl">
+    <button type="button" id="bodyImpulse">AddImpulse</button>
+    <button type="button" id="bodyPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="bodyReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="bodyCv" aria-label="질량과 감쇠에 따라 상자가 떨어지고 충격을 받아 튀는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="bodyOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -200,6 +212,91 @@
 </footer>
 
 </div>
+
+
+<script>
+/* Chaos Body — 낙하와 충격 */
+(function(){
+  var cv = document.getElementById('bodyCv');
+  var mass = document.getElementById('bodyMass');
+  var damp = document.getElementById('bodyDamp');
+  var massO = document.getElementById('bodyMassO');
+  var dampO = document.getElementById('bodyDampO');
+  var impulseBtn = document.getElementById('bodyImpulse');
+  var play = document.getElementById('bodyPlay');
+  var reset = document.getElementById('bodyReset');
+  var out = document.getElementById('bodyOut');
+  if (!cv || !out) return;
+
+  var y = 64, vy = 0, running = true, last = null;
+  var v = Viz.view('bodyCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ground = h - 30;
+    var size = 34;
+    var massV = parseFloat(mass.value);
+
+    // 바닥
+    ctx.strokeStyle = c.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(20, ground); ctx.lineTo(w - 20, ground); ctx.stroke();
+
+    // 상자
+    var bx = w / 2 - size / 2, by = y - size;
+    Viz.roundRect(ctx, bx, by, size, size, 5);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'm=' + massV, w / 2, y - size - 16, c.accent, 9, 'center');
+
+    // 속도 화살표
+    if (Math.abs(vy) > 2){
+      var ay = vy > 0 ? y : y - size;
+      Viz.arrow(ctx, w / 2 + 30, ay, w / 2 + 30, ay + (vy > 0 ? 26 : -26), vy > 0 ? c.warn : c.accent, 2);
+      Viz.text(ctx, Math.round(vy) + ' cm/s', w / 2 + 36, ay + (vy > 0 ? 36 : -36), c.dim, 8, 'left');
+    }
+
+    Viz.text(ctx, '중력 980 cm/s² · 바닥에서 반발', w / 2, 18, c.text, 9, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    massO.value = mass.value; dampO.value = parseFloat(damp.value).toFixed(1);
+    out.className = 'verdict';
+    out.textContent = '현재 속도 ' + Math.round(vy) + ' cm/s. 질량이 클수록 같은 충격에 덜 튀고, 감쇠가 크면 속도가 빨리 줄어든다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    var g = 980;
+    vy += g * dt;
+    vy -= vy * parseFloat(damp.value) * dt;
+    y += vy * dt;
+    var ground = v.h - 30;
+    if (y >= ground){
+      y = ground;
+      vy = -vy * 0.45;
+      if (Math.abs(vy) < 20) vy = 0;
+    }
+    output();
+  });
+
+  impulseBtn.addEventListener('click', function(){
+    vy -= 900 / Math.max(1, parseFloat(mass.value));
+    output(); v.render();
+  });
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ y = 64; vy = 0; last = null; output(); v.render(); });
+  mass.addEventListener('input', function(){ output(); v.render(); });
+  damp.addEventListener('input', function(){ output(); v.render(); });
+  output();
+})();
+</script>
 
 </body>
 </html>

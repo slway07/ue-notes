@@ -104,6 +104,8 @@
   <div class="ctl" id="bbTabs">
     <button type="button" data-has="0" aria-pressed="false">TargetActor 없음</button>
     <button type="button" data-has="1" aria-pressed="true">TargetActor 있음</button>
+    <button type="button" id="bbAuto" aria-pressed="true">자동 전환</button>
+    <button type="button" id="bbReset">리셋</button>
   </div>
   <div class="stage"><canvas id="btCv" aria-label="TargetActor Blackboard 값에 따라 Selector가 추격 가지와 순찰 가지 중 어디를 고르는지 보여 준다."></canvas></div>
   <p class="verdict" id="btOut"></p>
@@ -207,9 +209,13 @@ function initBT(){
   if (!window.Viz) return;
   var tabs = document.getElementById('bbTabs');
   var out = document.getElementById('btOut');
+  var auto = document.getElementById('bbAuto');
+  var reset = document.getElementById('bbReset');
   if (!tabs || !out) return;
 
   var hasTarget = true;
+  var autoOn = true;
+  var timer = 0;
   var v = Viz.view('btCv', function(){ return 340; }, function(v){
     var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
     var rootX = w / 2, rootY = 34;
@@ -259,10 +265,11 @@ function initBT(){
   if (!v) return;
 
   function update(){
-    var btns = tabs.querySelectorAll('button');
+    var btns = tabs.querySelectorAll('button[data-has]');
     for (var i = 0; i < btns.length; i++){
       btns[i].setAttribute('aria-pressed', (btns[i].getAttribute('data-has') === '1') === hasTarget ? 'true' : 'false');
     }
+    if (auto) auto.setAttribute('aria-pressed', autoOn ? 'true' : 'false');
     out.className = hasTarget ? 'verdict ok' : 'verdict';
     out.textContent = hasTarget
       ? 'Selector가 위쪽 Sequence를 고른다. TargetActor Decorator가 참이고, MoveTo Target으로 간다.'
@@ -270,13 +277,35 @@ function initBT(){
     v.render();
   }
 
-  var btns = tabs.querySelectorAll('button');
+  var btns = tabs.querySelectorAll('button[data-has]');
   for (var i = 0; i < btns.length; i++){
     btns[i].addEventListener('click', function(){
       hasTarget = this.getAttribute('data-has') === '1';
+      autoOn = false;
       update();
     });
   }
+  if (auto){
+    auto.addEventListener('click', function(){
+      autoOn = !autoOn;
+      timer = 0;
+      update();
+    });
+  }
+  if (reset){
+    reset.addEventListener('click', function(){
+      hasTarget = true; autoOn = true; timer = 0; update();
+    });
+  }
+  var loop = Viz.animate(v, function(v, t){
+    if (!autoOn) return;
+    timer += 1 / 60;
+    if (timer >= 3.5){
+      timer = 0;
+      hasTarget = !hasTarget;
+      update();
+    }
+  });
   update();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initBT);

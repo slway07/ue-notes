@@ -186,6 +186,16 @@
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="sl"><label for="csLimit">Swing 제한</label><input type="range" id="csLimit" min="10" max="90" value="35" step="1"><output id="csLimitO">35</output></div>
+  <div class="ctl">
+    <button type="button" id="csPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="csReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="csCv" aria-label="중력으로 흔들리는 자식 바디가 Swing 제한 각도에서 멈추는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="csOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -296,6 +306,84 @@ function initLimit(){
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initLimit);
 else initLimit();
+</script>
+
+
+<script>
+/* Constraint — 중력 진자와 Swing 리밋 */
+(function(){
+  var cv = document.getElementById('csCv');
+  var limit = document.getElementById('csLimit');
+  var limitO = document.getElementById('csLimitO');
+  var play = document.getElementById('csPlay');
+  var reset = document.getElementById('csReset');
+  var out = document.getElementById('csOut');
+  if (!cv || !out) return;
+
+  var angle = 1.1, av = 0, running = true, last = null;
+  var v = Viz.view('csCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var px = w / 2, py = 34;
+    var len = Math.min(120, h - 90);
+    var lim = parseFloat(limit.value) * Math.PI / 180;
+
+    // 허용 영역
+    ctx.globalAlpha = 0.1; ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.moveTo(px, py);
+    ctx.arc(px, py, len + 15, Math.PI/2 - lim, Math.PI/2 + lim);
+    ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+
+    // 부모
+    Viz.roundRect(ctx, px - 16, py - 12, 32, 24, 5);
+    ctx.fillStyle = c.sf2; ctx.fill(); ctx.strokeStyle = c.text; ctx.lineWidth = 2; ctx.stroke();
+
+    // 자식
+    var bx = px + Math.sin(angle) * len;
+    var by = py + Math.cos(angle) * len;
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(bx, by); ctx.stroke();
+    Viz.roundRect(ctx, bx - 18, by - 18, 36, 36, 5);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = Math.abs(angle) >= lim - 0.01 ? c.warn : c.accent; ctx.lineWidth = 2.5; ctx.stroke();
+    Viz.text(ctx, 'Child', bx, by + 30, c.accent, 8.5, 'center');
+
+    // 각도 표시
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py + len + 18); ctx.stroke();
+    Viz.text(ctx, Math.round(angle * 180 / Math.PI) + '°', px + 18, py + 34, c.dim, 8, 'left');
+    Viz.text(ctx, 'Swing ' + limit.value + '°', px, h - 14, c.text, 9, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    limitO.value = limit.value;
+    out.className = 'verdict';
+    out.textContent = '진자가 흔들린다. 각도가 Swing 제한 ' + limit.value + '°에 닿으면 Constraint가 더 못 가게 막는다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    var lim = parseFloat(limit.value) * Math.PI / 180;
+    av += -5.5 * Math.sin(angle) * dt;
+    angle += av * dt;
+    if (angle > lim){ angle = lim; av = 0; }
+    if (angle < -lim){ angle = -lim; av = 0; }
+    output();
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ angle = 1.1; av = 0; last = null; output(); v.render(); });
+  limit.addEventListener('input', function(){ output(); v.render(); });
+  output();
+})();
 </script>
 
 </body>

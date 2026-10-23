@@ -105,6 +105,24 @@ td:first-child{font-family:var(--mono);font-size:13px;white-space:nowrap}
   input[type=range]{width:120px}
 }
 </style>
+
+<style id="sim-style">
+:root{--text:var(--fg);--text-dim:var(--muted);--accent:var(--simple);--warn:var(--complex);--surface-2:var(--chip);--radius:12px}
+.panel{border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 22px;background:var(--surface)}
+.stage{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0 0 12px;overflow:hidden}
+.stage canvas{display:block;width:100%;height:auto}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.ctl button{font:inherit;font-size:.85rem;padding:6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--chip);color:var(--fg);cursor:pointer}
+.ctl button[aria-pressed="true"]{border-color:var(--simple);color:var(--simple);background:var(--surface)}
+.verdict{margin:10px 0 0;padding:10px 12px;border-radius:10px;font-size:.9rem;background:var(--chip)}
+.verdict.ok{color:var(--simple)}
+.verdict.bad{color:var(--complex)}
+.sl{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin:0 0 8px}
+.sl label{font-family:var(--mono);font-size:.8rem;color:var(--simple)}
+.sl output{font-family:var(--mono);font-size:.85rem}
+@media(max-width:460px){.sl{grid-template-columns:auto 1fr}.sl output{grid-column:2;text-align:left}}
+</style>
+<script src="../assets/viz.js?v=32ab0c43"></script>
 </head>
 <body>
 
@@ -215,6 +233,17 @@ td:first-child{font-family:var(--mono);font-size:13px;white-space:nowrap}
   </section>
 
   <p class="foot">그림 속 길이 단위는 구 반지름을 100 cm로 본 값입니다. 판정은 2D 단면에서 계산한 단순화이며, 엔진의 실제 알고리즘(Chaos)과 세부 처리는 다를 수 있습니다.</p>
+</div>
+
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="colSimple" aria-pressed="true">Simple</button>
+    <button type="button" id="colComplex" aria-pressed="false">Complex</button>
+    <button type="button" id="colPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="colReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="colCv" aria-label="빠른 발사체가 Simple 박스와 Complex 삼각형에 부딪히는지 비교하는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="colOut"></p>
 </div>
 
 <script>
@@ -618,6 +647,106 @@ td:first-child{font-family:var(--mono);font-size:13px;white-space:nowrap}
   setSeg(document.querySelector('#c .seg'), 'data-cm', null, function(m){ CP.mode = m; renderC(); });
 
   readoutA(); readoutB(); readoutC();
+})();
+</script>
+
+
+<script>
+/* Simple vs Complex — 같은 발사체, 다른 충돌 형상 */
+(function(){
+  var cv = document.getElementById('colCv');
+  var simpleBtn = document.getElementById('colSimple');
+  var complexBtn = document.getElementById('colComplex');
+  var play = document.getElementById('colPlay');
+  var reset = document.getElementById('colReset');
+  var out = document.getElementById('colOut');
+  if (!cv || !out) return;
+
+  var mode = 'simple', x = 16, running = true, hit = false, last = null;
+  function poly(){
+    return [
+      {x:0.50, y:0.28}, {x:0.72, y:0.42}, {x:0.78, y:0.68},
+      {x:0.56, y:0.82}, {x:0.34, y:0.60}
+    ];
+  }
+  function pointInPoly(px, py, w, h, pts){
+    var inside = false;
+    for (var i = 0, j = pts.length - 1; i < pts.length; j = i++){
+      var xi = pts[i].x * w, yi = pts[i].y * h;
+      var xj = pts[j].x * w, yj = pts[j].y * h;
+      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function boxHit(px, py, w, h){
+    return px > w * 0.34 && px < w * 0.78 && py > h * 0.28 && py < h * 0.82;
+  }
+
+  var v = Viz.view('colCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var y = h * 0.54;
+    var pts = poly();
+
+    if (mode === 'simple'){
+      ctx.setLineDash([4,4]); ctx.strokeStyle = c.accent; ctx.lineWidth = 1.2;
+      ctx.strokeRect(w * 0.34, h * 0.28, w * 0.44, h * 0.54); ctx.setLineDash([]);
+    }
+
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++){
+      var px = pts[i].x * w, py = pts[i].y * h;
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = mode === 'complex' ? 'rgba(63,125,90,0.12)' : c.sf2;
+    ctx.fill(); ctx.strokeStyle = c.line; ctx.lineWidth = 1.5; ctx.stroke();
+
+    ctx.fillStyle = hit ? c.warn : c.accent;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.setLineDash([3,3]); ctx.strokeStyle = c.dim;
+    ctx.beginPath(); ctx.moveTo(16, y); ctx.lineTo(x, y); ctx.stroke(); ctx.setLineDash([]);
+
+    Viz.text(ctx, (mode === 'simple' ? 'Simple (box)' : 'Complex (polygon)') + (hit ? ' — HIT' : ' — sweeping...'),
+      w / 2, 18, hit ? c.warn : c.text, 9.5, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    simpleBtn.setAttribute('aria-pressed', mode === 'simple' ? 'true' : 'false');
+    complexBtn.setAttribute('aria-pressed', mode === 'complex' ? 'true' : 'false');
+    if (play) play.textContent = running ? '일시정지' : '재생';
+    out.className = hit ? 'verdict bad' : 'verdict';
+    out.textContent = mode === 'simple'
+      ? 'Simple은 바운딩 박스와 비교한다. 박스 안에만 들어가면 HIT — 실제 삼각형 밖이어도 맞는다.'
+      : 'Complex는 실제 삼각형 폴리곤과 비교한다. 박스 안이어도 폴리곤 밖이면 통과한다.';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running || hit) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    x += 110 * dt;
+    var y = v.h * 0.54;
+    if (mode === 'simple'){
+      if (boxHit(x, y, v.w, v.h)) hit = true;
+    } else {
+      if (pointInPoly(x, y, v.w, v.h, poly())) hit = true;
+    }
+    if (x > v.w - 16) x = 16;
+    output();
+  });
+
+  function setMode(m){ mode = m; x = 16; hit = false; last = null; output(); v.render(); }
+  simpleBtn.addEventListener('click', function(){ setMode('simple'); });
+  complexBtn.addEventListener('click', function(){ setMode('complex'); });
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ x = 16; hit = false; last = null; output(); v.render(); });
+  output();
 })();
 </script>
 

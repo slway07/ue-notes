@@ -19,6 +19,24 @@
 .src{font-size:.8rem;color:var(--text-dim)}
 .src code{font-size:.95em}
 </style>
+
+<style id="sim-style">
+:root{--text:var(--fg);--text-dim:var(--muted);--accent:var(--simple);--warn:var(--complex);--surface-2:var(--chip);--radius:12px}
+.panel{border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 22px;background:var(--surface)}
+.stage{border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:0 0 12px;overflow:hidden}
+.stage canvas{display:block;width:100%;height:auto}
+.ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px}
+.ctl button{font:inherit;font-size:.85rem;padding:6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--chip);color:var(--fg);cursor:pointer}
+.ctl button[aria-pressed="true"]{border-color:var(--simple);color:var(--simple);background:var(--surface)}
+.verdict{margin:10px 0 0;padding:10px 12px;border-radius:10px;font-size:.9rem;background:var(--chip)}
+.verdict.ok{color:var(--simple)}
+.verdict.bad{color:var(--complex)}
+.sl{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin:0 0 8px}
+.sl label{font-family:var(--mono);font-size:.8rem;color:var(--simple)}
+.sl output{font-family:var(--mono);font-size:.85rem}
+@media(max-width:460px){.sl{grid-template-columns:auto 1fr}.sl output{grid-column:2;text-align:left}}
+</style>
+<script src="../assets/viz.js?v=32ab0c43"></script>
 </head>
 <body>
 <div class="wrap">
@@ -126,6 +144,15 @@
 </table>
 
 <p class="note">출처 — <code>Engine/Config/BaseEngine.ini</code>, <code>Engine/Source/Runtime/NavigationSystem/Public/NavMesh/RecastNavMesh.h</code></p>
+
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="nmPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="nmReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="nmCv" aria-label="소스 지오메트리에서 복셀화·침식·영역·폴리곤으로 NavMesh가 만들어지는 단계를 보여 주는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="nmOut"></p>
+</div>
 
 </article>
 
@@ -476,6 +503,100 @@
   });
 
   render();
+})();
+</script>
+
+
+<script>
+/* NavMesh build — Source → Voxel → Erode → Region → Polygon */
+(function(){
+  var cv = document.getElementById('nmCv');
+  var play = document.getElementById('nmPlay');
+  var reset = document.getElementById('nmReset');
+  var out = document.getElementById('nmOut');
+  if (!cv || !out) return;
+
+  var stages = ['Source', 'Voxel', 'Erode', 'Region', 'Polygon'];
+  var stage = 0, timer = 0, running = true, last = null;
+  var cols = 8, rows = 5;
+
+  function walkable(gx, gy){
+    if (gx < 1 || gx > 6 || gy < 1 || gy > 3) return false;
+    if (gx === 3 && gy === 2) return false;
+    return true;
+  }
+
+  var v = Viz.view('nmCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cw = (w - 40) / cols, ch = (h - 56) / rows;
+    var ox = 20, oy = 28;
+
+    for (var gy = 0; gy < rows; gy++){
+      for (var gx = 0; gx < cols; gx++){
+        var wak = walkable(gx, gy);
+        var x = ox + gx * cw, y = oy + gy * ch;
+        ctx.fillStyle = wak ? (stage >= 2 ? 'rgba(63,125,90,0.16)' : c.sf2) : c.sf2;
+        if (stage === 0 && !wak) ctx.fillStyle = 'rgba(0,0,0,0.04)';
+        if (stage >= 1 && wak) ctx.fillStyle = 'rgba(63,125,90,0.10)';
+        if (stage >= 2 && wak) ctx.fillStyle = 'rgba(63,125,90,0.20)';
+        if (stage >= 3 && wak) ctx.fillStyle = (gx < 4 ? 'rgba(63,125,90,0.22)' : 'rgba(154,91,18,0.14)');
+        ctx.fillRect(x + 1, y + 1, cw - 2, ch - 2);
+        ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 1, y + 1, cw - 2, ch - 2);
+      }
+    }
+
+    // polygon outline
+    if (stage >= 4){
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 2.5;
+      ctx.strokeRect(ox + cw * 1, oy + ch * 1, cw * 6, ch * 3);
+      ctx.setLineDash([3,3]); ctx.strokeStyle = c.warn;
+      ctx.strokeRect(ox + cw * 3, oy + ch * 2, cw, ch); ctx.setLineDash([]);
+    }
+
+    // agent
+    if (stage >= 4){
+      var ax = ox + cw * (1 + (timer * 0.5) % 6);
+      var ay = oy + ch * 2.5;
+      ctx.fillStyle = c.accent;
+      ctx.beginPath(); ctx.arc(ax, ay, 5, 0, Math.PI * 2); ctx.fill();
+      Viz.text(ctx, 'Agent', ax, ay - 12, c.accent, 8, 'center');
+    }
+
+    Viz.text(ctx, 'Stage ' + (stage + 1) + '/5 — ' + stages[stage], w / 2, 18, c.text, 9.5, 'center');
+    Viz.text(ctx, stage === 0 ? '지오메트리에서 걸을 수 있는 면을 찾는다' :
+      stage === 1 ? '복셀 격자로 래스터화' :
+      stage === 2 ? 'Agent 반경만큼 침식' :
+      stage === 3 ? '연결된 영역을 나눈다' : '폴리곤으로 단순화', w / 2, h - 12, c.dim, 8, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    out.className = 'verdict';
+    out.textContent = 'Stage ' + (stage + 1) + '/5 — ' + stages[stage] + '. ' +
+      (stage === 0 ? '소스 삼각형에서 걷기 가능한 면을 고른다.' :
+       stage === 1 ? '걷기 가능한 영역을 복셀 격자에 채운다.' :
+       stage === 2 ? 'Agent 반경보다 가까운 가장자리를 깎아낸다.' :
+       stage === 3 ? '서로 연결된 복셀을 영역으로 묶는다.' : '영역 경계를 폴리곤으로 줄인다.');
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    timer += dt;
+    if (timer >= 1.4){ timer = 0; stage = Math.min(4, stage + 1); output(); }
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ stage = 0; timer = 0; last = null; output(); v.render(); });
+  output();
 })();
 </script>
 

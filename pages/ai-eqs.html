@@ -122,6 +122,8 @@
   <div class="ctl" id="eqsCtl">
     <button type="button" data-mode="near" aria-pressed="true">Target에 가깝게</button>
     <button type="button" data-mode="far" aria-pressed="false">Target에서 멀게</button>
+    <button type="button" id="eqsAuto" aria-pressed="true">자동 이동</button>
+    <button type="button" id="eqsReset">리셋</button>
   </div>
   <div class="stage"><canvas id="eqsCv" aria-label="격자 후보 중 Target과의 거리 점수에 따라 가장 좋은 지점이 어떻게 바뀌는지 보여 준다."></canvas></div>
   <p class="verdict" id="eqsOut"></p>
@@ -232,13 +234,21 @@ function initEQS(){
   if (!window.Viz) return;
   var ctl = document.getElementById('eqsCtl');
   var out = document.getElementById('eqsOut');
+  var autoBtn = document.getElementById('eqsAuto');
+  var resetBtn = document.getElementById('eqsReset');
   if (!ctl || !out) return;
 
   var near = true;
+  var auto = true;
+  var phase = 0;
   var v = Viz.view('eqsCv', function(){ return 300; }, function(v){
     var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
     var cx = w * 0.28, cy = h * 0.56;
     var targetX = w * 0.82, targetY = h * 0.30;
+    if (auto){
+      targetX = w * 0.5 + Math.cos(phase) * w * 0.34;
+      targetY = h * 0.5 + Math.sin(phase * 1.3) * h * 0.28;
+    }
     var cell = 42;
     var best = null, bestScore = -Infinity;
     var pts = [];
@@ -283,10 +293,11 @@ function initEQS(){
   if (!v) return;
 
   function update(){
-    var btns = ctl.querySelectorAll('button');
+    var btns = ctl.querySelectorAll('button[data-mode]');
     for (var i = 0; i < btns.length; i++){
       btns[i].setAttribute('aria-pressed', (btns[i].getAttribute('data-mode') === 'near') === near ? 'true' : 'false');
     }
+    if (autoBtn) autoBtn.setAttribute('aria-pressed', auto ? 'true' : 'false');
     out.className = 'verdict';
     out.textContent = near
       ? '가까울수록 높은 점수 — Target에 가장 가까운 후보가 선택된다. Filter Test가 있으면 그 전에 후보가 걸러진다.'
@@ -294,13 +305,20 @@ function initEQS(){
     v.render();
   }
 
-  var btns = ctl.querySelectorAll('button');
+  var btns = ctl.querySelectorAll('button[data-mode]');
   for (var i = 0; i < btns.length; i++){
     btns[i].addEventListener('click', function(){
       near = this.getAttribute('data-mode') === 'near';
       update();
     });
   }
+  if (autoBtn) autoBtn.addEventListener('click', function(){ auto = !auto; update(); });
+  if (resetBtn) resetBtn.addEventListener('click', function(){ auto = true; phase = 0; update(); });
+  var loop = Viz.animate(v, function(v, t){
+    if (!auto) return;
+    phase += 1 / 60 * 0.8;
+    update();
+  });
   update();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initEQS);

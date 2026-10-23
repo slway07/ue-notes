@@ -259,6 +259,16 @@ PerformMovement(DeltaTime);</code></pre>
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 함수명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="sl"><label for="netPing">Ping (ms)</label><input type="range" id="netPing" min="0" max="300" value="120" step="10"><output id="netPingO">120</output></div>
+  <div class="ctl">
+    <button type="button" id="netPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="netReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="netCv" aria-label="서버 위치와 클라이언트 예측 위치가 지연과 보정으로 어긋났다가 맞춰지는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="netOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -266,6 +276,85 @@ PerformMovement(DeltaTime);</code></pre>
 </footer>
 
 </div>
+
+
+<script>
+/* Movement Network — 예측과 서버 보정 */
+(function(){
+  var cv = document.getElementById('netCv');
+  var ping = document.getElementById('netPing');
+  var pingO = document.getElementById('netPingO');
+  var play = document.getElementById('netPlay');
+  var reset = document.getElementById('netReset');
+  var out = document.getElementById('netOut');
+  if (!cv || !out) return;
+
+  var serverX = 40, clientX = 40, running = true, last = null, timer = 0, correcting = false;
+  var v = Viz.view('netCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var sy = 76, cy = 150;
+
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(24, sy + 20); ctx.lineTo(w - 24, sy + 20); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(24, cy + 20); ctx.lineTo(w - 24, cy + 20); ctx.stroke();
+
+    // server
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(serverX, sy, 9, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Server', 30, sy - 18, c.accent, 8, 'left');
+    // client
+    ctx.fillStyle = correcting ? c.warn : c.accent;
+    ctx.beginPath(); ctx.arc(clientX, cy, 9, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Client (predict)', 30, cy - 18, correcting ? c.warn : c.accent, 8, 'left');
+
+    // correction line
+    if (Math.abs(serverX - clientX) > 2){
+      ctx.setLineDash([3,3]); ctx.strokeStyle = c.warn;
+      ctx.beginPath(); ctx.moveTo(clientX, cy - 9); ctx.lineTo(serverX, sy + 9); ctx.stroke(); ctx.setLineDash([]);
+    }
+
+    ctx.fillStyle = c.dim; ctx.font = '9px ui-monospace, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('차이 ' + Math.round(serverX - clientX) + ' px', w / 2, h - 18);
+  });
+  if (!v) return;
+
+  function output(){
+    pingO.value = ping.value;
+    var diff = Math.round(serverX - clientX);
+    out.className = Math.abs(diff) > 12 ? 'verdict bad' : 'verdict ok';
+    out.textContent = '서버와 클라이언트 차이 ' + diff + ' px. Ping ' + ping.value + 'ms — 예측이 빗나가면 서버 보정이 위치를 다시 맞춘다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    var speed = 80;
+    serverX += speed * dt;
+    clientX += speed * dt * (1 + parseFloat(ping.value) / 600);
+    if (serverX > v.w - 40){ serverX = 40; clientX = 40; }
+    timer += dt;
+    if (timer > 1.6){ timer = 0; correcting = true; }
+    if (correcting){
+      clientX += (serverX - clientX) * Math.min(1, 4 * dt);
+      if (Math.abs(serverX - clientX) < 0.5) correcting = false;
+    }
+    output();
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ serverX = 40; clientX = 40; timer = 0; correcting = false; last = null; output(); v.render(); });
+  ping.addEventListener('input', function(){ output(); v.render(); });
+  output();
+})();
+</script>
 
 </body>
 </html>

@@ -172,11 +172,20 @@
 
 <p>매 프레임 바뀌는 값을 Blackboard에 넣지 않는다. Observer가 계속 깨어나 BT가 매 틱 재평가된다. 위치·거리처럼 자주 변하는 값은 <b>Service가 일정 간격으로 갱신</b>하거나, Task가 직접 계산한다.</p>
 
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="bbPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="bbReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="bbSimCv" aria-label="TargetActor Blackboard 값이 켜지고 꺼질 때 AI가 목표와 집 사이를 오가는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="bbSimOut"></p>
+</div>
+
 <h2>8. 디버깅</h2>
 
 <ul>
 <li><b>Gameplay Debugger</b> (<code>'</code>) — Blackboard 카테고리에서 키/값을 실시간으로 본다.</li>
-<li><code>showdebug AI</code> — 컨트롤러·BT·Blackboard 요약.</li>
+<li><code>showdebug AI</code> — 컨트롤러의 경로/포커스만. Blackboard는 Gameplay Debugger의 Behavior Tree 카테고리에서 본다.</li>
 <li>BT 에디터를 PIE 중에 열면 실행 중 노드가 하이라이트된다.</li>
 </ul>
 
@@ -203,6 +212,104 @@
 </footer>
 
 </div>
+
+
+<script>
+/* Blackboard — TargetActor 값에 따라 목표/집으로 이동 */
+(function(){
+  var cv = document.getElementById('bbSimCv');
+  var play = document.getElementById('bbPlay');
+  var reset = document.getElementById('bbReset');
+  var out = document.getElementById('bbSimOut');
+  if (!cv || !out) return;
+
+  var home = {x: 58, y: 158};
+  var ai = {x: home.x, y: home.y};
+  var target = {x: 300, y: 82};
+  var hasTarget = false;
+  var timer = 0;
+  var running = true;
+
+  var v = Viz.view('bbSimCv', function(){ return 220; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    home.x = 58; home.y = h - 62;
+    target.x = w - 58; target.y = 62;
+
+    // 집
+    ctx.fillStyle = c.sf2; ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.fillRect(home.x - 13, home.y - 13, 26, 26); ctx.strokeRect(home.x - 13, home.y - 13, 26, 26);
+    Viz.text(ctx, 'Home', home.x, home.y + 24, c.dim, 8, 'center');
+
+    // 목표
+    if (hasTarget){
+      ctx.fillStyle = c.warn;
+      ctx.beginPath(); ctx.arc(target.x, target.y, 9, 0, Math.PI * 2); ctx.fill();
+      Viz.text(ctx, 'TargetActor', target.x, target.y - 17, c.warn, 8, 'center');
+    } else {
+      Viz.text(ctx, 'TargetActor = None', target.x, target.y, c.dim, 8, 'center');
+    }
+
+    // 목표선
+    var goal = hasTarget ? target : home;
+    ctx.setLineDash([3,3]); ctx.strokeStyle = hasTarget ? c.accent : c.line;
+    ctx.beginPath(); ctx.moveTo(ai.x, ai.y); ctx.lineTo(goal.x, goal.y); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // AI
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(ai.x, ai.y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = c.surface; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'AI', ai.x, ai.y - 17, c.accent, 8.5, 'center');
+
+    // Blackboard 패널
+    ctx.fillStyle = c.sf2; ctx.fillRect(10, 10, 154, 52);
+    ctx.strokeStyle = c.line; ctx.strokeRect(10, 10, 154, 52);
+    Viz.text(ctx, 'TargetActor: ' + (hasTarget ? 'Enemy' : 'None'), 18, 26, hasTarget ? c.accent : c.dim, 8);
+    Viz.text(ctx, 'HomeLocation: fixed', 18, 44, c.dim, 8);
+    Viz.text(ctx, hasTarget ? 'Branch: Chase' : 'Branch: Patrol', 18, 60, hasTarget ? c.accent : c.text, 8);
+
+    Viz.text(ctx, hasTarget ? '관찰자 통지 → 추격 가지로 전환' : '값 없음 → 순찰 가지',
+      w / 2, h - 18, hasTarget ? c.accent : c.dim, 8.5, 'center');
+  });
+
+  if (!v) return;
+
+  function output(){
+    out.className = hasTarget ? 'verdict ok' : 'verdict';
+    out.textContent = hasTarget
+      ? 'Blackboard TargetActor가 세팅됐다. Observer가 깨어나 추격 가지가 활성화되고, AI가 목표로 이동한다.'
+      : 'TargetActor가 비었다. 추격 가지가 중단되고 순찰(Home) 가지로 돌아간다. 값이 바뀔 때만 트리가 재평가된다.';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    timer += 1 / 60;
+    if (timer >= 3.5){
+      timer = 0;
+      hasTarget = !hasTarget;
+      output();
+    }
+    var goal = hasTarget ? {x: v.w - 58, y: 62} : {x: 58, y: v.h - 62};
+    var dx = goal.x - ai.x, dy = goal.y - ai.y;
+    var d = Math.hypot(dx, dy);
+    if (d > 1.5){
+      var step = Math.min(d, 58 / 60);
+      ai.x += dx / d * step; ai.y += dy / d * step;
+    }
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+  });
+  reset.addEventListener('click', function(){
+    ai.x = 58; ai.y = 158; hasTarget = false; timer = 0;
+    output(); v.render();
+  });
+  output();
+})();
+</script>
 
 </body>
 </html>

@@ -131,6 +131,20 @@ FPathFollowingRequestResult Result = AIController-&gt;MoveTo(MoveReq);</code></p
 
 <p class="note">NavMesh가 없으면 경로가 <code>Invalid</code> 로 끝난다. 이동이 안 되면 먼저 <code>show Navigation</code> 으로 NavMesh를 확인한다. → <a href="navmesh-how-it-is-built.html">NavMesh는 어떻게 만들어지나</a></p>
 
+<div class="panel">
+  <div class="sl">
+    <label for="aiAcc">도착 반경</label>
+    <input type="range" id="aiAcc" min="8" max="80" value="30" step="1">
+    <output id="aiAccO">30</output>
+  </div>
+  <div class="ctl">
+    <button type="button" id="aiPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="aiReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="aiMoveCv" aria-label="AI가 목표까지 이동하고 도착 반경 안에 들어오면 멈추는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="aiMoveOut"></p>
+</div>
+
 <h2>5. Focus — 어디를 바라보나</h2>
 
 <p><code>SetFocus(Actor)</code>·<code>SetFocalPoint(Location)</code> 은 컨트롤러의 <b>관심 지점</b>을 정한다. <code>UpdateControlRotation</code> 이 그 지점을 향하도록 <code>ControlRotation</code> 을 돌리고, Pawn의 회전 설정(<code>bUseControllerRotationYaw</code> 등)에 따라 몸도 돈다.</p>
@@ -195,6 +209,103 @@ FPathFollowingRequestResult Result = AIController-&gt;MoveTo(MoveReq);</code></p
 </footer>
 
 </div>
+
+
+<script>
+/* MoveTo — 도착 반경 안에 들어오면 정지 */
+(function(){
+  var cv = document.getElementById('aiMoveCv');
+  var acc = document.getElementById('aiAcc');
+  var accO = document.getElementById('aiAccO');
+  var play = document.getElementById('aiPlay');
+  var reset = document.getElementById('aiReset');
+  var out = document.getElementById('aiMoveOut');
+  if (!cv || !acc || !out) return;
+
+  var total = 240;
+  var dist = total;
+  var running = true;
+  var lastT = null;
+
+  var v = Viz.view('aiMoveCv', function(){ return 220; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var y = h * 0.56;
+    var x0 = 38, x1 = w - 38;
+    var r = parseFloat(acc.value);
+    var p = 1 - dist / total;
+    var x = x0 + (x1 - x0) * p;
+    var arrived = dist <= r;
+
+    // 경로
+    ctx.setLineDash([4,4]); ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 도착 반경
+    ctx.fillStyle = arrived ? 'rgba(63,125,90,0.12)' : 'rgba(0,0,0,0)';
+    ctx.strokeStyle = arrived ? c.accent : c.dim;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(x1, y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    Viz.text(ctx, 'Acceptance ' + r, x1, y - r - 10, c.dim, 8.5, 'center');
+
+    // 목표
+    ctx.fillStyle = c.warn;
+    ctx.beginPath(); ctx.arc(x1, y, 8, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Target', x1, y + 20, c.warn, 9, 'center');
+
+    // AI
+    ctx.fillStyle = arrived ? c.accent : c.accent;
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = c.surface; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'AI', x, y - 18, c.accent, 9, 'center');
+
+    // 진행 바
+    ctx.fillStyle = c.sf2; ctx.fillRect(x0, h - 28, x1 - x0, 6);
+    ctx.fillStyle = arrived ? c.accent : c.accent;
+    ctx.fillRect(x0, h - 28, (x1 - x0) * p, 6);
+    Viz.text(ctx, arrived ? '도착 — MoveTo 종료' : '이동 중 — ' + Math.round(dist) + ' cm',
+      w / 2, h - 42, arrived ? c.accent : c.text, 9, 'center');
+  });
+
+  if (!v) return;
+
+  function output(){
+    accO.value = acc.value;
+    var r = parseFloat(acc.value);
+    if (dist <= r){
+      out.className = 'verdict ok';
+      out.textContent = '도착 반경 ' + r + ' 안에 들어왔다. PathFollowing이 Success를 돌려주고 MoveTo Task가 끝난다.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = '목표까지 ' + Math.round(dist) + ' cm. 도착 반경 ' + r + ' 보다 멀어서 계속 이동한다.';
+    }
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = lastT === null ? 0 : Math.min(0.05, t - lastT);
+    lastT = t;
+    var r = parseFloat(acc.value);
+    if (dist > r){
+      dist = Math.max(r, dist - 80 * dt);
+      output();
+    }
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) lastT = null;
+  });
+  reset.addEventListener('click', function(){
+    dist = total; lastT = null; output(); v.render();
+  });
+  acc.addEventListener('input', function(){ output(); v.render(); });
+
+  output();
+})();
+</script>
 
 </body>
 </html>

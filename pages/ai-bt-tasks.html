@@ -107,6 +107,8 @@
   <div class="ctl" id="latTabs">
     <button type="button" data-mode="ok" aria-pressed="true">정상 완료</button>
     <button type="button" data-mode="abort" aria-pressed="false">중단</button>
+    <button type="button" id="latPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="latReset">리셋</button>
   </div>
   <div class="stage"><canvas id="latCv" aria-label="Latent Task가 ExecuteTask로 시작해 InProgress 동안 이동하고, 정상 완료 또는 중단으로 끝나는 흐름을 보여 준다."></canvas></div>
   <p class="verdict" id="latOut"></p>
@@ -202,6 +204,12 @@ function initLatent(){
   if (!tabs || !out) return;
 
   var mode = 'ok';
+  var phase = 0;
+  var timer = 0;
+  var running = true;
+  var play = document.getElementById('latPlay');
+  var reset = document.getElementById('latReset');
+
   var v = Viz.view('latCv', function(){ return 250; }, function(v){
     var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
     var y = h / 2;
@@ -218,13 +226,19 @@ function initLatent(){
 
     for (var i = 0; i < n; i++){
       var x = x0 + gap * i;
-      var active = mode === 'abort' && i >= 2;
-      ctx.fillStyle = active ? c.warn : c.accent;
-      ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+      var past = i < phase;
+      var active = i === phase;
+      var danger = mode === 'abort' && i >= 2;
+      ctx.fillStyle = danger ? c.warn : (past || active ? c.accent : c.line);
+      ctx.beginPath(); ctx.arc(x, y, active ? 7 : 5, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = c.surface; ctx.lineWidth = 2; ctx.stroke();
+      if (active){
+        ctx.strokeStyle = danger ? c.warn : c.accent; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.stroke();
+      }
 
       var label = steps[i];
-      ctx.fillStyle = active ? c.warn : c.text;
+      ctx.fillStyle = danger ? c.warn : (past || active ? c.text : c.dim);
       ctx.font = '9px ui-monospace, Consolas, monospace';
       ctx.textAlign = 'center';
       var ty = i % 2 === 0 ? y - 18 : y + 26;
@@ -238,9 +252,13 @@ function initLatent(){
   if (!v) return;
 
   function update(){
-    var btns = tabs.querySelectorAll('button');
+    var btns = tabs.querySelectorAll('button[data-mode]');
     for (var i = 0; i < btns.length; i++){
       btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-mode') === mode ? 'true' : 'false');
+    }
+    if (play){
+      play.textContent = running ? '일시정지' : '재생';
+      play.setAttribute('aria-pressed', running ? 'true' : 'false');
     }
     if (mode === 'ok'){
       out.className = 'verdict ok';
@@ -252,13 +270,36 @@ function initLatent(){
     v.render();
   }
 
-  var btns = tabs.querySelectorAll('button');
+  var btns = tabs.querySelectorAll('button[data-mode]');
   for (var i = 0; i < btns.length; i++){
     btns[i].addEventListener('click', function(){
       mode = this.getAttribute('data-mode') || 'ok';
+      phase = 0; timer = 0;
       update();
     });
   }
+  if (play){
+    play.addEventListener('click', function(){
+      running = !running;
+      if (running && phase >= 4){ phase = 0; timer = 0; }
+      update();
+    });
+  }
+  if (reset){
+    reset.addEventListener('click', function(){
+      phase = 0; timer = 0; running = true; update();
+    });
+  }
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    if (phase >= 4) return;
+    timer += 1 / 60;
+    if (timer >= 0.9){
+      timer = 0;
+      phase++;
+      update();
+    }
+  });
   update();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initLatent);

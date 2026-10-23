@@ -112,6 +112,10 @@
   <div class="ctl" id="pWallCtl">
     <button type="button" aria-pressed="false">벽</button>
   </div>
+  <div class="ctl">
+    <button type="button" id="pAuto" aria-pressed="true">자동 이동</button>
+    <button type="button" id="pReset">리셋</button>
+  </div>
   <div class="stage"><canvas id="pCv" aria-label="시야 반경과 시야각, 벽에 따라 대상이 보이는지 보이지 않는지 보여 준다."></canvas></div>
   <p class="verdict" id="pOut"></p>
 </div>
@@ -191,7 +195,7 @@
 
 <ul>
 <li><b>Gameplay Debugger</b> (<code>'</code>) — Perception 카테고리에서 시야/청각 자극, 성공/실패를 본다.</li>
-<li><code>showdebug AI</code> — PerceptionComponent 요약.</li>
+<li><code>showdebug AI</code> — 경로/포커스만. Perception은 Gameplay Debugger의 Perception 카테고리에서 본다.</li>
 <li>시야가 안 되면 반경·각도·LOS 채널·진영 필터를 순서대로 본다.</li>
 </ul>
 
@@ -230,10 +234,14 @@ function initSight(){
   var distO = document.getElementById('pDistO');
   var angO = document.getElementById('pAngO');
   var wallCtl = document.getElementById('pWallCtl');
+  var autoBtn = document.getElementById('pAuto');
+  var resetBtn = document.getElementById('pReset');
   var out = document.getElementById('pOut');
   if (!dist || !ang || !out) return;
 
   var wall = false;
+  var auto = true;
+  var phase = 0;
   var v = Viz.view('pCv', function(){ return 300; }, function(v){
     var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
     var cx = w / 2, cy = h - 34;
@@ -296,6 +304,7 @@ function initSight(){
     angO.value = ang.value;
     var btn = wallCtl.querySelector('button');
     if (btn){ btn.setAttribute('aria-pressed', wall ? 'true' : 'false'); btn.textContent = wall ? '벽 있음' : '벽'; }
+    if (autoBtn) autoBtn.setAttribute('aria-pressed', auto ? 'true' : 'false');
     var d = parseFloat(dist.value), a = Math.abs(parseFloat(ang.value));
     var blocked = wall && parseFloat(ang.value) > 0 && parseFloat(ang.value) < 55 && d > 90;
     var seen = d <= 170 && a <= 70 && !blocked;
@@ -316,8 +325,23 @@ function initSight(){
   }
 
   wallCtl.querySelector('button').addEventListener('click', function(){ wall = !wall; update(); });
-  dist.addEventListener('input', update);
-  ang.addEventListener('input', update);
+  dist.addEventListener('input', function(){ auto = false; update(); });
+  ang.addEventListener('input', function(){ auto = false; update(); });
+  if (autoBtn){
+    autoBtn.addEventListener('click', function(){ auto = !auto; update(); });
+  }
+  if (resetBtn){
+    resetBtn.addEventListener('click', function(){ auto = true; phase = 0; update(); });
+  }
+  var loop = Viz.animate(v, function(v, t){
+    if (!auto) return;
+    phase += 1 / 60;
+    var a = Math.sin(phase * 0.85) * 88;
+    var d = 118 + Math.sin(phase * 1.7) * 52;
+    ang.value = a.toFixed(0);
+    dist.value = d.toFixed(0);
+    update();
+  });
   update();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initSight);

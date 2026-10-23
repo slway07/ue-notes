@@ -83,6 +83,16 @@
 <div class="nextprev">
 <a href="animbp-layers-inside.html">&larr; ② 안에서 무슨 일이 일어나나</a>
 </div>
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="apBug" aria-pressed="true">버그: 2회 적용</button>
+    <button type="button" id="apPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="apReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="apCv" aria-label="어디티브 레이어가 한 번 적용될 때와 두 번 적용될 때 포즈가 어떻게 달라지는지 보여 주는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="apOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -92,6 +102,77 @@
 </div>
 
 <script src="../assets/viz.js?v=32ab0c43"></script>
+
+
+<script>
+/* Layer Pitfall — 어디티브 이중 적용 */
+(function(){
+  var cv = document.getElementById('apCv');
+  var bugBtn = document.getElementById('apBug');
+  var play = document.getElementById('apPlay');
+  var reset = document.getElementById('apReset');
+  var out = document.getElementById('apOut');
+  if (!cv || !out) return;
+
+  var phase = 0, bug = true, running = true, last = null;
+  var v = Viz.view('apCv', function(){ return 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var base = 0.35;
+    var add = 0.18 * (0.5 + 0.5 * Math.sin(phase));
+    var applied = bug ? add * 2 : add;
+    var barW = w - 80;
+
+    function bar(y, val, label, color){
+      ctx.fillStyle = c.sf2; ctx.fillRect(40, y, barW, 12);
+      ctx.fillStyle = color; ctx.fillRect(40, y, barW * Math.min(1, val), 12);
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.strokeRect(40, y, barW, 12);
+      Viz.text(ctx, label + ' ' + Math.round(val * 100) + '%', 40, y - 10, color, 8, 'left');
+    }
+    bar(42, base, 'Base', c.accent);
+    bar(84, applied, bug ? 'Additive ×2' : 'Additive ×1', bug ? c.warn : c.accent);
+
+    var cx = w / 2, cy = h * 0.68;
+    ctx.strokeStyle = c.text; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, cy - 38); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy - 48, 9, 0, Math.PI * 2); ctx.fillStyle = c.text; ctx.fill();
+    // arm offset doubled
+    var arm = 18 + applied * 50;
+    ctx.strokeStyle = bug ? c.warn : c.accent; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(cx, cy - 28); ctx.lineTo(cx + arm, cy - 28 - applied * 40); ctx.stroke();
+
+    Viz.text(ctx, bug ? '버그 — 같은 Additive가 두 번' : '정상 — Additive는 한 번', w / 2, h - 16, bug ? c.warn : c.accent, 9, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    bugBtn.setAttribute('aria-pressed', bug ? 'true' : 'false');
+    bugBtn.textContent = bug ? '버그: 2회 적용' : '정상: 1회 적용';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+    out.className = bug ? 'verdict bad' : 'verdict ok';
+    out.textContent = bug
+      ? '어디티브 레이어가 두 번 적용되어 팔이 과하게 휜다. Layer 노드와 AnimBP 양쪽에서 같은 Additive를 넣었는지 확인한다.'
+      : '어디티브가 한 번만 적용된다. Base Pose 위에 한 번만 더해지는 것이 정상이다.';
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    phase += dt * 1.4;
+    output();
+  });
+
+  bugBtn.addEventListener('click', function(){ bug = !bug; output(); v.render(); });
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  reset.addEventListener('click', function(){ phase = 0; bug = true; last = null; output(); v.render(); });
+  output();
+})();
+</script>
 
 </body>
 </html>

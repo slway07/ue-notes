@@ -209,6 +209,18 @@ SweepSingleByChannel(..., ProbeChannel, FCollisionShape::MakeSphere(ProbeSize), 
 
 <p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
 
+<div class="panel">
+  <div class="sl"><label for="spArm">TargetArmLength</label><input type="range" id="spArm" min="80" max="220" value="150" step="1"><output id="spArmO">150</output></div>
+  <div class="sl"><label for="spLag">CameraLagSpeed</label><input type="range" id="spLag" min="1" max="20" value="6" step="1"><output id="spLagO">6</output></div>
+  <div class="ctl">
+    <button type="button" id="spWall" aria-pressed="true">충돌 켬</button>
+    <button type="button" id="spPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="spReset">리셋</button>
+  </div>
+  <div class="stage"><canvas id="spCv" aria-label="캐릭터가 돌 때 SpringArm 카메라가 랙을 두고 따라가고 벽에 닿으면 당겨지는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="spOut"></p>
+</div>
+
 </article>
 
 <footer class="site-foot">
@@ -417,6 +429,99 @@ if (document.readyState === 'loading'){
 } else {
   initArmRotate(); initArmCollision();
 }
+</script>
+
+
+<script>
+/* SpringArm — 랙과 충돌 */
+(function(){
+  var cv = document.getElementById('spCv');
+  var arm = document.getElementById('spArm');
+  var lag = document.getElementById('spLag');
+  var armO = document.getElementById('spArmO');
+  var lagO = document.getElementById('spLagO');
+  var wallBtn = document.getElementById('spWall');
+  var play = document.getElementById('spPlay');
+  var reset = document.getElementById('spReset');
+  var out = document.getElementById('spOut');
+  if (!cv || !out) return;
+
+  var yaw = 0, camYaw = 0, running = true, collision = true, last = null;
+  var v = Viz.view('spCv', function(){ return 240; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cx = w / 2, cy = h * 0.72;
+    var len = Math.min(parseFloat(arm.value), h * 0.45);
+    var desiredX = cx + Math.sin(yaw) * len;
+    var desiredY = cy - Math.cos(yaw) * len;
+    var actualX = cx + Math.sin(camYaw) * len;
+    var actualY = cy - Math.cos(camYaw) * len;
+
+    // 벽
+    if (collision){
+      ctx.fillStyle = c.line;
+      ctx.fillRect(w * 0.78, 28, 10, h - 56);
+      Viz.text(ctx, 'Wall', w * 0.78 + 5, 20, c.dim, 8, 'center');
+    }
+
+    // 캐릭터
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Pawn', cx, cy + 26, c.accent, 9, 'center');
+
+    // 원하는 붐
+    ctx.setLineDash([4,4]); ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(desiredX, desiredY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 실제 카메라
+    var hitWall = collision && actualX > w * 0.78;
+    var drawX = hitWall ? w * 0.78 - 8 : actualX;
+    var drawY = actualY;
+    ctx.strokeStyle = hitWall ? c.warn : c.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(drawX, drawY); ctx.stroke();
+    ctx.fillStyle = hitWall ? c.warn : c.accent;
+    ctx.beginPath(); ctx.arc(drawX, drawY, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = c.surface; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'Camera', drawX, drawY + 20, hitWall ? c.warn : c.accent, 8.5, 'center');
+
+    Viz.text(ctx, hitWall ? 'Collision — 붐이 벽 앞으로 당겨짐' : '랙 ' + Math.round(Math.abs(Viz.wrap180(yaw - camYaw)) * 180 / Math.PI) + '°',
+      w / 2, 18, hitWall ? c.warn : c.text, 9.5, 'center');
+  });
+  if (!v) return;
+
+  function output(){
+    armO.value = arm.value; lagO.value = lag.value;
+    var hit = collision;
+    out.className = hit ? 'verdict bad' : 'verdict';
+    out.textContent = hit
+      ? '벽이 붐을 막으면 스윕 히트 위치로 카메라를 즉시 당긴다. TargetArmLength 값은 그대로다.'
+      : '랙이 클수록 카메라가 캐릭터 회전을 늦게 따라간다. CameraLagSpeed가 0이면 즉시 따라간다.';
+    if (play) play.textContent = running ? '일시정지' : '재생';
+    if (wallBtn){ wallBtn.setAttribute('aria-pressed', collision ? 'true' : 'false'); wallBtn.textContent = collision ? '충돌 켬' : '충돌 끔'; }
+  }
+
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = last === null ? 0 : Math.min(0.05, t - last);
+    last = t;
+    yaw += dt * 0.9;
+    var diff = Viz.wrap180((yaw * 180 / Math.PI) - (camYaw * 180 / Math.PI));
+    camYaw += diff * Math.PI / 180 * Math.min(1, parseFloat(lag.value) * dt);
+    output();
+  });
+
+  play.addEventListener('click', function(){
+    running = !running;
+    play.textContent = running ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', running ? 'true' : 'false');
+    if (running) last = null;
+  });
+  wallBtn.addEventListener('click', function(){ collision = !collision; output(); v.render(); });
+  reset.addEventListener('click', function(){ yaw = 0; camYaw = 0; last = null; output(); v.render(); });
+  arm.addEventListener('input', function(){ v.render(); });
+  lag.addEventListener('input', function(){ v.render(); });
+  output();
+})();
 </script>
 
 </body>
