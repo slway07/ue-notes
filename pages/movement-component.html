@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MovementComponent — 무엇이 액터를 움직이나</title>
+<meta name="note-title" content="MovementComponent — 무엇이 액터를 움직이나">
+<meta name="note-summary" content="무브먼트는 자기 충돌이 없다. UpdatedComponent를 움직이고, 그 컴포넌트의 충돌을 쓴다. 루트·자식·메시 중 무엇이 UpdatedComponent냐에 따라 같은 몬스터를 통과하기도 막히기도 한다.">
+<meta name="note-tags" content="Movement, CharacterMovement, UpdatedComponent, Collision, Physics">
+<meta name="note-order" content="12">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=f6db12e3">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 14px}
+.fstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.fstep b{display:block;font-size:.82rem}
+.fstep span{display:block;font-size:.7rem;color:var(--text-dim);line-height:1.4;margin-top:2px}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+.modes td:first-child,.defaults td:first-child,.defaults td:nth-child(2){white-space:nowrap}
+@media (max-width:560px){.flow{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>MovementComponent — 무엇이 액터를 움직이나</h1>
+<p>무브먼트는 자기 충돌이 없다. <b>UpdatedComponent</b>를 움직이고, 그 컴포넌트의 충돌을 쓴다. 루트·자식·메시 중 무엇이 UpdatedComponent냐에 따라 같은 몬스터를 통과하기도 막히기도 한다.</p>
+</header>
+
+<article>
+
+<h2>1. 무브먼트는 충돌이 아니라 "무엇을 움직일지"다</h2>
+
+<p><code>UMovementComponent</code> 는 <code>UActorComponent</code> 다. 캡슐도 박스도 없고, 자기 충돌 형상을 갖지 않는다. 대신 매 틱 <b><code>UpdatedComponent</code></b> 하나를 골라 그 컴포넌트의 트랜스폼을 바꾼다.</p>
+
+<pre><code>UPROPERTY(BlueprintReadOnly, Transient, DuplicateTransient, Category=MovementComponent)
+TObjectPtr&lt;USceneComponent&gt; UpdatedComponent;      // 움직일 대상
+
+UPROPERTY(BlueprintReadOnly, Transient, DuplicateTransient, Category=MovementComponent)
+TObjectPtr&lt;UPrimitiveComponent&gt; UpdatedPrimitive;  // 캐스팅해 둔 것</code></pre>
+
+<p>엔진 주석이 이 관계를 한 문장으로 정리한다.</p>
+
+<blockquote><b>스윕 이동에서는 <code>UpdatedComponent</code> 의 충돌만 고려한다. 붙어 있는 컴포넌트는 충돌을 무시한 채 끝 위치로 순간이동한다.</b> &mdash; <code>MovementComponent.h</code></blockquote>
+
+<p>그래서 "무브먼트의 충돌 설정" 은 곧 <b>UpdatedComponent 의 ObjectType · 응답 · 모양</b>이다. 액터나 자식 컴포넌트의 설정이 아니다.</p>
+
+<p><code>UpdatedComponent</code> 가 비어 있으면 시작할 때 <b>액터의 루트</b>가 자동으로 들어간다(<code>bAutoRegisterUpdatedComponent</code> 기본 true). <code>ACharacter</code> 는 여기에 더해 생성자에서 <b>캡슐을 직접</b> 넣는다.</p>
+
+<pre><code>// ACharacter::ACharacter
+CharacterMovement-&gt;UpdatedComponent = CapsuleComponent;</code></pre>
+
+<h2>2. UpdatedComponent 가 바뀌면 무엇이 바뀌나</h2>
+
+<p><code>SetUpdatedComponent()</code> 로 다른 컴포넌트를 지정할 수 있다. 이때 달라지는 것은 세 가지다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>UpdatedComponent</th><th>움직이는 것</th><th>쓰는 충돌</th><th>액터 루트</th></tr></thead>
+<tbody>
+<tr><td><b>루트 캡슐</b></td><td>액터 전체</td><td>캡슐의 ObjectType·응답</td><td class="yn ok">이동</td></tr>
+<tr><td><b>자식 컴포넌트 A</b></td><td>A 와 A 의 자식만</td><td>A 의 ObjectType·응답</td><td class="yn dep">제자리</td></tr>
+<tr><td><b>메시 (NoCollision)</b></td><td>메시만</td><td>없음 &mdash; 스윕 안 함</td><td class="yn dep">제자리</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>자식이 UpdatedComponent 면 액터는 움직이지 않는다.</b> <code>MoveComponent</code> 는 그 컴포넌트의 트랜스폼만 바꾸고, 부모는 건드리지 않는다. 반대로 루트가 UpdatedComponent 면 루트가 움직이고, 자식들은 <b>충돌 없이</b> 따라온다.</p>
+
+<p class="note">캐릭터 메시의 기본 프로필은 <code>NoCollision</code> 이 아니라 <b><code>CharacterMesh</code></b> 다(QueryOnly, Pawn·Vehicle·Visibility Ignore). 메시를 UpdatedComponent 로 쓸 거라면 이 프로필도 같이 봐야 한다.</p>
+
+<h2>3. 계층 — 전부 같은 MovementComponent 가 아니다</h2>
+
+<ul class="branch">
+<li><b><code>UMovementComponent</code></b> &mdash; 베이스. 평면 제약, 슬라이드, 관통 보정, <code>UpdatedComponent</code> 자동 등록.<br>
+파생: <code>UProjectileMovementComponent</code> · <code>URotatingMovementComponent</code> · <code>UInterpToMovementComponent</code></li>
+<li><b><code>UNavMovementComponent</code></b> &mdash; 내비게이션 에이전트 정보와 길찾기 요청(<code>RequestDirectMove</code>)을 얹는다.<br>
+→ <code>UPawnMovementComponent</code> → <code>UCharacterMovementComponent</code> · <code>UFloatingPawnMovement</code> → <code>USpectatorPawnMovement</code></li>
+</ul>
+
+<ul class="branch">
+<li><b><code>UCharacterMovementComponent</code></b> &mdash; 걷기·낙하·수영·비행 모드, 계단, 바닥 판정, 네트워크 예측</li>
+<li><b><code>UProjectileMovementComponent</code></b> &mdash; 초기 속도·중력·바운스·호밍, 충돌 시 정지</li>
+<li><b><code>URotatingMovementComponent</code></b> &mdash; <code>RotationRate</code> 로 회전. <b>충돌 없이</b> 회전한다</li>
+<li><b><code>UInterpToMovementComponent</code></b> &mdash; 제어점 사이를 보간 이동. <code>bSweep</code> 로 충돌 사용</li>
+<li><b><code>UFloatingPawnMovement</code></b> &mdash; 입력 가속·감속으로 이동. 스윕 사용</li>
+</ul>
+
+<p class="note"><b><code>UPathFollowingComponent</code> 는 무브먼트가 아니다.</b> 길찾기는 경로를 계산해 <code>RequestDirectMove</code> 로 무브먼트에 "이 속도로 가라" 고 요청할 뿐, 실제 이동은 CharacterMovement 가 한다.</p>
+
+<h2>4. 한 틱의 흐름</h2>
+
+<div class="flow">
+  <div class="fstep"><b>Tick</b><span>입력 · 중력</span></div>
+  <div class="fstep"><b>Velocity</b><span>가속 · 마찰</span></div>
+  <div class="fstep"><b>Delta</b><span>V × dt</span></div>
+  <div class="fstep"><b>SafeMove</b><span>UpdatedComponent 스윕</span></div>
+  <div class="fstep"><b>Hit?</b><span>슬라이드 · 계단 · 관통 보정</span></div>
+  <div class="fstep"><b>Transform</b><span>자식은 따라옴</span></div>
+</div>
+
+<p>핵심은 <b><code>SafeMoveUpdatedComponent</code></b> 다. 시작부터 겹쳐 있으면 <code>ResolvePenetration</code> 으로 빼낸 뒤 다시 이동한다. 이동 중 막히면 <code>SlideAlongSurface</code> 로 표면을 따라 미끄러지고, 걷기에서는 <code>StepUp</code> 이 계단을 넘는다.</p>
+
+<pre><code>bool UMovementComponent::MoveUpdatedComponentImpl(...)
+{
+    return UpdatedComponent-&gt;MoveComponent(Delta, NewRotation, bSweep, OutHit, ...);
+}
+
+// UPrimitiveComponent::MoveComponentImpl
+MyWorld-&gt;ComponentSweepMulti(Hits, this, TraceStart, TraceEnd, ...);</code></pre>
+
+<p>스윕 채널은 <code>this-&gt;GetCollisionObjectType()</code>, 쿼리 응답은 <code>this</code> 의 response container 다. 즉 <b>움직이는 그 컴포넌트</b>의 설정이 쓰인다.</p>
+
+<h2>5. CharacterMovement — 모드와 값</h2>
+
+<p><code>ACharacter</code> 는 캡슐(루트)과 <code>UCharacterMovementComponent</code> 를 만들고, 캡슐을 UpdatedComponent 로 둔다. 이동은 모드에 따라 갈린다.</p>
+
+<div class="tablewrap">
+<table class="modes">
+<thead><tr><th>모드</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>MOVE_Walking</code></td><td>바닥을 따라 걷기. 계단·경사·마찰</td></tr>
+<tr><td><code>MOVE_NavWalking</code></td><td>내비메시를 따라 단순화된 걷기. Overlap Events 가 켜져 있으면 이동마다 스윕한다</td></tr>
+<tr><td><code>MOVE_Falling</code></td><td>중력 낙하. 공중 제어</td></tr>
+<tr><td><code>MOVE_Swimming</code></td><td>물속. 부력·유체 마찰</td></tr>
+<tr><td><code>MOVE_Flying</code></td><td>중력 무시 비행</td></tr>
+<tr><td><code>MOVE_Custom</code></td><td>게임이 직접 구현. 네트워크 복제도 직접</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="tablewrap">
+<table class="defaults">
+<thead><tr><th>값</th><th>기본</th><th>영향</th></tr></thead>
+<tbody>
+<tr><td><code>MaxWalkSpeed</code></td><td>600</td><td>걷기 최고 속도</td></tr>
+<tr><td><code>MaxAcceleration</code></td><td>2048</td><td>속도가 변하는 최대 가속</td></tr>
+<tr><td><code>GroundFriction</code></td><td>8</td><td>바닥 마찰. 멈추는 거리</td></tr>
+<tr><td><code>GravityScale</code></td><td>1</td><td>중력 배율</td></tr>
+<tr><td><code>MaxStepHeight</code></td><td>45</td><td>넘을 수 있는 계단 높이</td></tr>
+<tr><td><code>WalkableFloorZ</code></td><td>0.71</td><td>걷기 가능한 경사. 약 45도</td></tr>
+<tr><td><code>JumpZVelocity</code></td><td>420</td><td>점프 초기 상승 속도</td></tr>
+<tr><td><code>AirControl</code></td><td>0.05</td><td>공중에서 방향을 바꾸는 힘</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note"><code>MOVE_NavWalking</code> 은 내비메시를 믿고 이동한다. Overlap Events 가 꺼져 있으면 스윕을 생략해 싸지만, 그만큼 다른 물체를 뚫고 지나갈 수 있다.</p>
+
+<h2>6. ProjectileMovement — 중력·바운스·정지</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><code>InitialSpeed</code></td><td>시작 속도. <code>Velocity</code> 를 초기화</td></tr>
+<tr><td><code>MaxSpeed</code></td><td>속도 상한</td></tr>
+<tr><td><code>ProjectileGravityScale</code></td><td>중력 배율. 0 이면 직선</td></tr>
+<tr><td><code>bShouldBounce</code> · <code>Bounciness</code></td><td>충돌 시 튕길지, 얼마나 튕길지</td></tr>
+<tr><td><code>bRotationFollowsVelocity</code></td><td>속도 방향으로 회전</td></tr>
+<tr><td><code>bInitialVelocityInLocalSpace</code></td><td>초기 속도를 액터 로컬 기준으로</td></tr>
+<tr><td><code>HomingTargetComponent</code> · <code>HomingAccelerationMagnitude</code></td><td>목표를 향해 가속하는 호밍</td></tr>
+<tr><td><code>OnProjectileStop</code> · <code>OnProjectileBounce</code></td><td>정지·바운스 이벤트</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>발사체도 같은 <code>SafeMoveUpdatedComponent</code> 를 쓴다. 바운스가 켜져 있으면 관통에서 빠져나오는 보정을 쓰고, 아니면 첫 충돌에서 <code>StopSimulating</code> 한다. 충돌 판정은 역시 <b>UpdatedComponent</b> 의 채널·응답이다.</p>
+
+<h2>7. Rotating · InterpTo · Floating</h2>
+
+<ul class="branch">
+<li><b><code>URotatingMovementComponent</code></b> &mdash; <code>RotationRate</code> · <code>PivotTranslation</code> · <code>bRotationInLocalSpace</code><br><b>충돌 없음.</b> 회전 중에는 벽을 뚫고 지나간다</li>
+<li><b><code>UInterpToMovementComponent</code></b> &mdash; <code>ControlPoints</code> · <code>Duration</code> · <code>BehaviourType</code>(OneShot · PingPong · Loop) · <code>bSweep</code><br><code>bSweep</code> 기본 true</li>
+<li><b><code>UFloatingPawnMovement</code></b> &mdash; <code>MaxSpeed</code> · <code>Acceleration</code> · <code>Deceleration</code> · <code>TurningBoost</code><br>스윕 사용</li>
+</ul>
+
+<p>Rotating 은 <code>MoveUpdatedComponent(..., bEnableCollision=false)</code> 로 회전만 한다. 그래서 회전하는 문·선풍기 날개가 벽을 뚫는 것을 막지 않는다. 충돌이 필요하면 다른 방식으로 처리해야 한다.</p>
+
+<h2>8. 예제 — 루트 · 자식 A · 메시</h2>
+
+<p>앞에서 본 상황을 그대로 두자. <b>PC 루트</b>는 ObjectType PC, Monster 응답 Block. <b>자식 A</b>는 ObjectType Col, Monster 응답 Block. <b>몬스터 루트</b>는 ObjectType Monster, PC 응답 Ignore, Col 응답 Block.</p>
+
+<div class="panel">
+  <div class="ctl" id="ucTabs">
+    <button type="button" data-mode="root" aria-pressed="true">Root</button>
+    <button type="button" data-mode="a" aria-pressed="false">Child A</button>
+    <button type="button" data-mode="mesh" aria-pressed="false">Mesh</button>
+  </div>
+  <div class="stage"><canvas id="ucCv" aria-label="액터의 어느 컴포넌트를 UpdatedComponent로 두느냐에 따라 몬스터를 통과하거나 막힌다. 루트는 PC 채널이라 몬스터가 Ignore해 통과하고, 자식 A는 Col 채널이라 몬스터가 Block해 막힌다. 메시는 NoCollision이라 통과한다."></canvas></div>
+  <p class="verdict" id="ucOut"></p>
+</div>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>UpdatedComponent</th><th>채널 · 몬스터 응답</th><th>결과</th></tr></thead>
+<tbody>
+<tr><td>Root (capsule)</td><td>PC · Ignore</td><td class="yn ok">통과 · 액터 전체 이동</td></tr>
+<tr><td>Child A</td><td>Col · Block</td><td class="yn dep">막힘 · 루트는 제자리</td></tr>
+<tr><td>Mesh (NoCollision)</td><td>&mdash;</td><td class="yn ok">통과 · 스윕 없음</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>Child A 가 막히는 이유</b>는 양쪽 응답이 모두 Block 이기 때문이다. A 가 몬스터를 Block 하고, 몬스터도 Col 을 Block 한다. 반면 <b>Root 가 통과하는 이유</b>는 몬스터가 PC 를 Ignore 하기 때문이다. PC 쪽이 아무리 Block 이어도 상대가 Ignore 면 min 이 Ignore 다.</p>
+
+<p class="note">루트가 움직일 때 자식 A·메시는 <b>충돌 없이</b> 따라온다. A 가 몬스터와 Block 관계여도, A 는 스윕의 주체가 아니라서 루트의 이동을 막지 못한다. A 가 막히는 것은 <b>A 자신이 UpdatedComponent 일 때</b>뿐이다.</p>
+
+<h2>9. 흔한 함정</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>증상</th><th>먼저 볼 것</th></tr></thead>
+<tbody>
+<tr><td>분명히 충돌을 설정했는데 통과한다</td><td>그 설정이 <b>UpdatedComponent</b> 에 있는지. 자식·메시 설정은 이동에 안 쓰인다</td></tr>
+<tr><td>충돌이 전혀 없다</td><td><code>UpdatedComponent</code> 가 <code>UPrimitiveComponent</code> 인지. 아니면 스윕할 형상이 없다</td></tr>
+<tr><td>자식만 움직이고 액터가 안 움직인다</td><td><code>UpdatedComponent</code> 가 자식으로 바뀌었는지 (<code>SetUpdatedComponent</code>)</td></tr>
+<tr><td>메시가 벽을 뚫는다</td><td>메시 프로필이 <code>CharacterMesh</code>·<code>NoCollision</code> 인지. 루트 캡슐이 실제로 움직이는지</td></tr>
+<tr><td>몬스터가 나를 무시한다</td><td>몬스터의 <b>내 ObjectType</b> 응답. 내가 Block 해도 상대가 Ignore 면 통과</td></tr>
+<tr><td>화면 밖에서 멈춘다</td><td><code>bUpdateOnlyIfRendered</code>. 안 보이면 틱을 건너뛴다</td></tr>
+<tr><td>특정 액터만 무시하고 싶다</td><td><code>UpdatedComponent</code> 의 <code>MoveIgnoreActors</code>·<code>MoveIgnoreComponents</code>. 응답을 바꾸지 않고 스윕에서 뺀다</td></tr>
+<tr><td>2D 게임인데 Z 로 날아간다</td><td><code>bConstrainToPlane</code>·<code>bSnapToPlaneAtStart</code></td></tr>
+<tr><td>멀티에서만 튄다</td><td>CharacterMovement 는 예측·복제가 되지만, 직접 만든 <code>MOVE_Custom</code> 은 복제를 직접 해야 한다</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>10. 디버깅</h2>
+
+<ul>
+<li><code>showdebug Physics</code> &mdash; 캐릭터의 CharacterMovement 상태를 띄운다. 첫 줄에 <b><code>Updated Component: ...</code></b> 가 나와서, 지금 무엇을 움직이는지 바로 보인다</li>
+<li><code>show Collision</code> &mdash; 콜리전 형상. <code>show CollisionPawn</code>·<code>show CollisionVisibility</code> 는 채널 기준</li>
+<li><code>DisplayDebug</code> 는 바닥·가속도·RootMotionSources·PhysicsVolume 까지 보여 준다</li>
+</ul>
+
+<p class="note">"왜 안 움직이지" 의 절반은 <code>UpdatedComponent</code> 가 엉뚱한 컴포넌트이거나 비어 있는 경우다. <code>showdebug Physics</code> 로 이름을 먼저 확인하는 편이 빠르다.</p>
+
+<h2>11. 소스 위치</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>UpdatedComponent</code> · 스윕 설명 주석</td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/MovementComponent.h</code></td><td>56~78</td></tr>
+<tr><td><code>bAutoRegisterUpdatedComponent</code></td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/MovementComponent.h</code></td><td>148</td></tr>
+<tr><td><code>SetUpdatedComponent</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>52</td></tr>
+<tr><td><code>MoveUpdatedComponentImpl</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>526</td></tr>
+<tr><td><code>SafeMoveUpdatedComponent</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>558</td></tr>
+<tr><td><code>ResolvePenetrationImpl</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>624</td></tr>
+<tr><td><code>SlideAlongSurface</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>725</td></tr>
+<tr><td><code>MoveComponentImpl</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></td><td>3250</td></tr>
+<tr><td>이동 스윕 파라미터</td><td><code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></td><td>3348~3354</td></tr>
+<tr><td><code>ComponentSweepMulti</code> (채널 = ObjectType)</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/WorldCollision.cpp</code></td><td>472~476</td></tr>
+<tr><td>스윕 응답 파라미터</td><td><code>Engine/Source/Runtime/Engine/Private/Collision/WorldCollision.cpp</code></td><td>503</td></tr>
+<tr><td>ACharacter 의 UpdatedComponent 지정</td><td><code>Engine/Source/Runtime/Engine/Private/Character.cpp</code></td><td>111~114</td></tr>
+<tr><td>캐릭터 메시 프로필 (<code>CharacterMesh</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Character.cpp</code></td><td>130~131</td></tr>
+<tr><td><code>PerformMovement</code> · <code>PhysWalking</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>2772 · 5653</td></tr>
+<tr><td><code>MoveAlongFloor</code> · <code>StepUp</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>5552 · 7561</td></tr>
+<tr><td>걷기 기본값 (MaxStepHeight 45 등)</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>677~733</td></tr>
+<tr><td><code>EMovementMode</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Engine/EngineTypes.h</code></td><td>1017</td></tr>
+<tr><td>Projectile Tick·Stop·Impact</td><td><code>Engine/Source/Runtime/Engine/Private/Components/ProjectileMovementComponent.cpp</code></td><td>141 · 540 · 605</td></tr>
+<tr><td>Rotating Tick (충돌 없이 회전)</td><td><code>Engine/Source/Runtime/Engine/Private/Components/RotatingMovementComponent.cpp</code></td><td>20~47</td></tr>
+<tr><td>InterpTo Tick</td><td><code>Engine/Source/Runtime/Engine/Private/Components/InterpToMovementComponent.cpp</code></td><td>47</td></tr>
+<tr><td>FloatingPawn Tick</td><td><code>Engine/Source/Runtime/Engine/Private/FloatingPawnMovement.cpp</code></td><td>23</td></tr>
+<tr><td>CharacterMovement DisplayDebug</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>7966</td></tr>
+<tr><td><code>show Collision</code> 플래그</td><td><code>Engine/Source/Runtime/Engine/Public/ShowFlagsValues.inl</code></td><td>303</td></tr>
+<tr><td><code>CharacterMesh</code> 프로필</td><td><code>Engine/Config/BaseEngine.ini</code></td><td>3112</td></tr>
+<tr><td><code>MoveIgnoreActors</code>·<code>MoveIgnoreComponents</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Components/PrimitiveComponent.h</code></td><td>1074 · 1109</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; 위 표의 파일과 줄 번호 (UE 5.8).</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 MovementComponent 가 무엇을 움직이고 어떤 충돌을 쓰는지를 다뤘다. 충돌 채널·프리셋 규칙은 <a href="collision-preset-channel.html">Collision — Preset · Channel · Trace</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* UpdatedComponent 선택기 — 무엇을 움직이느냐에 따라 충돌 결과가 갈린다. */
+function initUpdatedComp(){
+  if (!window.Viz) return;
+  var tabs = document.getElementById('ucTabs');
+  var out = document.getElementById('ucOut');
+  if (!tabs || !out) return;
+
+  var mode = 'root';
+  var phase = 0;
+  var ROOT_W = 34, ROOT_H = 76;
+  var A_SIZE = 22;
+  var MON_W = 42, MON_H = 84;
+
+  var v = Viz.view('ucCv', function(){ return 300; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ground = h - 34;
+    var startX = Math.max(70, w * 0.14);
+    var monX = w * 0.74;
+    var aOff = 30;
+    var p = phase < 0.7 ? (phase / 0.7) : 1;
+    var ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+
+    var rootX = startX;
+    var aX = startX + aOff;
+    var meshX = startX - aOff;
+
+    if (mode === 'root'){
+      rootX = startX + (w - 70 - startX) * ease;
+      aX = rootX + aOff;
+      meshX = rootX - aOff;
+    } else if (mode === 'a'){
+      aX = (startX + aOff) + (monX - 40 - (startX + aOff)) * ease;
+    } else {
+      meshX = (startX - aOff) + (w - 70 - (startX - aOff)) * ease;
+    }
+
+    function capsule(x, wdt, hgt, color, label, selected){
+      ctx.globalAlpha = selected ? 1 : 0.42;
+      Viz.roundRect(ctx, x - wdt / 2, ground - hgt, wdt, hgt, wdt / 2);
+      ctx.fillStyle = c.sf2; ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = selected ? 3 : 1.5; ctx.stroke();
+      Viz.text(ctx, label, x, ground - hgt / 2, color, 12, 'center');
+      ctx.globalAlpha = 1;
+    }
+
+    // 몬스터
+    capsule(monX, MON_W, MON_H, c.warn, '', false);
+    Viz.text(ctx, 'Monster', monX, ground + 16, c.warn, 9, 'center');
+
+    // 루트
+    capsule(rootX, ROOT_W, ROOT_H, c.accent, 'R', mode === 'root');
+
+    // 메시 — 왼쪽의 작은 캡슐
+    ctx.globalAlpha = (mode === 'mesh') ? 1 : 0.5;
+    Viz.roundRect(ctx, meshX - 9, ground - 46, 18, 46, 9);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.dim; ctx.lineWidth = (mode === 'mesh') ? 2.5 : 1.2; ctx.stroke();
+    Viz.text(ctx, 'M', meshX, ground - 23, c.dim, 9, 'center');
+    ctx.globalAlpha = 1;
+
+    // 자식 A
+    ctx.globalAlpha = (mode === 'a') ? 1 : 0.55;
+    Viz.roundRect(ctx, aX - A_SIZE / 2, ground - A_SIZE, A_SIZE, A_SIZE, 5);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.accent; ctx.lineWidth = (mode === 'a') ? 2.5 : 1.2; ctx.stroke();
+    Viz.text(ctx, 'A', aX, ground - A_SIZE / 2, c.accent, 9, 'center');
+    ctx.globalAlpha = 1;
+
+    // 바닥
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(16, ground + 1); ctx.lineTo(w - 16, ground + 1); ctx.stroke();
+
+    var label = mode === 'root' ? 'Root (PC) — 통과'
+              : (mode === 'a' ? 'Child A (Col) — 막힘' : 'Mesh (NoCollision) — 통과');
+    Viz.text(ctx, 'UpdatedComponent = ' + label, w / 2, 20, c.text, 11, 'center');
+    Viz.text(ctx, 'R Root · A Child · M Mesh', 16, 40, c.dim, 9, 'left');
+  });
+
+  if (!v) return;
+  Viz.animate(v, function(v, t){ phase = (t % 3.2) / 3.2; });
+
+  function update(){
+    var btns = tabs.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      var on = btns[i].getAttribute('data-mode') === mode;
+      btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (mode === 'root'){
+      out.className = 'verdict ok';
+      out.textContent = 'Root — 스윕 채널 PC, 몬스터의 PC 응답 Ignore → 통과. 액터 전체가 이동하고 자식 A·메시는 충돌 없이 따라온다.';
+    } else if (mode === 'a'){
+      out.className = 'verdict bad';
+      out.textContent = 'Child A — 스윕 채널 Col, 몬스터의 Col 응답 Block → 막힌다. 루트는 제자리이고 A 만 움직인다.';
+    } else {
+      out.className = 'verdict ok';
+      out.textContent = 'Mesh — NoCollision 이라 스윕이 없다 → 통과. 루트는 제자리이고 메시만 움직인다.';
+    }
+    v.render();
+  }
+
+  var btns = tabs.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      var m = this.getAttribute('data-mode');
+      if (m){ mode = m; update(); }
+    });
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUpdatedComp);
+else initUpdatedComp();
+</script>
+
+</body>
+</html>
