@@ -123,7 +123,7 @@ StopCameraFade();</code></pre>
 <li><code>SetManualCameraFade(Alpha, Color, bFadeAudio)</code> — 시간 없이 즉시 값으로 고정.</li>
 </ul>
 
-<p><code>DoUpdateCamera</code> 는 <code>bEnableFading</code> 일 때 <code>FadeAmount</code> 를 계산한다. <code>bAutoAnimateFade</code> 면 <code>FadeTimeRemaining</code> 을 줄이며 <code>FadeAlpha.X → FadeAlpha.Y</code> 로 보간하고, <code>bHoldFadeWhenFinished</code> 가 false면 끝났을 때 <code>StopCameraFade</code> 를 부른다.</p>
+<p><code>bEnableFading</code> 은 기본 false다. <code>StartCameraFade</code> 가 켜고, <code>DoUpdateCamera</code> 가 <code>FadeAmount</code> 를 계산한다. <code>bAutoAnimateFade</code> 면 <code>FadeTimeRemaining</code> 을 줄이며 <code>FadeAlpha.X → FadeAlpha.Y</code> 로 보간하고, <code>bHoldFadeWhenFinished</code> 가 false면 끝났을 때 <code>StopCameraFade</code> 를 부른다.</p>
 
 <p>페이드는 <b>포스트 프로세스가 아니다</b>. 카메라 POV의 일부가 아니라 화면 위에 덮는 별도 레이어라서, POV를 바꾸는 모디파이어와 독립적으로 동작한다.</p>
 
@@ -144,6 +144,7 @@ StopCameraFade();</code></pre>
 <ul>
 <li><code>showdebug Camera</code> — <code>PlayerCameraManager::DisplayDebug</code> 가 <code>Modifiers:</code> 목록과 각 모디파이어의 상태를 출력한다. <code>bDebug</code> 가 켜진 모디파이어는 추가 정보를 그린다.</li>
 <li><code>UCameraModifier::DisplayDebug</code> — 모디파이어가 직접 디버그 문자열을 추가하는 지점.</li>
+<li><code>r.CameraShakeDebug</code> — 셰이크 디버그. <code>r.CameraShakeDebug.Location</code>·<code>.Rotation</code> 으로 위치/회전만 따로 볼 수 있다.</li>
 <li><code>showdebug Camera</code> 의 CamLoc·CamRot·FOV와 모디파이어 적용 전/후를 비교하면 어느 모디파이어가 화면을 바꾸는지 찾기 쉽다.</li>
 </ul>
 

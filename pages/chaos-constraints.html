@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chaos — Constraints · Ragdoll</title>
+<meta name="note-title" content="Chaos — Constraints · Ragdoll">
+<meta name="note-summary" content="두 바디를 잇는 Constraint의 선형·각도 제한과 드라이브, Physics Asset의 바디·관절, 랙돌로 만드는 순서, PhysicalAnimation으로 애니메이션과 물리를 섞는 법.">
+<meta name="note-tags" content="Chaos, Constraint, Physics Asset, Ragdoll, Physical Animation">
+<meta name="note-order" content="21">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=97653620">
+<script src="../assets/viz.js?v=32ab0c43"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.sl{grid-template-columns:auto 1fr auto}
+.sl output{grid-column:auto;text-align:right}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Chaos — Constraints · Ragdoll</h1>
+<p>두 바디를 잇는 <b>Constraint</b>의 제한과 드라이브, Physics Asset의 바디·관절, 랙돌로 만드는 순서, <code>PhysicalAnimation</code> 으로 애니메이션과 물리를 섞는 법.</p>
+</header>
+
+<nav class="series" aria-label="Chaos 시리즈">
+<a href="chaos-body.html">Body</a>
+<a href="chaos-constraints.html" aria-current="page">Constraints · Ragdoll</a>
+<a href="chaos-destruction.html">Fields · Destruction</a>
+</nav>
+
+<article>
+
+<h2>1. Constraint = 두 바디 + 관절</h2>
+
+<p><code>FConstraintInstance</code> 는 두 바디를 잇고, 그 사이의 <b>자유도</b>를 제한한다. 레벨에 직접 놓을 때는 <code>UPhysicsConstraintComponent</code> 를 쓰고, 스켈레탈 메시의 랙돌은 <code>UPhysicsAsset</code> 안에 여러 <code>FConstraintInstance</code> 로 저장된다.</p>
+
+<ul class="branch">
+<li><b>바디 A · 바디 B</b> — 관절로 이어지는 두 강체. 같은 컴포넌트의 본 두 개일 수도 있고, 서로 다른 액터일 수도 있다.</li>
+<li><b>프레임</b> — 각 바디에 붙는 관절 좌표계. 이 두 프레임의 상대 변환이 제한된다.</li>
+<li><b>제한(Limit)</b> — 선형 이동과 회전을 어디까지 허용할지.</li>
+<li><b>드라이브(Drive)</b> — 목표 위치/회전으로 밀어 주는 모터.</li>
+</ul>
+
+<h2>2. 제한 — 선형과 각도</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>종류</th><th>API</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td>선형</td><td><code>SetLinearLimits</code> · <code>SetLinearLimitSize</code></td><td>축별 이동 거리 제한</td></tr>
+<tr><td>각도 Swing1/Swing2</td><td><code>SetAngularSwing1Limit</code> · <code>SetAngularSwing2Limit</code></td><td>Twist 축에서 벗어나는 방향의 제한</td></tr>
+<tr><td>각도 Twist</td><td><code>SetAngularTwistLimit</code></td><td>축 주변 회전 제한</td></tr>
+<tr><td>충돌</td><td><code>SetDisableCollision</code></td><td>연결된 두 바디끼리 충돌할지</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>각 축의 상태는 <code>EAngularConstraintMotion</code> 의 <b>Free</b>·<b>Limited</b>·<b>Locked</b> 중 하나다. Free는 자유, Limited는 지정 각도까지, Locked는 0으로 고정한다. 랙돌에서 팔꿈치는 보통 <b>Twist/Locked + Swing/Limited</b> 처럼 조합한다.</p>
+
+<div class="panel">
+  <div class="ctl" id="limTabs">
+    <button type="button" data-mode="limited" aria-pressed="true">Limited</button>
+    <button type="button" data-mode="free" aria-pressed="false">Free</button>
+    <button type="button" data-mode="locked" aria-pressed="false">Locked</button>
+  </div>
+  <div class="sl">
+    <label for="limAng">제한 각도</label>
+    <input type="range" id="limAng" min="0" max="90" value="45" step="1">
+    <output id="limAngO">45</output>
+  </div>
+  <div class="sl">
+    <label for="limTarget">목표 각도</label>
+    <input type="range" id="limTarget" min="-90" max="90" value="70" step="1">
+    <output id="limTargetO">70</output>
+  </div>
+  <div class="stage"><canvas id="limCv" aria-label="Swing 제한 각도와 목표 각도에 따라 자식 바디가 제한 안으로 클램프되는 모습을 보여 준다."></canvas></div>
+  <p class="verdict" id="limOut"></p>
+</div>
+
+<p class="note">그림은 Swing1 하나만 본 2D 단순화다. 실제 제한은 Swing1·Swing2·Twist가 만드는 3D 영역이다.</p>
+
+<h2>3. 드라이브 — 목표로 밀어 주는 모터</h2>
+
+<p>제한이 "여기까지"라면, 드라이브는 "이쪽으로 가라"다. 각도는 <code>SetAngularDriveParams(Spring, Damping, ForceLimit)</code>, 선형은 <code>SetLinearDriveParams(PositionStrength, VelocityStrength, ForceLimit)</code> 로 강성을 정하고, <code>SetAngularPositionTarget</code>·<code>SetLinearPositionTarget</code> 으로 목표를 준다.</p>
+
+<ul>
+<li><b>Spring</b> — 목표에서 벗어난 오차를 얼마나 세게 되돌릴지(각도 드라이브).</li>
+<li><b>Damping</b> — 목표 속도와의 차이를 얼마나 세게 줄일지(각도 드라이브).</li>
+<li><b>ForceLimit</b> — 드라이브가 낼 수 있는 최대 힘. 0이면 무제한에 가깝다.</li>
+</ul>
+
+<p>각도 드라이브는 <code>EAngularDriveMode</code> 로 <b>SLERP</b> 와 <b>TwistAndSwing</b> 중 하나를 고른다. SLERP는 하나의 목표 회전으로 부드럽게 보간하고, TwistAndSwing은 Twist와 Swing을 분리해 제어한다. 랙돌의 관절을 "애니메이션 자세로 되돌리고 싶다"면 PhysicalAnimation이 이 드라이브를 대신 설정한다.</p>
+
+<h2>4. Physics Asset — 바디와 관절의 묶음</h2>
+
+<p><code>UPhysicsAsset</code> 은 스켈레탈 메시 하나에 대응하는 <b>바디 목록</b>과 <b>관절 목록</b>이다.</p>
+
+<ul>
+<li><b><code>USkeletalBodySetup</code></b> — 본 하나의 형상·질량·물리 머티리얼.</li>
+<li><b><code>ConstraintSetup</code></b> — 두 본을 잇는 <code>FConstraintInstance</code>.</li>
+<li><b>본 이름 매칭</b> — 바디 이름이 스켈레톤의 본 이름과 맞아야 한다.</li>
+</ul>
+
+<p><code>USkeletalMeshComponent::SetPhysicsAsset</code> 로 교체하고, <code>SetCollisionProfileName("Ragdoll")</code>·<code>SetSimulatePhysics(true)</code> 로 시뮬레이션을 시작한다. Physics Asset의 바디 수가 많을수록 정확하지만 비싸다. 랙돌용은 20~50개, 피격 근사용은 3~8개가 흔하다.</p>
+
+<h2>5. 랙돌 — 힘을 빼는 순서</h2>
+
+<p>랙돌은 "애니메이션을 끄고 물리에 맡기는" 것이 아니다. 바디를 깨우고, 시뮬레이션을 켜고, 블렌드 가중치를 올리는 순서가 필요하다.</p>
+
+<ol>
+<li><code>SetCollisionProfileName("Ragdoll")</code> — 랙돌용 충돌 프로필.</li>
+<li><code>SetAllBodiesBelowSimulatePhysics(NAME_None, true, true)</code> — 전체 바디를 시뮬레이션으로.</li>
+<li><code>SetAllBodiesBelowPhysicsBlendWeight(NAME_None, 1.0f, false, true)</code> — 물리 비중을 1로.</li>
+<li><code>WakeAllRigidBodies()</code> — 잠든 바디를 깨운다.</li>
+</ol>
+
+<p>복구는 반대로 블렌드 가중치를 0으로 내리고 시뮬레이션을 끈다. <code>bBlendPhysics</code> 는 "이번 틱에 물리 결과를 섞을지"를 나타내는 상태라, 랙돌 진입/복구 타이밍을 잡을 때 같이 본다.</p>
+
+<p>관절이 없으면 바디가 흩어진다. Physics Asset에서 <b>연결된 본끼리 Constraint</b> 가 있어야 팔이 어깨에 붙어 있다. 연결된 바디끼리의 충돌은 보통 <code>SetDisableCollision(true)</code> 로 꺼서 관절이 파고들지 않게 한다.</p>
+
+<h2>6. PhysicalAnimation — 애니메이션과 물리를 섞는다</h2>
+
+<p><code>UPhysicalAnimationComponent</code> 는 랙돌과 애니메이션의 중간이다. 바디를 완전히 놓는 대신, <b>애니메이션 자세를 목표로 하는 드라이브</b>를 걸어 "맞았지만 버티는" 움직임을 만든다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>값</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>OrientationStrength</code></td><td>목표 회전으로 되돌리는 힘</td></tr>
+<tr><td><code>AngularVelocityStrength</code></td><td>목표 각속도와의 차이를 줄이는 힘</td></tr>
+<tr><td><code>PositionStrength</code></td><td>목표 위치로 되돌리는 힘(비로컬 시뮬레이션)</td></tr>
+<tr><td><code>VelocityStrength</code></td><td>목표 속도와의 차이를 줄이는 힘</td></tr>
+<tr><td><code>MaxLinearForce</code> · <code>MaxAngularForce</code></td><td>드라이브 힘의 상한</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><code>ApplyPhysicalAnimationProfileBelow(BoneName, ProfileName, bIncludeSelf, bClearNotFound)</code> 로 본 아래 전체에 프로필을 적용하고, <code>SetStrengthMultiplyer</code> 로 전체 강도를 조절한다. <code>GetBodyTargetTransform</code> 은 그 바디가 따라가려는 목표 트랜스폼을 돌려준다.</p>
+
+<p>그래서 "피격 방향으로 상체만 휘청이고 다시 돌아온다" 같은 연출은 랙돌 전체를 켜는 대신 <b>상체 본에만 PhysicalAnimation 강도를 올리고 임펄스</b>를 주는 식으로 만든다.</p>
+
+<h2>7. 히트 리액션</h2>
+
+<p>제약이 걸린 바디에 <code>AddImpulseAtLocation</code>·<code>AddRadialImpulse</code> 를 주면, 그 힘이 관절을 통해 이웃 바디로 전달된다. <code>bNotifyRigidBodyCollision</code> 을 켜면 <code>OnComponentHit</code> 으로 충돌 이벤트를 받을 수 있다.</p>
+
+<p>임펄스는 <b>질량과 위치</b>에 민감하다. 같은 임펄스라도 무거운 바디는 덜 움직이고, 중심에서 먼 곳을 때리면 회전이 커진다. 랙돌 피격에서 "머리를 맞으면 목이 꺾인다"가 자연스러운 이유다.</p>
+
+<h2>8. 디버깅</h2>
+
+<ul>
+<li><code>show Collision</code> — Physics Asset의 바디 형상과 관절 위치를 본다.</li>
+<li><code>stat physics</code> — 바디 수·시뮬레이션 시간.</li>
+<li><code>p.Chaos.*</code> — Chaos 관련 CVar. 관절·충돌 마진 세부 조정.</li>
+<li>Visual Logger — 바디·관절 상태를 시간축으로 기록. (movement 전용 출력은 확인 못함)</li>
+</ul>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>FConstraintInstance</code> · <code>SetAngularSwing1Limit</code> · <code>SetAngularDriveParams</code></td><td><code>Engine/Source/Runtime/Engine/Classes/PhysicsEngine/ConstraintInstance.h</code> · <code>Private/PhysicsEngine/ConstraintInstance.cpp</code></td></tr>
+<tr><td><code>UPhysicsConstraintComponent</code></td><td><code>Classes/PhysicsEngine/PhysicsConstraintComponent.h</code> · <code>Private/PhysicsEngine/PhysicsConstraintComponent.cpp</code></td></tr>
+<tr><td><code>UPhysicsAsset</code> · <code>USkeletalBodySetup</code> · <code>ConstraintSetup</code></td><td><code>Classes/PhysicsEngine/PhysicsAsset.h</code> · <code>Classes/PhysicsEngine/SkeletalBodySetup.h</code></td></tr>
+<tr><td><code>SetAllBodiesBelowSimulatePhysics</code> · <code>SetAllBodiesBelowPhysicsBlendWeight</code> · <code>bBlendPhysics</code></td><td><code>Classes/Components/SkeletalMeshComponent.h</code> · <code>Private/Components/SkeletalMeshComponent.cpp</code></td></tr>
+<tr><td><code>UPhysicalAnimationComponent</code> · <code>FPhysicalAnimationData</code></td><td><code>Classes/PhysicsEngine/PhysicalAnimationComponent.h</code> · <code>Private/PhysicsEngine/PhysicalAnimationComponent.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 관절과 랙돌을 다뤘다. 바디·질량·힘은 <a href="chaos-body.html">Chaos — Body와 Simulation</a>, 파괴와 필드는 <a href="chaos-destruction.html">Chaos — Fields · Destruction</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+/* Constraint Limit — Swing 제한과 목표 각도 */
+function initLimit(){
+  if (!window.Viz) return;
+  var ang = document.getElementById('limAng');
+  var target = document.getElementById('limTarget');
+  var angO = document.getElementById('limAngO');
+  var targetO = document.getElementById('limTargetO');
+  var tabs = document.getElementById('limTabs');
+  var out = document.getElementById('limOut');
+  if (!ang || !target || !tabs || !out) return;
+
+  var mode = 'limited';
+  var v = Viz.view('limCv', function(){ return 300; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var cx = w * 0.42, cy = h * 0.5;
+    var arm = Math.min(120, w * 0.30);
+    var limit = parseFloat(ang.value) * Math.PI / 180;
+    var want = parseFloat(target.value) * Math.PI / 180;
+    var actual = mode === 'free' ? want : (mode === 'locked' ? 0 : Math.max(-limit, Math.min(limit, want)));
+
+    // 허용 영역
+    if (mode === 'limited'){
+      ctx.globalAlpha = 0.12; ctx.fillStyle = c.accent;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, arm + 22, -limit, limit);
+      ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(-limit) * (arm + 22), cy + Math.sin(-limit) * (arm + 22)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(limit) * (arm + 22), cy + Math.sin(limit) * (arm + 22)); ctx.stroke();
+    }
+
+    // 부모
+    Viz.roundRect(ctx, cx - 22, cy - 22, 44, 44, 6);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.text; ctx.lineWidth = 2; ctx.stroke();
+    Viz.text(ctx, 'Body A', cx, cy + 34, c.text, 9, 'center');
+
+    // 목표 방향
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(want) * (arm + 10), cy + Math.sin(want) * (arm + 10)); ctx.stroke();
+    ctx.setLineDash([]);
+    Viz.text(ctx, 'Target', cx + Math.cos(want) * (arm + 22), cy + Math.sin(want) * (arm + 22), c.dim, 8, 'center');
+
+    // 자식
+    var bx = cx + Math.cos(actual) * arm;
+    var by = cy + Math.sin(actual) * arm;
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(bx, by); ctx.stroke();
+    Viz.roundRect(ctx, bx - 18, by - 18, 36, 36, 5);
+    ctx.fillStyle = c.sf2; ctx.fill();
+    ctx.strokeStyle = c.accent; ctx.lineWidth = 2.5; ctx.stroke();
+    Viz.text(ctx, 'Body B', bx, by + 30, c.accent, 9, 'center');
+
+    Viz.text(ctx, mode.toUpperCase() + ' · 제한 ' + ang.value + '° · 목표 ' + target.value + '°',
+      w / 2, 18, c.text, 10, 'center');
+  });
+
+  if (!v) return;
+
+  function update(){
+    angO.value = ang.value;
+    targetO.value = target.value;
+    var btns = tabs.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++){
+      btns[i].setAttribute('aria-pressed', btns[i].getAttribute('data-mode') === mode ? 'true' : 'false');
+    }
+    var limit = parseFloat(ang.value);
+    var want = parseFloat(target.value);
+    if (mode === 'free'){
+      out.className = 'verdict';
+      out.textContent = 'Free — 제한 없이 목표 각도 ' + want + '° 를 따른다.';
+    } else if (mode === 'locked'){
+      out.className = 'verdict bad';
+      out.textContent = 'Locked — 각도를 0° 로 고정한다. 목표 ' + want + '° 는 무시된다.';
+    } else if (Math.abs(want) <= limit){
+      out.className = 'verdict ok';
+      out.textContent = 'Limited ' + limit + '° — 목표 ' + want + '° 가 제한 안이라 그대로 간다.';
+    } else {
+      out.className = 'verdict bad';
+      out.textContent = 'Limited ' + limit + '° — 목표 ' + want + '° 가 제한을 넘어 ' + (want > 0 ? limit : -limit) + '° 로 클램프된다.';
+    }
+    v.render();
+  }
+
+  var btns = tabs.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++){
+    btns[i].addEventListener('click', function(){
+      var m = this.getAttribute('data-mode');
+      if (m){ mode = m; update(); }
+    });
+  }
+  ang.addEventListener('input', update);
+  target.addEventListener('input', update);
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initLimit);
+else initLimit();
+</script>
+
+</body>
+</html>
