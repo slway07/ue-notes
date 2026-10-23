@@ -293,6 +293,10 @@ UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  D
 </table>
 </div>
 
+<p>머티리얼도 짚어 둘 만하다. Nanite 는 <b>불투명·마스크드</b> 머티리얼을 그릴 수 있고(마스킹은 월드·프로젝트 스위치가 따로 있다 &mdash; 9절), <b>WPO</b> 도 지원한다. 반투명은 6절 표대로 아직 실험 단계고, 테셀레이션은 머티리얼의 Tessellation 옵션과 Displacement 핀을 써야 한다.</p>
+
+<p class="note">확인하는 법: 에디터 뷰포트의 <b>Nanite 시각화</b> 모드에서 클러스터·복잡도·오버드로우를 보고, <code>stat Nanite</code> 로 클러스터 수와 래스터 비용을 본다.</p>
+
 <p>그래서 <b>"이 메시는 Nanite 다"</b> 는 <b>데이터가 있다</b>는 뜻이고, <b>"이 메시를 Nanite 로 그린다"</b> 는 <b>그 데이터를 지금 파이프라인이 쓰고 있다</b>는 뜻이다. 둘은 다르다. 아래 8~9절이 그 차이를 다룬다.</p>
 
 <blockquote><b>여기서 한 가지가 따라 나온다.</b> Nanite 데이터에는 <b>폴백 메시</b>가 같이 들어간다. 그래서 Nanite 를 꺼도 메시가 사라지지 않고 디테일만 줄어든다(16절).</blockquote>
