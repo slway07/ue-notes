@@ -74,14 +74,16 @@ window.Viz = (function(){
   /**
    * 움직이는 그림으로 만든다. step(view, t) 가 매 프레임 불린다.
    * 화면에 보일 때만 돌고, 보이지 않으면 멈춘다. 페이지가 알아서 할 일은 없다.
+   * opts.paused 가 참이면 멈춘 채로 시작한다 (prefers-reduced-motion 일 때 쓴다).
+   * 멈춘 동안에는 requestAnimationFrame 을 걸지 않는다. play()/pause() 로 바꾼다.
    */
-  function animate(v, step){
+  function animate(v, step, opts){
     if (!v) return null;
-    var raf = 0, visible = false;
+    var raf = 0, visible = false, held = !!(opts && opts.paused);
 
     function tick(){
       raf = 0;
-      if (!visible || document.hidden) return;      // 조건이 깨지면 루프가 끝난다
+      if (!visible || document.hidden || held) return;      // 조건이 깨지면 루프가 끝난다
       v.t += 1 / 60;
       if (v.t > 1e6) v.t = 0;
       if (step) step(v, v.t);
@@ -89,7 +91,7 @@ window.Viz = (function(){
       raf = requestAnimationFrame(tick);
     }
     function run(on){
-      if (on){ if (!raf && visible && !document.hidden) raf = requestAnimationFrame(tick); }
+      if (on){ if (!raf && visible && !document.hidden && !held) raf = requestAnimationFrame(tick); }
       else if (raf){ cancelAnimationFrame(raf); raf = 0; }
     }
 
@@ -102,7 +104,13 @@ window.Viz = (function(){
       run(!document.hidden && visible);
     });
 
-    return { stop: function(){ run(false); }, start: function(){ run(true); } };
+    return {
+      stop: function(){ run(false); },
+      start: function(){ run(true); },
+      pause: function(){ held = true; run(false); },
+      play: function(){ held = false; run(true); },
+      playing: function(){ return !held; }
+    };
   }
 
   /* ── 그리기 도구 ───────────────────────────────── */

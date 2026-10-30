@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nanite ② 켜는 층과 조용히 꺼지는 조건</title>
+<meta name="note-title" content="Nanite ② 켜는 층과 조용히 꺼지는 조건">
+<meta name="note-summary" content="Nanite 메시를 만들었는데 Nanite 로 안 그려지는 이유. 끈다는 말의 네 층, 메시 종류별 스위치, 에러 없이 폴백으로 내려가는 관문, 플랫폼별 지원.">
+<meta name="note-tags" content="Rendering, Nanite, Fallback, Platform">
+<meta name="note-order" content="11">
+<meta name="note-category" content="렌더링">
+<link rel="stylesheet" href="../assets/style.css?v=440c6c87">
+<script src="../assets/viz.js?v=38fafd0b"></script>
+<style>
+.stage canvas{touch-action:none;cursor:pointer}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.need{display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;font-size:.68rem;font-weight:600;white-space:nowrap}
+.need.ok{background:var(--accent-dim);color:var(--accent)}
+.need.dep{background:var(--surface-2);color:var(--warn)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.tablewrap table.cfg td:first-child{width:38%}
+.pipe{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.pstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.pstep .pn{display:block;font-family:ui-monospace,Consolas,monospace;color:var(--accent);font-size:.72rem}
+.pstep b{display:block;font-size:.8rem;margin:2px 0 4px}
+.pstep .pd{display:block;font-size:.68rem;color:var(--text-dim);line-height:1.45}
+#nkCtl label{display:block;line-height:1.5}
+#nkCtl input{margin-right:6px}
+.nklist{margin:0 0 4px}
+.nkrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:.88rem}
+.nkrow:first-child{border-top:0}
+.nkrow label{display:flex;gap:7px;align-items:center;flex-wrap:wrap;cursor:pointer}
+.nkrow .nst{flex:none;font-family:ui-monospace,Consolas,monospace;font-size:.8rem;font-weight:600}
+.nkrow .nst.on{color:var(--accent)}
+.nkrow .nst.off{color:var(--warn)}
+@media (max-width:560px){
+  .pipe{grid-template-columns:repeat(2,1fr)}
+  .pstep:last-child{grid-column:span 2}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>Nanite ② 켜는 층과 조용히 꺼지는 조건</h1>
+<p>Nanite 메시를 만들었는데 Nanite 로 안 그려지는 이유. 끈다는 말의 네 층, 메시 종류별 스위치, 에러 없이 폴백으로 내려가는 관문, 플랫폼별 지원.</p>
+</header>
+
+<article>
+
+<h2>1. Nanite 메시를 만들었는데 Nanite 로 안 그려진다</h2>
+
+<p><a href="render-nanite-clusters.html">①편</a>에서 Nanite 메시를 만들었다. 그런데 그 메시가 실제로 Nanite 로 그려지는지는 <b>메시 하나로 정해지지 않는다.</b> 플랫폼, 프로젝트 설정, 런타임 스위치, 메시 종류, 컴포넌트, 머티리얼이 <b>전부</b> 통과해야 한다.</p>
+
+<p>하나라도 걸리면 <b>에러도 경고도 없이 폴백 메시로 그려진다.</b> 화면은 멀쩡해 보이고 디테일만 줄어서, 무엇이 걸렸는지 모르고 지나가기 쉽다. 이 편은 그 관문을 바깥(엔진 전체)부터 안쪽(메시 하나)까지 차례로 본다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>절</th><th>무엇을 보나</th><th>범위</th></tr></thead>
+<tbody>
+<tr><td>2</td><td>"끈다" 의 네 층 &mdash; 플랫폼 · 프로젝트 · 런타임 · 메시</td><td>엔진 전체 ~ 에셋</td></tr>
+<tr><td>3</td><td>메시 종류별 스위치 &mdash; 스킨드 · 스플라인 · 폴리지 …</td><td>종류</td></tr>
+<tr><td>4</td><td>프록시를 만드는 순간의 관문 &mdash; 컴포넌트 · 데이터 · 머티리얼</td><td>컴포넌트 하나</td></tr>
+<tr><td>5</td><td>플랫폼별 지원표 &mdash; SM5 · SM6 · 모바일</td><td>기기·렌더링 경로</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>2. "Nanite 를 끈다" 는 말에는 네 가지 뜻이 있다</h2>
+
+<p><b>"Nanite 메시를 안 쓴다" 와 "Nanite 를 끈다" 는 다른 말이다.</b> 그리고 "끈다" 안에서도 층이 넷으로 갈린다. <b>어느 층을 끄느냐에 따라 VSM 이 살기도 하고 죽기도 한다</b> &mdash; 왜 그런지는 <a href="render-feature-dependencies.html">③편 3절</a>에서 코드로 본다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>무엇을 끄나</th><th>어떻게</th><th>성격</th></tr></thead>
+<tbody>
+<tr><td><b>① 플랫폼이 지원하지 않음</b></td><td>셰이더 모델이 모자라거나 포워드 셰이딩을 쓰는 경우</td><td>고를 수 있는 것이 아님</td></tr>
+<tr><td><b>② 프로젝트에서 지원을 끔</b></td><td><code>r.Nanite.ProjectEnabled = 0</code></td><td><b>읽기 전용</b>이라 실행 중에 못 바꾼다. 셰이더 퍼뮤테이션이 줄어든다</td></tr>
+<tr><td><b>③ 런타임에 끔</b></td><td><code>r.Nanite = 0</code></td><td>실행 중에 켰다 껐다 할 수 있다</td></tr>
+<tr><td><b>④ 메시에 Nanite 를 안 씀</b></td><td>스태틱 메시 에셋의 <b>Nanite Settings → Enable Nanite</b> 해제</td><td>에셋 하나하나의 문제</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>②의 설명 문구가 성격을 잘 말해 준다 &mdash; 지원하는 플랫폼에서 <b>셰이더 수를 줄이려고</b> Nanite 를 끄는 스위치이고, 지원하지 않는 플랫폼에서 Nanite 를 <b>켜는 데는 쓸 수 없다</b>고 적혀 있다.</p>
+
+<h3>어느 층을 끄면 무엇이 죽나</h3>
+
+<p>아래 스위치를 끄고 켜 보면 된다. 판정은 엔진의 두 함수를 그대로 따른다.</p>
+
+<div class="panel">
+  <div class="ctl chk" id="nvSw" style="flex-direction:column;align-items:stretch">
+    <label><input type="checkbox" id="swPlat" checked> ① 플랫폼이 Nanite 를 지원한다</label>
+    <label><input type="checkbox" id="swProj" checked> ② <code>r.Nanite.ProjectEnabled</code> = 1</label>
+    <label><input type="checkbox" id="swRun" checked> ③ <code>r.Nanite</code> = 1</label>
+    <label><input type="checkbox" id="swMesh" checked> ④ 이 메시의 <b>Enable Nanite</b> 체크됨</label>
+    <label><input type="checkbox" id="swVsm" checked> <code>r.Shadow.Virtual.Enable</code> = 1</label>
+  </div>
+
+  <div class="readout" id="nvOut"></div>
+  <p class="verdict" id="nvVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>③ <code>r.Nanite</code> 만 꺼 보라.</b> 메시는 폴백으로 내려가는데 <b>Virtual Shadow Maps 는 그대로 살아 있다.</b> 이제 되돌리고 <b>② <code>r.Nanite.ProjectEnabled</code> 를 꺼 보라.</b> 이번에는 VSM 도 같이 죽는다. <b>같은 "Nanite 끄기" 인데 결과가 다르다.</b></p>
+
+<p>이유는 두 함수가 보는 것이 다르기 때문이다.</p>
+
+<pre><code>UseNanite()            = r.Nanite  &amp;&amp;  머티리얼 품질  &amp;&amp;  DoesRuntimeSupportNanite(...)
+UseVirtualShadowMaps() = r.Shadow.Virtual.Enable  &amp;&amp;  …  &amp;&amp;  DoesRuntimeSupportNanite(...)</code></pre>
+
+<p><code>r.Nanite</code> 는 <b><code>UseNanite()</code> 에만</b> 들어 있고 VSM 쪽 조건에는 없다. 둘이 공유하는 것은 <code>DoesRuntimeSupportNanite()</code> 뿐이고, 그 안에 들어 있는 것이 <b>플랫폼 지원과 <code>r.Nanite.ProjectEnabled</code></b> 다. 그래서 ②를 끄면 공유 부분이 무너져 둘 다 죽고, ③을 끄면 Nanite 쪽만 죽는다.</p>
+
+<p>④는 아예 다른 층이다. <b>에셋 하나가 Nanite 데이터를 갖느냐</b>의 문제라서 엔진 전체 스위치와 무관하다. 프로퍼티 주석도 그렇게 적혀 있다 &mdash; 켜면 <b>Nanite 데이터가 생성된다</b>.</p>
+
+<blockquote><b>그래서 이렇게 말해야 정확하다.</b><br>
+"우리는 Nanite 메시를 안 쓴다" = ④. VSM 은 멀쩡하다.<br>
+"우리는 Nanite 를 런타임에 껐다" = ③. VSM 은 멀쩡하다.<br>
+"우리는 프로젝트에서 Nanite 지원을 껐다" = ②. <b>VSM 도 못 쓴다.</b></blockquote>
+
+<h2>3. Nanite 메시는 스태틱 메시만이 아니다</h2>
+
+<p>"Nanite Mesh" 하면 스태틱 메시 에셋의 체크박스를 떠올리기 쉽다. 그런데 Nanite 로 그릴 수 있는 것은 여러 종류이고, <b>종류마다 켜는 스위치가 따로</b> 있다. 게다가 <b>실험 단계인 종류는 기본값이 0</b> 이다.</p>
+
+<p class="note">표의 스위치 이름에는 모두 <code>r.Nanite.</code> 접두사가 붙는다. 예: <code>r.Nanite.AllowSkinnedMeshes</code>.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>종류</th><th>켜는 스위치</th><th>기본값</th></tr></thead>
+<tbody>
+<tr><td><b>스태틱 메시</b><br><span class="small">가장 흔한 경로. 인스턴스도 이 데이터를 쓴다</span></td><td>에셋 <b>Nanite Settings → Enable Nanite</b> + <code>r.Nanite</code></td><td class="yn">에셋 꺼짐<br>전역 1</td></tr>
+<tr><td><b>스켈레탈</b><br><span class="small">본으로 변형되는 메시. 에셋에도 같은 Nanite Settings 가 있다</span></td><td><code>AllowSkinnedMeshes</code> + <code>RenderNanite</code></td><td class="yn ok">1 / 1</td></tr>
+<tr><td><b>스플라인</b><br><span class="small">스플라인 컴포넌트가 Nanite 데이터를 쓸지</span></td><td><code>AllowSplineMeshes</code></td><td class="yn ok">1</td></tr>
+<tr><td><b>폴리지</b><br><span class="small">켜면 어셈블리·복셀 경로도 함께 열린다</span></td><td>프로젝트 설정 <b>Nanite Foliage (Experimental)</b> = <code>r.Nanite.Foliage</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>어셈블리</b><br><span class="small">조각을 조립한 메시</span></td><td><code>AllowAssemblies</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>복셀</b><br><span class="small">먼 거리 형태 보존용 복셀 래스터</span></td><td><code>AllowVoxels</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>커브</b><br><span class="small">헤어·그룸 같은 커브</span></td><td><code>AllowCurves</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>반투명</b><br><span class="small">엔진 주석에 Heavy WIP / R&amp;D 라고 적혀 있다</span></td><td><code>AllowTranslucency</code></td><td class="yn dep">0</td></tr>
+<tr><td><b>테셀레이션</b><br><span class="small">셋 다 켜져야 하고, 머티리얼도 Tessellation·Displacement 를 써야 한다</span></td><td><code>Tessellation</code> + <code>ProgrammableRaster</code> + <code>ComputeRasterization</code></td><td class="yn ok">1 / 1 / 1</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note">기본값 0 은 "실험 단계라 기본으로 꺼 둔다" 는 뜻이다. 켜면 셰이더가 더 컴파일되고, 검증되지 않은 경로를 타게 된다.</p>
+
+<h3>지금 설정에서 각 종류가 Nanite 로 그려지나</h3>
+
+<p>스위치를 눌러 보라. <b>파이프라인이 켜져 있어도 종류별 스위치가 꺼져 있으면 그 종류만 폴백</b> 으로 내려간다.</p>
+
+<div class="panel">
+  <div class="ctl" id="nkCtl" style="flex-direction:column;align-items:stretch">
+    <label><input type="checkbox" id="nkPipe" checked> Nanite 파이프라인이 켜져 있다 (플랫폼 · <code>r.Nanite.ProjectEnabled</code> · <code>r.Nanite</code>)</label>
+    <label><input type="checkbox" id="nkData" checked> 이 메시에 Nanite 데이터가 있다 (Enable Nanite)</label>
+  </div>
+  <div class="nklist">
+    <div class="nkrow"><span>스태틱 <span class="small">r.Nanite</span></span><span class="nst" data-k="static"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kSkinned" checked> 스킨드 <span class="small">AllowSkinnedMeshes + RenderNanite</span></label><span class="nst" data-k="skinned"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kSpline" checked> 스플라인 <span class="small">AllowSplineMeshes</span></label><span class="nst" data-k="spline"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kFoliage"> 폴리지 <span class="small">r.Nanite.Foliage</span></label><span class="nst" data-k="foliage"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kAssembly"> 어셈블리 <span class="small">AllowAssemblies</span></label><span class="nst" data-k="assembly"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kVoxel"> 복셀 <span class="small">AllowVoxels</span></label><span class="nst" data-k="voxel"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kCurve"> 커브 <span class="small">AllowCurves</span></label><span class="nst" data-k="curve"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kTranslucency"> 반투명 <span class="small">AllowTranslucency</span></label><span class="nst" data-k="translucency"></span></div>
+    <div class="nkrow"><label><input type="checkbox" id="kTess" checked> 테셀레이션 <span class="small">Tessellation + Programmable + Compute</span></label><span class="nst" data-k="tess"></span></div>
+  </div>
+  <p class="verdict" id="nkVerdict"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>Nanite Foliage 를 켜 보라.</b> 폴리지뿐 아니라 <b>어셈블리와 복셀도 같이 열린다</b> &mdash; 엔진의 지원 판정이 셋을 묶어 두었기 때문이다. 이제 <b>반투명을 켜 보라.</b> 이번에는 다른 종류가 따라 열리지 않는다.</p>
+
+<h2>4. Nanite 가 조용히 꺼지는 조건</h2>
+
+<p>Nanite 는 "켰는데 안 켜져 있다" 가 잘 생긴다. 에러도 경고도 없이 <b>폴백 메시로 그려질 뿐</b>이다. 엔진이 프록시를 만들 때 보는 것을 그대로 옮기면 이렇다.</p>
+
+<pre><code>ShouldCreateNaniteProxy()
+  = 컴포넌트가 금지하지 않음
+    &amp;&amp; UseNanite()
+    &amp;&amp; 메시에 Nanite 데이터가 있음
+    &amp;&amp; 머티리얼 감사 통과
+
+UseNanite()
+  = r.Nanite
+    &amp;&amp; 머티리얼 품질 &gt;= r.Nanite.MinMaterialQuality
+    &amp;&amp; DoesRuntimeSupportNanite()
+
+DoesRuntimeSupportNanite()
+  = 플랫폼 지원(r.Nanite.ProjectEnabled 포함) &amp;&amp; 64bit 원자 연산 &amp;&amp; !포워드 셰이딩</code></pre>
+
+<ol>
+<li><b>전역 스위치</b> &mdash; <code>r.Nanite</code>, <code>r.Nanite.ProjectEnabled</code>, 플랫폼 지원(5절), 머티리얼 품질(<code>r.Nanite.MinMaterialQuality</code>, 기본 0 이라 게이트 없음)</li>
+<li><b>64비트 원자 연산</b> &mdash; 없으면 안 된다. DX11 이 막히는 이유이고, <code>r.Nanite.RequireDX12</code> 기본 1 이 DX11 을 걸러 낸다</li>
+<li><b>포워드 셰이딩</b> &mdash; <code>DoesRuntimeSupportNanite</code> 가 <b>포워드 셰이딩이면 무조건 false</b> 다. 이 한 줄 때문에 "Nanite 는 되는데 왜 안 되지" 가 생긴다</li>
+<li><b>메시 데이터</b> &mdash; <code>HasValidNaniteData()</code>. Nanite 페이지 스트리밍 상태가 비어 있으면 데이터가 없는 것으로 친다</li>
+<li><b>컴포넌트</b> &mdash; <code>bDisallowNanite</code>(폴백 강제), <code>bForceDisableNanite</code>(런타임 강제), 에디터의 <b>Nanite Fallback Mesh</b> 표시</li>
+<li><b>머티리얼 감사</b> &mdash; 마스킹 머티리얼은 월드 설정 <code>bAllowMaskedMaterials</code> · <code>r.Nanite.AllowMaskedMaterials</code> · 컴포넌트 <code>bForceNaniteForMasked</code> 를 통과해야 한다. 재질이 맞지 않으면 여기서 걸린다</li>
+<li><b>종류별 스위치</b> &mdash; 3절의 <code>Allow*</code> 와 테셀레이션 세 종</li>
+</ol>
+
+<p class="note">문제는 대부분 <b>4~6번</b>에서 생긴다. 전역 스위치는 눈에 띄지만, 마스킹 재질 하나 때문에 그 메시만 폴백으로 내려가는 것은 로그가 없다. 3절의 판정기로 종류별 스위치를, 아래 그림으로 관문 순서를 확인하면 된다.</p>
+
+<h3>메시 네 개를 관문에 통과시켜 보기</h3>
+
+<p>위 판정식을 그대로 움직인 것이다. 메시 네 개가 왼쪽에서 차례로 들어와 관문 네 개를 지난다. 전부 통과하면 위 줄 끝의 <b>Nanite 프록시</b>(<code>Nanite::FSceneProxy</code>)로 가고, 하나라도 걸리면 그 자리에서 아래 줄로 떨어져 <b>일반 프록시</b>(<code>FStaticMeshSceneProxy</code>)로 간다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>세로 점선 넷</b></td><td>관문. 왼쪽부터 <b>①</b> 컴포넌트가 막지 않나 (<code>bDisallowNanite</code> 등) <b>②</b> <code>UseNanite()</code> <b>③</b> 메시에 Nanite 데이터가 있나 <b>④</b> 머티리얼 감사. <code>ShouldCreateNaniteProxy()</code> 가 보는 순서 그대로다</td></tr>
+<tr><td><b>메시 네 개</b></td><td><b>바위</b>(불투명) · <b>잎 카드</b>(마스크드) · <b>벽</b>(불투명, 컴포넌트에 <code>bDisallowNanite</code> 켬) · <b>상자</b>(Enable Nanite 꺼짐). 앞의 셋은 Nanite 메시다</td></tr>
+<tr><td><b>위 줄 / 아래 줄</b></td><td>위 줄 끝까지 가면 Nanite 로 그려진다. 아래 줄은 <b>폴백 메시</b>(Nanite 데이터는 있는데 못 씀)이거나 <b>일반 메시</b>(데이터가 없음)다</td></tr>
+<tr><td><b>떨어지는 자리</b></td><td>어느 관문에서 걸렸는지. 아래 칸에도 메시마다 결과와 걸린 관문을 적었다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>무엇을 보면 되나.</b> 처음에는 바위와 잎 카드만 위 줄로 간다. 벽은 ①, 상자는 ③에서 떨어진다 &mdash; 둘 다 아무 경고 없이. 이제 <code>r.Nanite.AllowMaskedMaterials</code> 를 꺼 보라. 잎 카드만 ④에서 떨어진다. 되돌리고 월드 설정 <code>bAllowMaskedMaterials</code> 를 꺼도 같은 결과다. 그 상태에서 잎 카드 컴포넌트의 <code>bForceNaniteForMasked</code> 를 켜면 잎 카드가 다시 통과한다 &mdash; <b>월드 설정은 컴포넌트가 이길 수 있지만, <code>r.Nanite.AllowMaskedMaterials</code> 는 못 이긴다.</b> 마지막으로 <code>r.Nanite</code> 를 끄면 모두 ②에서 떨어진다(벽은 그 전에 ①에서).</p>
+
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="gtPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="gtReset">처음으로</button>
+  </div>
+  <div class="ctl chk" id="gtSw" style="flex-direction:column;align-items:stretch">
+    <label><input type="checkbox" id="gtRun" checked> <code>r.Nanite</code> = 1</label>
+    <label><input type="checkbox" id="gtMaskCvar" checked> <code>r.Nanite.AllowMaskedMaterials</code> = 1</label>
+    <label><input type="checkbox" id="gtMaskWorld" checked> 월드 세팅 <b>Nanite → Allow Masked Materials</b></label>
+    <label><input type="checkbox" id="gtForce"> 잎 카드 컴포넌트 <code>bForceNaniteForMasked</code></label>
+  </div>
+  <div class="stage"><canvas id="cvGate" aria-label="메시 네 개가 관문 네 개를 차례로 지난다. 전부 통과하면 위 줄 끝의 Nanite 프록시로, 걸리면 아래 줄의 일반 프록시로 떨어진다."></canvas></div>
+  <div class="readout" id="gtRes"></div>
+  <p class="verdict" id="gtOut"></p>
+</div>
+
+<p class="note">스위치를 바꾸면 메시가 처음부터 다시 들어온다. 엔진도 같다 &mdash; <code>r.Nanite.AllowMaskedMaterials</code> 와 월드 설정 <code>bAllowMaskedMaterials</code> 는 바뀌는 순간 <b>모든 컴포넌트의 렌더 상태를 다시 만든다</b>(<code>FGlobalComponentRecreateRenderStateContext</code>). 프록시를 고르는 판단이 만들 때 한 번뿐이라서다. 플랫폼과 <code>r.Nanite.ProjectEnabled</code> 는 이 그림에서 켜져 있다고 둔다 &mdash; 그 둘은 2절의 판정기로 본다.</p>
+
+<h2>5. 플랫폼마다 다르다 — 모바일에서는 무엇이 되나</h2>
+
+<p>4절의 첫 조건이 <b>플랫폼 지원</b>이었다. <b>애초에 안 되는 플랫폼</b>에서는 설정을 어떻게 두든 켜지지 않는다.</p>
+
+<p>이 판정은 코드에 박혀 있지 않고 <b>플랫폼별 설정 파일</b>에 들어 있다. <code>Engine/Config/&lt;플랫폼&gt;/DataDrivenPlatformInfo.ini</code> 의 셰이더 플랫폼 항목마다 <code>bSupportsNanite</code>, <code>bSupportsLumenGI</code>, <code>bSupportsGen5TemporalAA</code>(TSR) 같은 값이 적혀 있고, 엔진은 그 값을 읽어 판단한다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>셰이더 플랫폼</th><th>모바일</th><th>Nanite</th><th>VSM</th><th>Lumen GI</th><th>TSR</th></tr></thead>
+<tbody>
+<tr><td><code>PCD3D_SM5</code><br><span class="small">Windows DX11 / DX12 SM5</span></td><td>&mdash;</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn ok">✓</td><td class="yn ok">✓</td></tr>
+<tr><td><code>PCD3D_SM6</code><br><span class="small">Windows DX12 SM6</span></td><td>&mdash;</td><td class="yn ok">✓</td><td class="yn ok">✓</td><td class="yn ok">✓</td><td class="yn ok">✓</td></tr>
+<tr><td><code>METAL_SM6_IOS</code><br><span class="small">iOS 의 SM6 경로</span></td><td>&mdash;</td><td class="yn ok">✓</td><td class="yn ok">✓</td><td class="yn ok">✓</td><td class="yn ok">✓</td></tr>
+<tr><td><code>METAL_ES3_1_IOS</code><br><span class="small">iOS 모바일 경로</span></td><td class="yn dep">모바일</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn dep">✗</td></tr>
+<tr><td><code>OPENGL_ES3_1_ANDROID</code><br><code>VULKAN_ES3_1_ANDROID</code></td><td class="yn dep">모바일</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn dep">✗</td></tr>
+<tr><td><code>VULKAN_SM5_ANDROID</code><br><span class="small">안드로이드의 상위 경로</span></td><td>&mdash;</td><td class="yn dep">✗</td><td class="yn dep">✗</td><td class="yn ok">✓</td><td class="yn dep">✗</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>여기서 읽어야 할 것 네 가지다.</p>
+
+<ul>
+<li><b>Nanite 는 SM6 급에서만 된다.</b> 윈도우라도 <code>PCD3D_SM5</code> 로 돌면 안 된다. "PC 니까 당연히 되겠지" 가 통하지 않는다</li>
+<li><b>VSM 열이 Nanite 열과 똑같다.</b> 우연이 아니다 &mdash; VSM 이 Nanite 플랫폼 지원을 요구하기 때문이고(<a href="render-feature-dependencies.html">③편 3절</a>), 그래서 <b>Nanite 가 안 되는 플랫폼에서는 VSM 도 못 쓴다</b></li>
+<li><b>모바일(ES3.1) 경로에서는 넷 다 안 된다.</b> 모바일 렌더러는 이 기능들의 대상이 아니다</li>
+<li><b>안드로이드는 상위 경로(<code>VULKAN_SM5_ANDROID</code>)에서도 Nanite 가 안 된다.</b> Lumen GI 는 되지만 Nanite·VSM·TSR 은 빠진다. 반면 <b>iOS 는 <code>METAL_SM6_IOS</code> 에서 넷 다 된다</b> &mdash; 같은 "모바일" 이라도 경로에 따라 갈린다</li>
+</ul>
+
+<blockquote><b>그래서 "모바일 지원인가?" 라는 질문도 쪼개야 한다.</b> 묻는 것이 <b>기기</b>(안드로이드·iOS)인지 <b>렌더링 경로</b>(ES3.1 모바일 렌더러인지 SM5/SM6 데스크톱 렌더러인지)인지에 따라 답이 다르다. iOS 기기에서도 <code>METAL_ES3_1_IOS</code> 로 돌면 Nanite 는 없다.</blockquote>
+
+<p class="note"><b>위 표의 SM5·SM6 모바일 경로는 기본으로 꺼져 있다.</b> 안드로이드는 프로젝트 설정 <b>Support Vulkan Desktop [Experimental]</b>(<code>bSupportsVulkanSM5</code>), iOS 는 <b>Metal Mobile SM5 Renderer</b> · <b>Metal Mobile SM6 Renderer (Experimental)</b>(<code>bSupportsMetalMobileSM5</code> · <code>SM6</code>)을 켜야 그 경로로 패키징되고, 엔진 기본값은 셋 다 false 다. 켜도 기기가 못 따라오면 내려간다 &mdash; iOS 의 SM6 경로는 iOS 18 이상이면서 Apple9 GPU 계열인 기기에서만 탄다. 그래서 <b>기본 설정 그대로면 모바일 기기는 전부 ES3.1 모바일 렌더러로 돈다.</b></p>
+
+<h2>6. 콘솔 명령</h2>
+
+<p>이 편에 나온 스위치다.</p>
+<p><b>런타임 변경</b> 칸이 ✗ 인 것은 <code>ECVF_ReadOnly</code> 라서 게임이 뜬 뒤에는 바꿀 수 없다 &mdash; <code>DefaultEngine.ini</code> 에 적고 다시 띄워야 하고, 셰이더가 다시 컴파일될 수 있다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>콘솔 명령</th><th>무엇을 정하나</th><th>엔진 기본값</th><th>런타임 변경</th></tr></thead>
+<tbody>
+<tr><td><code>r.Nanite.ProjectEnabled</code></td><td>프로젝트의 Nanite 지원. 끄면 <b>VSM 도 죽는다</b></td><td>1</td><td class="yn dep">✗</td></tr>
+<tr><td><code>r.Nanite</code></td><td>런타임 Nanite 렌더링. 꺼도 VSM 은 산다</td><td>1</td><td class="yn ok">✓</td></tr>
+<tr><td><code>r.Nanite.Tessellation</code></td><td>Nanite 테셀레이션. <code>ProgrammableRaster</code>·<code>ComputeRasterization</code> 도 함께 켜져야 한다</td><td>1</td><td class="yn ok">✓</td></tr>
+<tr><td><code>r.Nanite.AllowMaskedMaterials</code></td><td>마스크드 머티리얼 메시를 Nanite 로 그릴지. 월드 설정·컴포넌트보다 먼저 본다</td><td>1</td><td class="yn ok">✓</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="note">Nanite 종류별 <code>Allow*</code> 스위치는 3절 표에 모아 두었다 &mdash; 전부 <code>ECVF_ReadOnly</code> 라 실행 중에 바꿀 수 없다.</p>
+
+<h2>7. 소스 위치</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>DoesRuntimeSupportNanite</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1425~1434</td></tr>
+<tr><td><code>DoesPlatformSupportNanite</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1274~1296</td></tr>
+<tr><td><code>UseNanite</code></td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1478~1483</td></tr>
+<tr><td><code>r.Nanite.ProjectEnabled</code> 선언 (ReadOnly)</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>31~38</td></tr>
+<tr><td><code>NaniteAtomicsSupported</code> (DX11 차단)</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1298~1335</td></tr>
+<tr><td>Nanite 종류별 지원 함수 &mdash; 스플라인·스킨드·반투명·어셈블리·복셀·커브</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1349~1396</td></tr>
+<tr><td><code>UseNaniteTessellation</code> (세 스위치)</td><td><code>Engine/Source/Runtime/RenderCore/Private/RenderUtils.cpp</code></td><td>1411~1423</td></tr>
+<tr><td>Nanite 종류별 <code>Allow*</code> 선언 (ReadOnly)</td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>95~143</td></tr>
+<tr><td><code>r.Nanite.MinMaterialQuality</code> (기본 0)</td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>228~235</td></tr>
+<tr><td><code>ShouldCreateNaniteProxy</code> (전역·데이터·머티리얼 감사)</td><td><code>Engine/Source/Runtime/Engine/Public/Rendering/NaniteResourcesHelper.h</code></td><td>155~193</td></tr>
+<tr><td><code>IsMaskingAllowed</code></td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>3412~3425</td></tr>
+<tr><td><code>r.Nanite.AllowMaskedMaterials</code> (바뀌면 렌더 상태 재생성)</td><td><code>Engine/Source/Runtime/Engine/Private/Rendering/NaniteResources.cpp</code></td><td>142~152</td></tr>
+<tr><td>머티리얼 감사 <code>FMaterialAudit::IsValid</code></td><td><code>Engine/Source/Runtime/Engine/Public/NaniteSceneProxy.h</code></td><td>84~87</td></tr>
+<tr><td>월드 설정 <code>bAllowMaskedMaterials</code></td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/WorldSettings.h</code></td><td>292</td></tr>
+<tr><td>월드 설정이 바뀌면 프록시 재생성</td><td><code>Engine/Source/Runtime/Engine/Private/WorldSettings.cpp</code></td><td>1015~1020</td></tr>
+<tr><td>컴포넌트 <code>bForceNaniteForMasked</code> · <code>bDisallowNanite</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Components/StaticMeshComponent.h</code></td><td>162~166</td></tr>
+<tr><td><code>r.Nanite</code> 선언 (Scalability)</td><td><code>Engine/Source/Runtime/Engine/Private/StaticMeshSceneProxy.cpp</code></td><td>109~119</td></tr>
+<tr><td>플랫폼별 Nanite·Lumen·TSR 지원 값</td><td><code>Engine/Config/&lt;플랫폼&gt;/DataDrivenPlatformInfo.ini</code></td><td>&mdash;</td></tr>
+<tr><td>안드로이드 <code>bSupportsVulkanSM5</code> 선언</td><td><code>Engine/Source/Runtime/Android/AndroidRuntimeSettings/Classes/AndroidRuntimeSettings.h</code></td><td>459~467</td></tr>
+<tr><td>안드로이드 렌더러 기본값</td><td><code>Engine/Config/BaseEngine.ini</code></td><td>3284~3286</td></tr>
+<tr><td>iOS <code>bSupportsMetalMobileSM5</code> · <code>SM6</code> 선언 / 기본값</td><td><code>Engine/Source/Runtime/IOS/IOSRuntimeSettings/Classes/IOSRuntimeSettings.h · Private/IOSRuntimeSettings.cpp</code></td><td>224~233 / 63~65</td></tr>
+<tr><td>iOS SM6 기기 조건 (iOS 18 · Apple9)</td><td><code>Engine/Source/Runtime/Apple/MetalRHI/Private/MetalRHI.cpp</code></td><td>255~266</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; 위 표의 파일과 줄 번호 (UE 5.8).</p>
+
+<div class="nextprev">
+<a href="render-nanite-clusters.html">&larr; ① 클러스터로 그리는 메시</a>
+<a href="render-feature-dependencies.html">③ 렌더링 기능 의존 관계 &rarr;</a>
+</div>
+
+</article>
+
+<footer class="site-foot">
+<p>이 편은 Nanite 가 켜지고 꺼지는 조건을 다뤘다. Nanite 메시 자체는 ①편, 다른 렌더링 기능과의 관계는 ③편에 있다.</p>
+</footer>
+
+</div>
+
+<script>
+/* "Nanite 를 끈다" 의 네 층위 — 엔진의 판정식을 그대로 옮겼다.
+   UseNanite()            = r.Nanite && 머티리얼품질 && DoesRuntimeSupportNanite()
+   UseVirtualShadowMaps() = r.Shadow.Virtual.Enable && DoesPlatformSupportVSM() && DoesRuntimeSupportNanite()
+   DoesRuntimeSupportNanite() 안에 플랫폼 지원과 r.Nanite.ProjectEnabled 가 들어 있다. */
+function initNaniteLevels(){
+  var ids = ['swPlat', 'swProj', 'swRun', 'swMesh', 'swVsm'];
+  var out = document.getElementById('nvOut');
+  var verdict = document.getElementById('nvVerdict');
+  if (!out || !verdict) return;
+
+  function cell(k, v, tone){
+    return '<div class="cell"><span class="k">' + k + '</span>' +
+           '<span class="v" style="color:var(--' + tone + ')">' + v + '</span></div>';
+  }
+
+  function update(){
+    var plat = document.getElementById('swPlat').checked;
+    var proj = document.getElementById('swProj').checked;
+    var run  = document.getElementById('swRun').checked;
+    var mesh = document.getElementById('swMesh').checked;
+    var vsmOn = document.getElementById('swVsm').checked;
+
+    var runtimeSupport = plat && proj;          // DoesRuntimeSupportNanite()
+    var useNanite = run && runtimeSupport;      // UseNanite()
+    var useVSM = vsmOn && runtimeSupport;       // UseVirtualShadowMaps()
+    var meshNanite = useNanite && mesh;
+
+    out.innerHTML =
+      cell('Nanite 렌더링', useNanite ? '동작' : '꺼짐', useNanite ? 'accent' : 'warn') +
+      cell('Virtual Shadow Maps', useVSM ? '동작' : '꺼짐', useVSM ? 'accent' : 'warn') +
+      cell('이 메시는', meshNanite ? 'Nanite 로 그려짐' : '폴백(일반) 메시로 그려짐',
+           meshNanite ? 'accent' : 'text-dim');
+
+    var why = [];
+    if (!plat) why.push('플랫폼이 지원하지 않아 ①부터 막혔다');
+    else if (!proj) why.push('②를 껐으므로 Nanite 와 VSM 이 함께 죽는다');
+    else if (!run) why.push('③만 껐으므로 Nanite 는 꺼지지만 <b>VSM 은 살아 있다</b>');
+    else if (!mesh) why.push('④만 껐다. 이 메시만 일반 메시로 그려질 뿐 엔진 기능은 그대로다');
+    if (!vsmOn) why.push('VSM 자체 스위치가 꺼져 있다');
+
+    if (why.length === 0){
+      verdict.className = 'verdict ok';
+      verdict.innerHTML = '전부 켜진 상태다. 하나씩 꺼 보면 층마다 결과가 다른 것을 볼 수 있다.';
+    } else {
+      verdict.className = 'verdict' + ((!proj || !plat) ? ' bad' : '');
+      verdict.innerHTML = why.join(' / ');
+    }
+  }
+
+  for (var i = 0; i < ids.length; i++){
+    var el = document.getElementById(ids[i]);
+    if (el) el.addEventListener('change', update);
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initNaniteLevels);
+else initNaniteLevels();
+</script>
+
+<script>
+/* Nanite 메시 종류별 판정 — 엔진의 지원 함수와 같은 규칙으로 계산한다.
+   Foliage 는 어셈블리·복셀 지원까지 함께 열고, 테셀레이션은 세 스위치가 모두 필요하다. */
+function initNaniteKinds(){
+  var out = document.getElementById('nkVerdict');
+  if (!out) return;
+
+  var INPUTS = ['nkPipe','nkData','kSkinned','kSpline','kFoliage','kAssembly','kVoxel','kCurve','kTranslucency','kTess'];
+  var NAMES = {
+    static:'스태틱', skinned:'스킨드', spline:'스플라인', foliage:'폴리지',
+    assembly:'어셈블리', voxel:'복셀', curve:'커브', translucency:'반투명', tess:'테셀레이션'
+  };
+  var KINDS = ['static','skinned','spline','foliage','assembly','voxel','curve','translucency','tess'];
+
+  function checked(id){
+    var el = document.getElementById(id);
+    return !!(el && el.checked);
+  }
+
+  function update(){
+    var pipe = checked('nkPipe');
+    var data = checked('nkData');
+    var foliage = checked('kFoliage');
+    var s = {
+      static: true,
+      skinned: checked('kSkinned'),
+      spline: checked('kSpline'),
+      foliage: foliage,
+      assembly: checked('kAssembly') || foliage,
+      voxel: checked('kVoxel') || foliage,
+      curve: checked('kCurve'),
+      translucency: checked('kTranslucency'),
+      tess: checked('kTess')
+    };
+
+    var live = [];
+    for (var i = 0; i < KINDS.length; i++){
+      var k = KINDS[i];
+      var ok = pipe && data && s[k];
+      var cell = document.querySelector('.nst[data-k="' + k + '"]');
+      if (cell){
+        cell.textContent = ok ? 'Nanite' : '폴백';
+        cell.className = 'nst ' + (ok ? 'on' : 'off');
+      }
+      if (ok) live.push(NAMES[k]);
+    }
+
+    if (!pipe){
+      out.className = 'verdict bad';
+      out.textContent = 'Nanite 파이프라인이 꺼져 있어 모든 메시가 폴백으로 그려진다. 플랫폼·프로젝트·r.Nanite 중 하나라도 꺼진 상태다.';
+    } else if (!data){
+      out.className = 'verdict bad';
+      out.textContent = '이 메시에는 Nanite 데이터가 없어 파이프라인이 켜져 있어도 폴백이다. 에셋의 Enable Nanite 가 꺼진 상태다.';
+    } else if (live.length === KINDS.length){
+      out.className = 'verdict ok';
+      out.textContent = '아홉 종류가 전부 Nanite 로 그려진다. 실험 단계 스위치까지 다 켠 상태다.';
+    } else {
+      out.className = 'verdict';
+      out.textContent = 'Nanite 로 그려지는 종류: ' + live.join(', ') + '. 나머지는 종류별 스위치가 꺼져 있어 폴백으로 간다.';
+    }
+  }
+
+  for (var i = 0; i < INPUTS.length; i++){
+    var el = document.getElementById(INPUTS[i]);
+    if (el) el.addEventListener('change', update);
+  }
+  update();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initNaniteKinds);
+else initNaniteKinds();
+</script>
+
+<script>
+/* 프록시 관문 — ShouldCreateNaniteProxy() 의 순서를 그대로 옮겼다.
+   ① 컴포넌트(bDisallowNanite 등) ② UseNanite() ③ HasValidNaniteData() ④ 머티리얼 감사
+   ④ 의 마스킹 허용 = r.Nanite.AllowMaskedMaterials && (월드 bAllowMaskedMaterials || 컴포넌트 bForceNaniteForMasked) */
+function initGates(){
+  if (!window.Viz) return;
+  var btnPlay = document.getElementById('gtPlay');
+  var btnReset = document.getElementById('gtReset');
+  var res = document.getElementById('gtRes');
+  var out = document.getElementById('gtOut');
+  if (!btnPlay || !btnReset || !res || !out) return;
+
+  var SWITCHES = ['gtRun', 'gtMaskCvar', 'gtMaskWorld', 'gtForce'];
+  var GATE_SHORT = ['①', '②', '③', '④'];
+  var GATE_LONG = ['① 컴포넌트', '② UseNanite()', '③ Nanite 데이터', '④ 머티리얼 감사'];
+  var MESHES = [
+    { name: '바위',    masked: false, data: true,  disallow: false, force: false },
+    { name: '잎 카드', masked: true,  data: true,  disallow: false, force: true },
+    { name: '벽',      masked: false, data: true,  disallow: true,  force: false },
+    { name: '상자',    masked: false, data: false, disallow: false, force: false }
+  ];
+  var SPAWN = 1.5, TRAVEL = 5.0, CYCLE = SPAWN * 4 + 2.0;
+  var SHOW_T = 4.6;            // 멈춘 채로 볼 때 네 메시가 각 관문 근처에 있는 시각
+  var flashUntil = 0;
+  var fails = [];
+
+  function sw(id){ var el = document.getElementById(id); return !!(el && el.checked); }
+
+  // 걸린 관문 번호(0~3). 통과하면 -1.
+  function failGate(m){
+    if (m.disallow) return 0;
+    if (!sw('gtRun')) return 1;
+    if (!m.data) return 2;
+    if (m.masked){
+      var allowed = sw('gtMaskCvar') && (sw('gtMaskWorld') || (m.force && sw('gtForce')));
+      if (!allowed) return 3;
+    }
+    return -1;
+  }
+
+  function cell(k, val, tone){
+    return '<div class="cell"><span class="k">' + k + '</span>' +
+           '<span class="v" style="color:var(--' + tone + ')">' + val + '</span></div>';
+  }
+
+  function update(){
+    fails = [];
+    var html = '';
+    for (var i = 0; i < MESHES.length; i++){
+      var m = MESHES[i], f = failGate(m);
+      fails.push(f);
+      var val = f < 0 ? 'Nanite 로 그림' : ((m.data ? '폴백 메시' : '일반 메시') + ' · ' + GATE_SHORT[f] + '에서');
+      html += cell(m.name, val, f < 0 ? 'accent' : 'warn');
+    }
+    res.innerHTML = html;
+
+    var run = sw('gtRun'), mc = sw('gtMaskCvar'), mw = sw('gtMaskWorld'), fo = sw('gtForce');
+    var msg, cls;
+    if (!run){
+      cls = 'verdict bad'; msg = 'r.Nanite 가 꺼져 있다. Nanite 데이터가 있어도 ②에서 전부 떨어진다 — 폴백 메시로 그려질 뿐 화면이 비지는 않는다.';
+    } else if (!mc){
+      cls = 'verdict bad'; msg = 'r.Nanite.AllowMaskedMaterials 가 꺼져 있어 잎 카드가 ④에서 떨어진다. 컴포넌트의 bForceNaniteForMasked 로도 이길 수 없다.';
+    } else if (!mw && !fo){
+      cls = 'verdict bad'; msg = '월드 설정이 마스크드를 막아 잎 카드가 ④에서 떨어진다. 잎 카드 컴포넌트의 bForceNaniteForMasked 를 켜면 이긴다.';
+    } else if (!mw && fo){
+      cls = 'verdict ok'; msg = '월드 설정은 마스크드를 막았지만, 잎 카드 컴포넌트의 bForceNaniteForMasked 가 이겼다.';
+    } else {
+      cls = 'verdict ok'; msg = '바위와 잎 카드가 Nanite 로 간다. 벽은 컴포넌트에서(①), 상자는 데이터가 없어서(③) 떨어진다 — 둘 다 에러 없이.';
+    }
+    out.className = cls; out.textContent = msg;
+  }
+
+  update();
+
+  var v = Viz.view('cvGate', function(w){ return w < 520 ? 250 : 230; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h, t = v.t;
+    var pad = 12;
+    var xs = pad + 4, xe = w - pad - 4;
+    var yU = 74, yL = h - 60;
+    var wide = w >= 520;
+    var gx = [];
+    for (var g = 0; g < 4; g++) gx.push(xs + (xe - xs) * (0.2 + 0.17 * g));
+    var binX = xs + (xe - xs) * 0.9;
+
+    // 두 줄
+    ctx.lineWidth = 2; ctx.globalAlpha = 0.35;
+    ctx.strokeStyle = c.accent;
+    ctx.beginPath(); ctx.moveTo(xs, yU); ctx.lineTo(xe, yU); ctx.stroke();
+    ctx.strokeStyle = c.warn;
+    ctx.beginPath(); ctx.moveTo(gx[0], yL); ctx.lineTo(xe, yL); ctx.stroke();
+    ctx.globalAlpha = 1;
+    Viz.text(ctx, 'Nanite 프록시', xe, yU - 22, c.accent, 10, 'right');
+    Viz.text(ctx, '폴백 · 일반 프록시', xe, yL + 22, c.warn, 10, 'right');
+
+    // 관문
+    for (var g2 = 0; g2 < 4; g2++){
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(gx[g2], yU - 30); ctx.lineTo(gx[g2], yL + 8); ctx.stroke(); ctx.setLineDash([]);
+      Viz.text(ctx, wide ? GATE_LONG[g2] : GATE_SHORT[g2], gx[g2], yU - 44, c.text, wide ? 9.5 : 12, 'center');
+    }
+
+    // 메시
+    var tw = wide ? 58 : 46, th = 22;
+    for (var k = 0; k < MESHES.length; k++){
+      var local = t - k * SPAWN;
+      if (local < 0) continue;
+      local = local % CYCLE;
+      if (local > TRAVEL) continue;
+      var s = local / TRAVEL;
+      var x = xs + tw / 2 + (binX - xs - tw / 2) * s;
+      var fg = fails[k], y = yU, bad = false;
+      if (fg >= 0 && x > gx[fg]){
+        var d = Math.min(1, (x - gx[fg]) / 28);
+        y = yU + (yL - yU) * d; bad = true;
+      }
+      Viz.roundRect(ctx, x - tw / 2, y - th / 2, tw, th, 6);
+      ctx.fillStyle = bad ? c.sf : c.sf2; ctx.fill();
+      ctx.lineWidth = 1.6; ctx.strokeStyle = bad ? c.warn : c.accent; ctx.stroke();
+      Viz.text(ctx, MESHES[k].name, x, y, bad ? c.warn : c.text, 10, 'center');
+    }
+
+    if (t < flashUntil){
+      Viz.text(ctx, '설정이 바뀌어 프록시를 다시 만든다', w / 2, h - 12, c.warn, 10, 'center');
+    } else {
+      Viz.text(ctx, '왼쪽에서 들어와 관문 ① → ④ 를 차례로 지난다', w / 2, h - 12, c.dim, 9.5, 'center');
+    }
+  });
+  if (!v) return;
+
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  if (reduce) v.t = SHOW_T;
+  var loop = Viz.animate(v, null, { paused: reduce });
+
+  function restart(flash){
+    var paused = !!(loop && !loop.playing());
+    v.t = paused ? SHOW_T : 0;
+    flashUntil = flash ? v.t + 1.5 : 0;
+    v.render();
+  }
+  function syncBtn(){
+    var on = !!(loop && loop.playing());
+    btnPlay.textContent = on ? '일시정지' : '재생';
+    btnPlay.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  for (var i = 0; i < SWITCHES.length; i++){
+    var el = document.getElementById(SWITCHES[i]);
+    if (el) el.addEventListener('change', function(){ update(); restart(true); });
+  }
+  btnPlay.addEventListener('click', function(){
+    if (!loop) return;
+    if (loop.playing()) loop.pause(); else loop.play();
+    syncBtn();
+  });
+  btnReset.addEventListener('click', function(){ restart(false); });
+  v.render(); syncBtn();
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initGates);
+else initGates();
+</script>
+
+
+</body>
+</html>

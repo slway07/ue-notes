@@ -241,6 +241,14 @@ figcaption {
   margin-bottom: 6px;
 }
 
+/* 체크박스 목록: 상자와 글자를 붙여 왼쪽부터 늘어놓는다 */
+.ctl.chk label {
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .ctl .val {
   font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
   font-weight: 600;
