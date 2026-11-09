@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StateTree ② — Task · Condition · Evaluator</title>
+<meta name="note-title" content="StateTree ② — Task · Condition · Evaluator">
+<meta name="note-summary" content="상태 안에 들어가는 네 종류 노드와 각각의 수명. Task의 Enter/Tick/Exit와 5.8 블루프린트의 Finish Task, 평가자가 값을 만들고 바인딩이 태스크로 복사되는 시점, InstanceData와 파라미터.">
+<meta name="note-tags" content="StateTree, Task, Evaluator, Condition, Consideration, InstanceData, Property Binding">
+<meta name="note-order" content="36">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=440c6c87">
+<script src="../assets/viz.js?v=38fafd0b"></script>
+<style>
+.tree2{font-family:ui-monospace,Consolas,monospace;font-size:.8rem;line-height:1.7;white-space:pre;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:0 0 16px;overflow-x:auto}
+.tree2 b{color:var(--accent)}
+.tree2 i{color:var(--text-dim);font-style:normal}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.tablewrap td,.tablewrap th{overflow-wrap:normal}
+.tablewrap code{white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>StateTree ② — Task · Condition · Evaluator</h1>
+<p>상태는 빈 상자다. 안에 <b>Task</b> 가 들어가 일을 하고, 트리 위쪽의 <b>Evaluator</b> 가 값을 만들고, <b>Condition</b> 이 문을 지키고, <b>Consideration</b> 이 점수를 매긴다. 이 넷은 모두 <b>인스턴스 데이터</b>를 가진 구조체다.</p>
+</header>
+
+<nav class="series" aria-label="StateTree 시리즈">
+<a href="statetree-structure.html">구조와 실행</a>
+<a href="statetree-nodes.html" aria-current="page">노드 4종</a>
+<a href="statetree-transitions.html">전이와 선택</a>
+</nav>
+
+<article>
+
+<h2>1. 네 종류, 붙는 자리가 다르다</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>노드</th><th>붙는 곳</th><th>하는 일</th></tr></thead>
+<tbody>
+<tr><td><b>Task</b></td><td>상태</td><td>실제 행동. 상태의 완료를 결정</td></tr>
+<tr><td><b>Evaluator</b></td><td>트리 <b>전역</b></td><td>매 틱 값을 갱신해 넘긴다</td></tr>
+<tr><td><b>Condition</b></td><td>진입 조건 / 전이</td><td>참·거짓 판정</td></tr>
+<tr><td><b>Consideration</b></td><td>상태(유틸리티)</td><td>0~1 점수로 선택에 참여</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>Evaluator 가 상태가 아니라 <b>트리 전역</b>이라는 점이 BT 와 크게 다르다. "플레이어까지의 거리", "체력 비율" 같은 공통 데이터를 한 곳에서 만들어 두고, 상태의 태스크들이 바인딩으로 가져다 쓴다.</p>
+
+<div class="tree2">
+<b>UStateTree</b>
+ ├─ <b>Evaluators</b>      <i>// 전역</i>
+ ├─ <b>Global Tasks</b>    <i>// 전역</i>
+ └─ Root State
+     ├─ Enter Conditions
+     ├─ <b>Tasks</b>         <i>// 상태 진입~이탈</i>
+     ├─ Transitions → Conditions
+     └─ 자식 상태들
+</div>
+
+<h2>2. Task 의 생명주기</h2>
+
+<pre><code>상태 진입   →  EnterState()      // Running / Succeeded / Failed
+매 틱      →  Tick()            // bShouldCallTick 일 때만
+상태 완료   →  StateCompleted()  // 새 상태를 고르기 직전
+상태 이탈   →  ExitState()</code></pre>
+
+<p><code>EnterState</code> 가 <code>Succeeded</code> 나 <code>Failed</code> 를 돌려주면 상태는 <b>그 자리에서 완료</b>되고, 같은 틱의 전이 단계에서 다음 상태를 고른다. <code>Running</code> 이면 Tick 을 받으며 계속 산다.</p>
+
+<p><b>5.8 블루프린트에서는 반환값이 없다.</b> Enter/Tick 이벤트는 값을 돌려주지 않고, <code>Finish Task</code> 노드로 끝낸다. 옛 튜토리얼의 "Succeeded 를 리턴한다"는 C++ 이야기이거나 구버전이다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>완료 판정</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td><code>CompletionTasksControl = Any</code></td><td>태스크 하나라도 완료되면 상태 완료 (기본)</td></tr>
+<tr><td><code>All</code></td><td>완료로 보는 태스크가 전부 끝나야 상태 완료</td></tr>
+<tr><td><code>bConsideredForCompletion</code></td><td>이 태스크를 완료 판정에 넣을지. 끄면 백그라운드로 계속 돈다</td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="stNodePlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="stNodeReset">리셋</button>
+    <button type="button" id="stNodeTick" aria-pressed="true">Tick 받기</button>
+    <button type="button" id="stNodeCopy" aria-pressed="true">Tick 때 복사</button>
+  </div>
+  <div class="stage"><canvas id="stNodeCv" aria-label="평가자가 거리를 갱신하고, 태스크가 바인딩 복사본으로 사거리를 판정하는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="stNodeOut"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>Tick 때 복사</b> 를 끄면 Tick 은 계속 불리는데 오른쪽 값이 <b>멈춘다</b>. 태스크는 상태에 들어올 때 복사된 값만 보므로, 실제로 사거리 안에 들어와도 영영 <b>사거리 밖</b>이라고 판정한다. 이제 <b>Tick 받기</b> 까지 끄면 Tick 자체가 없어서 완료도 일어나지 않는다.</p>
+
+<h2>3. Task 의 스위치</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>플래그</th><th>기본</th><th>효과</th></tr></thead>
+<tbody>
+<tr><td><code>bShouldCallTick</code></td><td>true</td><td>매 틱 <code>Tick</code> 을 부를지. <b>끄면 바인딩 복사도 없다</b></td></tr>
+<tr><td><code>bShouldCallTickOnlyOnEvents</code></td><td>false</td><td>이벤트가 있을 때만 Tick. 폴링을 줄일 때</td></tr>
+<tr><td><code>bShouldCopyBoundPropertiesOnTick</code></td><td>true</td><td>Tick 직전에 바인딩을 복사할지</td></tr>
+<tr><td><code>bShouldCopyBoundPropertiesOnExitState</code></td><td>true</td><td>ExitState 직전에 복사할지</td></tr>
+<tr><td><code>bShouldStateChangeOnReselect</code></td><td>true</td><td>유지(Sustained)된 상태에서도 Enter/Exit 를 받을지</td></tr>
+<tr><td><code>bShouldAffectTransitions</code></td><td>false</td><td>전이 처리 때 <code>TriggerTransitions</code> 를 부를지</td></tr>
+<tr><td><code>bConsideredForScheduling</code></td><td>true</td><td>수면/틱 간격 계산에 이 태스크를 넣을지</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>"Tick 을 끄면 값도 안 온다"가 첫 번째 함정이다. Tick 이 없으면 바인딩 복사 시점도 없으므로, 태스크는 <b>EnterState 때 받은 값</b>에 머문다. 폴링이 필요 없어서 Tick 을 껐는데 판정이 안 되는 경우가 이거다.</p>
+
+<h2>4. Evaluator — 값을 만드는 쪽</h2>
+
+<pre><code>TreeStart()  →  Tick(dt) × N  →  TreeStop()</code></pre>
+
+<p>Evaluator 는 트리가 시작될 때 한 번, 그 뒤 매 틱 불린다. 상태와 무관하게 도는 것이 핵심이다. "지금 플레이어와의 거리"를 여기서 계산해 두면, 어느 상태의 태스크든 바인딩으로 같은 값을 본다.</p>
+
+<ul>
+<li><b>출력 바인딩</b> — Evaluator 의 값을 다른 곳(파라미터·태스크)으로 보낼 수 있다(<code>OutputBindingsBatch</code>).</li>
+<li>Evaluator 도 <code>InstanceData</code> 를 가진다. 이전 프레임 값을 기억해 변화량을 계산하는 식이다.</li>
+<li>비싼 계산(트레이스·경로)을 여기 몰아 두면 상태마다 중복 계산하지 않는다.</li>
+</ul>
+
+<h2>5. Condition — 문을 지키는 쪽</h2>
+
+<p>조건은 <code>TestCondition()</code> 하나로 참·거짓을 낸다. 여러 개를 넣으면 <b>Operand</b> 로 묶인다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>항목</th><th>값</th><th>의미</th></tr></thead>
+<tbody>
+<tr><td>Operand</td><td><code>And</code> / <code>Or</code></td><td>앞 결과와 AND / OR</td></tr>
+<tr><td>EvaluationMode</td><td><code>Evaluated</code></td><td>정상 평가</td></tr>
+<tr><td></td><td><code>ForcedTrue</code> / <code>ForcedFalse</code></td><td>평가하지 않고 결과를 고정 (디버깅·임시 비활성)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>조건이 붙는 자리에 따라 의미가 다르다.</p>
+
+<ul>
+<li><b>Enter Conditions</b> — 상태를 고를 때 검사한다. 실패하면 그 상태는 <b>선택되지 않고</b> 다음 후보로 넘어간다.</li>
+<li><b>Transition Conditions</b> — 전이가 일어날 조건. 통과해야 전이가 발동한다.</li>
+<li><b>상태 변화 알림</b> — <code>bHasShouldCallStateChangeEvents</code> 를 켜면 조건도 Enter/Exit/Completed 를 받는다. 조건이 캐시를 들고 있을 때 쓴다.</li>
+</ul>
+
+<p>조건의 인스턴스 데이터는 <b>트리 전체에서 공유</b>된다. 같은 조건 노드를 여러 곳에 써도 인스턴스가 하나라는 뜻이라, <code>TestCondition</code> 안에서 값을 바꾸면 안 된다.</p>
+
+<h2>6. Consideration — 점수를 매기는 쪽</h2>
+
+<p>Consideration 은 <code>GetScore()</code> 로 0~1 점수를 낸다. 엔진은 <code>GetNormalizedScore()</code> 에서 0~1 로 clamp 만 한다. 여러 개를 넣으면 Operand 가 <b>Min / Max / 곱</b>으로 작동한다.</p>
+
+<pre><code>And      → Min(a, b)     // 둘 다 만족해야 높다
+Or       → Max(a, b)     // 하나만 좋아도 높다
+Multiply → a * b         // 곱해진다</code></pre>
+
+<p>여기에 상태의 <code>Weight</code> 가 곱해져 최종 점수가 된다. 이 점수를 누가 어떻게 쓰는지는 <a href="statetree-transitions.html">③ 전이와 선택</a> 에서 다룬다.</p>
+
+<h2>7. InstanceData — 상태는 어디에 남나</h2>
+
+<p>모든 노드는 <code>FInstanceDataType</code> 을 선언할 수 있다. 에셋에는 <b>기본값(템플릿)</b> 만 있고, 실행할 때 인스턴스별로 복사본이 만들어진다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>저장소</th><th>누가 쓰나</th><th>수명</th></tr></thead>
+<tbody>
+<tr><td><code>DefaultInstanceData</code></td><td>에셋의 템플릿</td><td>영구. 실행할 때 복사된다</td></tr>
+<tr><td><code>SharedInstanceData</code></td><td>Condition · Consideration</td><td>트리 하나에 하나. 여러 곳이 공유</td></tr>
+<tr><td>인스턴스 데이터</td><td>Task · Evaluator</td><td>상태가 활성인 동안. 재진입하면 새로 만들어진다</td></tr>
+<tr><td><code>ExecutionRuntimeData</code></td><td>노드가 원할 때</td><td>Start~Stop 동안 유지. 상태를 떠나도 남는다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>"재진입하면 새로 만들어진다"가 중요하다. 상태를 떠났다가 다시 들어오면 태스크의 인스턴스 데이터는 <b>템플릿에서 다시 복사</b>된다. 이전 값을 기억해야 한다면 <code>ExecutionRuntimeData</code> 나 트리 파라미터에 둔다.</p>
+
+<h2>8. 바인딩 — 참조가 아니라 복사</h2>
+
+<p>StateTree 의 바인딩은 포인터가 아니다. 정해진 시점에 <b>값을 복사</b>해 온다. 복사 시점은 세 곳이다.</p>
+
+<div class="tree2">
+① <b>EnterState 직전</b>   <i>// 항상</i>
+② <b>Tick 직전</b>         <i>// ...OnTick 플래그</i>
+③ <b>ExitState 직전</b>    <i>// ...OnExitState 플래그</i>
+</div>
+
+<p>출발점이 될 수 있는 것들은 다음과 같다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>소스</th><th>예</th></tr></thead>
+<tbody>
+<tr><td><code>Context</code></td><td>스키마가 보장하는 Actor, AIController</td></tr>
+<tr><td><code>Parameter</code> · <code>StateParameter</code></td><td>트리 파라미터, 상태 파라미터</td></tr>
+<tr><td><code>Evaluator</code> · <code>GlobalTask</code></td><td>평가자가 만든 값</td></tr>
+<tr><td><code>Task</code> · <code>Condition</code> · <code>Consideration</code></td><td>같은 상태의 다른 노드 인스턴스 데이터</td></tr>
+<tr><td><code>TransitionEvent</code> · <code>StateEvent</code></td><td>전이/선택을 일으킨 이벤트의 payload</td></tr>
+<tr><td><code>PropertyFunction</code></td><td>바인딩 안에서 계산하는 함수</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>그래서 "태스크가 최신 값을 본다"는 보장은 <b>복사 시점이 언제냐</b>에 달려 있다. 위 시뮬레이션에서 복사를 끄면 값이 멈추는 이유다.</p>
+
+<h2>9. 파라미터 — 인스턴스마다 다른 값</h2>
+
+<p>트리 파라미터는 <code>FInstancedPropertyBag</code> 다. 같은 에셋을 여러 AI 가 공유해도, 컴포넌트의 <code>StateTreeRef</code> 에서 <b>파라미터 기본값만 바꿔</b> 서로 다르게 돌릴 수 있다.</p>
+
+<ul>
+<li><b>트리 파라미터</b> — 트리 전체에서 보인다. Evaluator 출력을 여기로 받아 두면 다른 상태가 읽기 쉽다.</li>
+<li><b>상태 파라미터</b> — 그 상태 안에서만. <code>ParameterBindingsBatch</code> 로 진입 시 채워진다.</li>
+<li>파라미터도 바인딩 대상이라, "상태별로 다른 사거리"를 에셋 수정 없이 줄 수 있다.</li>
+</ul>
+
+<h2>10. 블루프린트와 C++</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>종류</th><th>블루프린트 기반 클래스</th><th>C++ 기반 구조체</th></tr></thead>
+<tbody>
+<tr><td>Task</td><td><code>UStateTreeTaskBlueprintBase</code></td><td><code>FStateTreeTaskBase</code></td></tr>
+<tr><td>Evaluator</td><td><code>UStateTreeEvaluatorBlueprintBase</code></td><td><code>FStateTreeEvaluatorBase</code></td></tr>
+<tr><td>Condition</td><td><code>UStateTreeConditionBlueprintBase</code></td><td><code>FStateTreeConditionBase</code></td></tr>
+<tr><td>Consideration</td><td><code>UStateTreeConsiderationBlueprintBase</code></td><td><code>FStateTreeConsiderationBase</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>블루프린트 노드는 <b>UObject</b> 이고, C++ 노드는 <b>구조체</b>다. BP 쪽은 <code>GetOwnerActor()</code>·<code>GetWorld()</code> 를 그대로 쓸 수 있어 편하지만, 노드마다 오브젝트가 생기므로 수가 많아지면 비용이 된다. 반복이 잦은 판정은 C++ 구조체가 가볍다.</p>
+
+<h2>11. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>FStateTreeTaskBase</code> · <code>bShouldCallTick</code> · <code>bShouldStateChangeOnReselect</code></td><td><code>Engine/Plugins/Runtime/StateTree/Source/StateTreeModule/Public/StateTreeTaskBase.h</code></td></tr>
+<tr><td><code>FStateTreeEvaluatorBase</code> · <code>TreeStart</code> · <code>TreeStop</code></td><td><code>.../Public/StateTreeEvaluatorBase.h</code></td></tr>
+<tr><td><code>FStateTreeConditionBase</code> · <code>TestCondition</code> · <code>EvaluationMode</code></td><td><code>.../Public/StateTreeConditionBase.h</code></td></tr>
+<tr><td><code>FStateTreeConsiderationBase</code> · <code>GetNormalizedScore</code></td><td><code>.../Public/StateTreeConsiderationBase.h</code> · <code>Private/StateTreeConsiderationBase.cpp</code></td></tr>
+<tr><td><code>FStateTreeNodeBase</code> · <code>FInstanceDataType</code> · <code>ExecutionRuntimeData</code></td><td><code>.../Public/StateTreeNodeBase.h</code></td></tr>
+<tr><td><code>EStateTreeBindableStructSource</code> · <code>FStateTreePropertyBindings</code></td><td><code>.../Public/StateTreePropertyBindings.h</code></td></tr>
+<tr><td><code>UStateTreeTaskBlueprintBase</code> · <code>FinishTask</code></td><td><code>.../Public/Blueprint/StateTreeTaskBlueprintBase.h</code></td></tr>
+<tr><td>EnterState 의 바인딩 복사 · <code>bShouldCallEnterState</code></td><td><code>.../Private/StateTreeExecutionContext.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>다음은 <a href="statetree-transitions.html">전이와 상태 선택</a>. 트리거·우선순위·딜레이와, 자식 상태를 고르는 일곱 가지 규칙.</p>
+</footer>
+
+</div>
+
+<script>
+/* Evaluator → 바인딩 복사 → Task 판정 */
+function initStateNode(){
+  if (!window.Viz) return;
+  var cv = document.getElementById('stNodeCv');
+  var play = document.getElementById('stNodePlay');
+  var reset = document.getElementById('stNodeReset');
+  var tickBtn = document.getElementById('stNodeTick');
+  var copyBtn = document.getElementById('stNodeCopy');
+  var out = document.getElementById('stNodeOut');
+  if (!cv || !out) return;
+
+  var RANGE = 110;
+  var TICK_EVERY = 0.45;
+
+  var phase = 0, acc = 0, tickCalls = 0;
+  var evalVal = 0, taskVal = 0;
+  var completed = false, completedAt = 0;
+  var tickable = true, copy = true, running = true;
+
+  function targetX(w){ return w * 0.46 + Math.sin(phase) * w * 0.22; }
+
+  var v = Viz.view('stNodeCv', function(w){ return w < 520 ? 250 : 244; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var ax = 34, ay = 80;
+    var tx = targetX(w);
+    if (tx < ax + 24) tx = ax + 24;
+    if (tx > w - 20) tx = w - 20;
+    var stale = !copy || !tickable;
+
+    Viz.text(ctx, 'Evaluator 가 재는 거리와 Task 가 본 거리', 12, 15, c.text, 9);
+
+    // 사거리 경계
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(63,125,90,0.55)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(ax + RANGE, ay - 26); ctx.lineTo(ax + RANGE, ay + 26); ctx.stroke();
+    ctx.setLineDash([]);
+    Viz.text(ctx, '사거리 ' + RANGE, ax + RANGE, ay + 38, c.dim, 8.5, 'center');
+
+    // 거리 선
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(tx, ay); ctx.stroke();
+    ctx.setLineDash([]);
+    Viz.text(ctx, Math.round(Math.abs(tx - ax)) + '', (ax + tx) / 2, ay - 12, c.dim, 9, 'center');
+
+    ctx.fillStyle = c.accent;
+    ctx.beginPath(); ctx.arc(ax, ay, 8, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'AI', ax, ay + 19, c.accent, 9, 'center');
+
+    ctx.fillStyle = c.warn;
+    ctx.beginPath(); ctx.arc(tx, ay, 7, 0, Math.PI * 2); ctx.fill();
+    Viz.text(ctx, 'Target', tx, ay - 16, c.warn, 8.5, 'center');
+
+    // 두 값 상자
+    var bw = (w - 36) / 2, bh = 54, by = 142;
+    function valueBox(x, label, val, isStale){
+      Viz.roundRect(ctx, x, by, bw, bh, 8);
+      ctx.fillStyle = c.sf2; ctx.fill();
+      ctx.strokeStyle = isStale ? c.warn : c.line;
+      ctx.lineWidth = isStale ? 1.8 : 1;
+      ctx.stroke();
+      Viz.text(ctx, label, x + bw / 2, by + 15, c.dim, 8.5, 'center');
+      Viz.text(ctx, Math.round(val) + '', x + bw / 2, by + 35, isStale ? c.warn : c.text, 16, 'center');
+      if (isStale) Viz.text(ctx, '복사 안 됨', x + bw / 2, by + 48, c.warn, 8, 'center');
+    }
+    valueBox(12, 'Evaluator (이번 틱)', evalVal, false);
+    valueBox(w / 2 + 6, 'Task InstanceData', taskVal, stale);
+
+    // 판정
+    var inRange = taskVal <= RANGE;
+    var trueIn = evalVal <= RANGE;
+    var judge = inRange ? 'Task 판정: 사거리 안 → Finish Task' : 'Task 판정: 사거리 밖 — 계속 Tick';
+    if (inRange !== trueIn) judge += '  (실제 ' + Math.round(evalVal) + ')';
+    Viz.text(ctx, judge, 12, by + bh + 18, inRange !== trueIn ? c.warn : (inRange ? c.accent : c.text), 9);
+
+    var sub;
+    if (!tickable) sub = 'Tick 꺼짐 — Tick 호출 0, 바인딩 복사 없음, 상태 완료 없음';
+    else if (completed) sub = '상태 완료 → 같은 틱에 전이 처리 (곧 재진입)';
+    else sub = 'Tick 호출 ' + tickCalls + '회 · Tick 때 복사 ' + (copy ? '켬' : '끔');
+    Viz.text(ctx, sub, 12, by + bh + 34, c.dim, 8.5);
+
+    if (completed){
+      ctx.strokeStyle = c.accent; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(tx, ay, 12 + Math.sin((v.t - completedAt) * 8) * 2, 0, Math.PI * 2); ctx.stroke();
+    }
+  });
+
+  if (!v) return;
+
+  function measure(){
+    var w = v.w;
+    if (!(w > 0)) return;
+    var tx = targetX(w);
+    if (tx < 58) tx = 58;
+    if (tx > w - 20) tx = w - 20;
+    evalVal = Math.abs(tx - 34);
+  }
+
+  function enterState(){
+    measure();
+    taskVal = evalVal;
+    tickCalls = 0;
+    acc = 0;
+    completed = false;
+  }
+
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    var dt = 1 / 60;
+    phase += dt * 0.7;
+    measure();
+
+    if (tickable && !completed){
+      if (copy) taskVal = evalVal;
+      acc += dt;
+      if (acc >= TICK_EVERY){
+        acc -= TICK_EVERY;
+        tickCalls++;
+        if (taskVal <= RANGE){
+          completed = true;
+          completedAt = t;
+          verdict();
+        }
+      }
+    }
+
+    if (completed && (t - completedAt) > 1.2){
+      enterState();
+      verdict();
+    }
+  }, { paused: reduce });
+
+  function verdict(){
+    out.className = 'verdict';
+    if (!tickable){
+      out.textContent = 'Tick 을 끄면 EnterState 뒤에 아무 콜백도 없다. 바인딩 복사 시점도 없어서 값은 들어올 때 그대로이고, 상태는 완료되지 않는다.';
+    } else if (!copy){
+      out.textContent = 'Tick 은 불리지만 Tick 직전 복사가 꺼져 있다. Task 는 EnterState 때 복사된 값을 계속 보므로, 실제 거리와 판정이 갈린다.';
+    } else if (completed){
+      out.textContent = '사거리 안에 들어왔고, Task 가 Finish Task 로 상태를 완료했다. 전이 단계에서 다음 상태를 고른다.';
+    } else {
+      out.textContent = 'Tick 마다 바인딩이 복사된다. Task 가 보는 값과 Evaluator 값이 같아서 판정이 실제 거리와 일치한다.';
+    }
+  }
+
+  function sync(){
+    var on = !!(loop && loop.playing());
+    play.textContent = on ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', on ? 'true' : 'false');
+    tickBtn.setAttribute('aria-pressed', tickable ? 'true' : 'false');
+    copyBtn.setAttribute('aria-pressed', copy ? 'true' : 'false');
+  }
+
+  play.addEventListener('click', function(){
+    if (!loop) return;
+    if (loop.playing()) loop.pause(); else loop.play();
+    running = loop.playing();
+    sync();
+  });
+  tickBtn.addEventListener('click', function(){
+    tickable = !tickable;
+    if (tickable){ acc = 0; tickCalls = 0; completed = false; }
+    verdict(); sync(); v.render();
+  });
+  copyBtn.addEventListener('click', function(){
+    copy = !copy;
+    if (copy) taskVal = evalVal;
+    verdict(); sync(); v.render();
+  });
+  reset.addEventListener('click', function(){
+    phase = 0; v.t = 0; enterState(); verdict(); sync(); v.render();
+  });
+
+  enterState();
+  verdict();
+  running = loop ? loop.playing() : true;
+  sync();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initStateNode);
+else initStateNode();
+</script>
+
+</body>
+</html>
