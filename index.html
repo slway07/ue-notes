@@ -71,7 +71,7 @@
 </ul>
 </details>
 <details class="cat" data-cat="AI와 길찾기">
-<summary><span class="chev"></span>AI와 길찾기<span class="n">12</span></summary>
+<summary><span class="chev"></span>AI와 길찾기<span class="n">13</span></summary>
 <ul class="toc">
 <li><a href="pages/navmesh-how-it-is-built.html?v=6d65404b">
 <span class="t">NavMesh는 어떻게 만들어지나</span>
@@ -118,20 +118,25 @@
 <span class="s">EnvQuery의 Generator·Test·Context, SingleResult/AllMatching 실행 모드, RunQuery와 Blueprint Wrapper, BT RunEQSQuery, 그리고 EQS를 매 틱 돌리면 안 되는 이유.</span>
 <span class="tags"><span class="tag">EQS</span><span class="tag">EnvQuery</span><span class="tag">EnvQueryManager</span><span class="tag">Generator</span><span class="tag">Test</span><span class="tag">Context</span><span class="tag">RunEQSQuery</span></span>
 </a></li>
-<li><a href="pages/statetree-structure.html?v=ab9e8db8">
+<li><a href="pages/statetree-structure.html?v=4ecaeff7">
 <span class="t">StateTree ① — 상태 계층과 실행</span>
 <span class="s">BT가 매번 고르는 트리라면 StateTree는 유지되는 상태 계층이다. 에셋 컴파일, StateTreeComponent, 실행 컨텍스트와 컨텍스트 데이터, 한 틱의 네 단계, 활성 경로와 프레임, Changed·Sustained, 수면까지.</span>
 <span class="tags"><span class="tag">StateTree</span><span class="tag">UStateTree</span><span class="tag">StateTreeComponent</span><span class="tag">ExecutionContext</span><span class="tag">Schema</span><span class="tag">Tick</span><span class="tag">ActiveStates</span></span>
 </a></li>
-<li><a href="pages/statetree-nodes.html?v=51e119ef">
+<li><a href="pages/statetree-nodes.html?v=0a01962e">
 <span class="t">StateTree ② — Task · Condition · Evaluator</span>
 <span class="s">상태 안에 들어가는 네 종류 노드와 각각의 수명. Task의 Enter/Tick/Exit와 5.8 블루프린트의 Finish Task, 평가자가 값을 만들고 바인딩이 태스크로 복사되는 시점, InstanceData와 파라미터.</span>
 <span class="tags"><span class="tag">StateTree</span><span class="tag">Task</span><span class="tag">Evaluator</span><span class="tag">Condition</span><span class="tag">Consideration</span><span class="tag">InstanceData</span><span class="tag">Property Binding</span></span>
 </a></li>
-<li><a href="pages/statetree-transitions.html?v=146281e7">
+<li><a href="pages/statetree-transitions.html?v=c321a884">
 <span class="t">StateTree ③ — 전이와 상태 선택</span>
 <span class="s">전이의 트리거·대상·조건·우선순위, 리프에서 루트로 훑는 규칙과 동시 발동 시 승자, 딜레이, 그리고 자식 상태를 고르는 일곱 가지 Selection Behavior와 유틸리티 가중 선택.</span>
 <span class="tags"><span class="tag">StateTree</span><span class="tag">Transition</span><span class="tag">Priority</span><span class="tag">State Selection</span><span class="tag">Utility</span><span class="tag">Consideration</span></span>
+</a></li>
+<li><a href="pages/statetree-tick-cost.html?v=6183faf9">
+<span class="t">StateTree ④ — 한 틱에 얼마나 도나</span>
+<span class="s">한 틱에 실제로 도는 것과 안 도는 것을 소스 경로로 세고, 활성 경로만 만진다는 규칙, 전이 5회 캐스케이드, 상태가 40개여도 비용이 그대로인 이유, 줄이는 법과 측정법.</span>
+<span class="tags"><span class="tag">StateTree</span><span class="tag">Tick</span><span class="tag">Performance</span><span class="tag">ActiveStates</span><span class="tag">Transition</span><span class="tag">Profiling</span></span>
 </a></li>
 </ul>
 </details>
@@ -217,7 +222,7 @@
 </details>
 </main>
 <footer class="site-foot">
-<p>마지막 갱신 2026-11-09 &middot; 페이지 35개</p>
+<p>마지막 갱신 2026-11-09 &middot; 페이지 36개</p>
 </footer>
 </div>
 <script>

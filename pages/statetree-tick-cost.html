@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StateTree ④ — 한 틱에 얼마나 도나</title>
+<meta name="note-title" content="StateTree ④ — 한 틱에 얼마나 도나">
+<meta name="note-summary" content="한 틱에 실제로 도는 것과 안 도는 것을 소스 경로로 세고, 활성 경로만 만진다는 규칙, 전이 5회 캐스케이드, 상태가 40개여도 비용이 그대로인 이유, 줄이는 법과 측정법.">
+<meta name="note-tags" content="StateTree, Tick, Performance, ActiveStates, Transition, Profiling">
+<meta name="note-order" content="38">
+<meta name="note-category" content="AI와 길찾기">
+<link rel="stylesheet" href="../assets/style.css?v=440c6c87">
+<script src="../assets/viz.js?v=38fafd0b"></script>
+<style>
+.tree2{font-family:ui-monospace,Consolas,monospace;font-size:.76rem;line-height:1.7;white-space:pre;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin:0 0 16px;overflow-x:auto}
+.tree2 b{color:var(--accent)}
+.tree2 i{color:var(--text-dim);font-style:normal}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:540px}
+.tablewrap th{white-space:nowrap}
+.tablewrap td,.tablewrap th{overflow-wrap:normal}
+.tablewrap code{white-space:nowrap}
+pre code{font-size:.76rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>StateTree ④ — 한 틱에 얼마나 도나</h1>
+<p>"상태가 40개면 매 틱 40개를 다 보나?" &mdash; 아니다. 런타임은 <b>활성 경로</b>만 만진다. 이 페이지는 한 틱에 실제로 도는 것과 <b>안 도는 것</b>을 소스 경로로 세고, 숫자로 확인한다.</p>
+</header>
+
+<nav class="series" aria-label="StateTree 시리즈">
+<a href="statetree-structure.html">구조와 실행</a>
+<a href="statetree-nodes.html">노드 4종</a>
+<a href="statetree-transitions.html">전이와 선택</a>
+<a href="statetree-tick-cost.html" aria-current="page">틱 비용</a>
+</nav>
+
+<article>
+
+<h2>1. 한 틱에 실제로 도는 것</h2>
+
+<pre><code>FStateTreeComponent::TickComponent
+  └─ FStateTreeExecutionContext::Tick(dt)
+       ① TickPrelude()
+       ② TickUpdateTasksInternal
+       ③ TickTriggerTransitions
+       ④ TickPostlude()</code></pre>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>단계</th><th>무엇을 훑나</th><th>비용이 비례하는 것</th></tr></thead>
+<tbody>
+<tr><td>① 수집</td><td>활성 프레임의 외부 데이터</td><td>프레임 × 외부 데이터</td></tr>
+<tr><td>② 평가자</td><td>프레임마다 전역 평가자 <b>전부</b></td><td>평가자 수</td></tr>
+<tr><td>② 글로벌 태스크</td><td>프레임마다 전역 태스크 <b>전부</b></td><td>글로벌 태스크 수</td></tr>
+<tr><td>② 상태 태스크</td><td><b>활성 경로의 모든 상태</b>의 태스크</td><td>경로 길이 × 태스크</td></tr>
+<tr><td>③ 전이</td><td>OnTick 전이가 있는 활성 상태의 전이</td><td>활성 상태 × 전이 수</td></tr>
+<tr><td>③ 조건</td><td>검사한 전이의 조건 <b>전부</b> (단락 없음)</td><td>전이 수 × 조건 수</td></tr>
+<tr><td>③ 선택</td><td>전이가 발동할 때만 &mdash; 자식 후보</td><td>후보 수 × 조건</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="small">②에서 <b>리프만 도는 게 아니다.</b> <code>Root → Combat → Melee</code> 가 활성이면 세 상태의 태스크가 모두 Tick 을 받는다. 상위 상태에 붙인 태스크도 매 틱 돈다.</p>
+
+<h2>2. 한 틱에 안 도는 것</h2>
+
+<p>이쪽이 더 중요하다. "왜 40개 상태인데 안 느려지지?"의 답이 여기에 있다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>안 도는 것</th><th>언제 도나</th></tr></thead>
+<tbody>
+<tr><td><b>비활성 상태</b>의 태스크·전이·조건</td><td>그 상태가 활성 경로에 들어올 때만</td></tr>
+<tr><td><b>완료 전이</b>(<code>OnStateCompleted</code>)</td><td>상태가 실제로 완료될 때 한 번</td></tr>
+<tr><td><b>진입 조건</b>(Enter Conditions)</td><td>상태를 <b>고를 때</b>. 이미 활성이면 안 본다</td></tr>
+<tr><td><b>고려사항</b>(Consideration)</td><td>유틸리티로 자식을 고를 때만</td></tr>
+<tr><td><b>이벤트 전이</b>(<code>OnEvent</code>)</td><td>이벤트 큐에 그 태그가 있을 때만</td></tr>
+<tr><td>태스크 <code>Tick</code></td><td><code>bShouldCallTick</code> 이고 실행 중일 때만</td></tr>
+<tr><td><b>전부</b></td><td>수면 상태면 컴포넌트 틱 자체가 꺼져 있다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>그래서 "전체 상태 수"는 <b>런타임 틱 비용에 거의 영향이 없다</b>. 영향을 주는 것은 ① 활성 경로의 길이, ② 그 경로에 붙은 태스크 수, ③ 매 틱 검사하는(OnTick) 전이와 조건 수다. 전체 상태 수는 <b>에셋 크기·컴파일 시간·선택 후보 수</b>에 영향을 준다.</p>
+
+<h2>3. 실제 예시 — 경비 AI 하나</h2>
+
+<div class="tree2">
+<b>Root</b>            <i>· 평가자 2 · 전역 태스크 1</i>
+ ├ Idle           <i>· Wait</i>
+ ├ Patrol         <i>· MoveTo, Wait</i>
+ ├ <b>Combat (Group)</b>
+ │  ├ <b>Melee</b>       <i>· MoveTo, FaceTarget, Attack</i>
+ │  └ Ranged      <i>· MoveTo, Aim, Fire</i>
+ └ Flee           <i>· MoveTo, Wait</i>
+</div>
+
+<p>지금 활성 경로가 <code>Root › Combat › Melee</code> 라고 하자. 이때 <b>한 틱</b>에 일어나는 일을 세면 이렇다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>단계</th><th>값</th><th>횟수</th></tr></thead>
+<tbody>
+<tr><td>전역 평가자</td><td>Distance, Health</td><td><b>2</b></td></tr>
+<tr><td>전역 태스크</td><td>UpdateThreat</td><td><b>1</b></td></tr>
+<tr><td>상태 태스크</td><td>0 + 0 + 3</td><td><b>3</b></td></tr>
+<tr><td>OnTick 전이</td><td>2 + 1 + 0</td><td><b>3</b></td></tr>
+<tr><td>전이 조건</td><td>전이마다 1개</td><td><b>3</b></td></tr>
+<tr><td>완료 전이</td><td>이번 틱 없음</td><td><b>0</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>합쳐서 <b>사용자 콜백 6회 + 전이 검사 3회 + 조건 평가 3회 = 12회</b>다. 같은 트리에 상태가 <b>40개</b>로 늘어도, 활성 경로가 여전히 3단이고 태스크·전이가 그대로면 이 숫자는 <b>똑같다</b>. 나머지 37개 상태는 배열에 있을 뿐 이번 틱에 읽히지 않는다.</p>
+
+<p class="try"><b>직접 확인.</b> StateTree Debugger 나 <code>stat StateTree</code> 로 한 틱의 <code>TickTasks</code>·<code>TriggerTransition</code> 횟수를 보라. 상태를 20개 더 넣어도 이 수치는 그대로이고, <b>활성 경로에 상태를 하나 더 붙이거나 OnTick 전이를 하나 더 달 때만</b> 올라간다.</p>
+
+<h2>4. 시뮬레이션 — 무엇이 비용을 늘리나</h2>
+
+<div class="panel">
+  <div class="ctl">
+    <button type="button" id="stCostPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="stCostReset">리셋</button>
+    <button type="button" id="stCostIdle" aria-pressed="false">비활성 37개 추가</button>
+    <button type="button" id="stCostDone" aria-pressed="false">OnTick → 완료 전이</button>
+  </div>
+  <div class="sl">
+    <label for="stCostDepth">경로</label>
+    <input type="range" id="stCostDepth" min="1" max="4" step="1" value="3">
+    <output id="stCostDepthOut">3단</output>
+  </div>
+  <div class="sl">
+    <label for="stCostTasks">태스크</label>
+    <input type="range" id="stCostTasks" min="0" max="4" step="1" value="1">
+    <output id="stCostTasksOut">1개/상태</output>
+  </div>
+  <div class="sl">
+    <label for="stCostTrans">전이</label>
+    <input type="range" id="stCostTrans" min="0" max="3" step="1" value="1">
+    <output id="stCostTransOut">1개/상태</output>
+  </div>
+  <div class="stage"><canvas id="stCostCv" aria-label="경로 길이·태스크·전이 수에 따라 한 틱의 연산 수가 어떻게 변하는지 보여 주는 시뮬레이션"></canvas></div>
+  <p class="verdict" id="stCostOut"></p>
+</div>
+
+<p class="try"><b>해 볼 것.</b> <b>비활성 37개 추가</b>를 눌러 보라. 막대가 <b>전혀 변하지 않는다</b> &mdash; 그 37개는 활성 경로 밖이다. 이제 <b>OnTick → 완료 전이</b>를 누르면 전이·조건 막대가 <b>0</b> 이 된다. 매 틱 검사하던 것을 완료 시점 한 번으로 옮겼기 때문이다. 마지막으로 경로를 4단으로 올려 보라. 그때만 태스크·전이 수가 같이 늘어난다.</p>
+
+<h2>5. 한 틱에 전이는 몇 번까지</h2>
+
+<p>전이 처리는 최대 <b>5회</b> 반복한다. 전이 하나가 발동하면 <code>ExitState</code> → 선택 → <code>EnterState</code> 를 마치고, 다시 전이를 본다. 그래서 <b>이벤트 하나로 상태가 두세 단계 넘어가는</b> 일이 한 틱 안에서 일어난다.</p>
+
+<pre><code>// 최악의 한 틱
+1회  Exit(Melee) → Select(Ranged) → Enter(Ranged)
+2회  Exit(Ranged) → Select(Flee) → Enter(Flee)
+3회  ...
+5회까지. 그 뒤로는 다음 틱으로 넘어간다.</code></pre>
+
+<p>5회를 다 쓰면 그 틱은 전이 처리만 하다 끝난다. 반대로 <b>Enter 조건이 계속 실패</b>하면 상태를 못 정하고 다음 틱으로 넘어간다.</p>
+
+<h2>6. 선택이 비싼 순간</h2>
+
+<p>전이가 발동한 틱에만 <b>상태 선택</b>이 붙는다. 이때 자식 후보를 순서대로 시도하고, 후보마다 <b>진입 조건</b>을 검사한다. 실패하면 다음 후보로 &mdash; 최악의 경우 자식 수만큼 반복한다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>선택 방식</th><th>후보 검사 횟수</th></tr></thead>
+<tbody>
+<tr><td><code>TrySelectChildrenInOrder</code></td><td>성공할 때까지. 최악 = 자식 수</td></tr>
+<tr><td><code>TrySelectChildrenAtRandom</code></td><td>최악 = 자식 수 (섞어서)</td></tr>
+<tr><td><code>TrySelectChildrenWithHighestUtility</code></td><td><b>자식 전부</b>의 고려사항을 평가한 뒤 최고점</td></tr>
+<tr><td><code>...RandomWeightedByUtility</code></td><td><b>자식 전부</b> 평가 + 가중 추첨</td></tr>
+<tr><td><code>TryEnterState</code></td><td>자기 자신 하나</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>유틸리티 방식은 <b>매 선택마다 자식 전부</b>를 평가한다. 자식이 8개고 고려사항이 3개면 선택 한 번에 24번 점수 계산이다. 선택은 매 틱이 아니라 <b>전이될 때만</b> 일어나므로, 전이 빈도가 낮으면 감당할 만하다.</p>
+
+<h2>7. 줄이는 법</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>수단</th><th>줄어드는 것</th></tr></thead>
+<tbody>
+<tr><td>전이를 <code>OnTick</code> → <code>OnEvent</code>/<code>OnDelegate</code></td><td>매 틱 전이·조건 검사</td></tr>
+<tr><td><code>bShouldCallTick</code> 끄기 (이벤트만)</td><td>태스크 Tick 과 바인딩 복사</td></tr>
+<tr><td><code>CustomTickRate</code></td><td>그 상태의 틱 빈도 (0.2초면 5배 적게)</td></tr>
+<tr><td>수면 허용 (스키마 <code>ScheduledTickPolicy</code>)</td><td>틱 자체. 이벤트 올 때까지 0</td></tr>
+<tr><td>상위 상태에 태스크를 두지 않기</td><td>경로 길이 × 태스크</td></tr>
+<tr><td>비싼 계산을 Evaluator 로 몰기</td><td>상태마다 중복 계산</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>가장 큰 절감은 <b>OnTick 을 이벤트로 바꾸는 것</b>이다. 매 틱 후보를 훑는 대신, 값이 바뀌는 순간 한 번만 반응한다. 폴링이 정말 필요한지 먼저 물어야 한다.</p>
+
+<h2>8. 측정</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>도구</th><th>보이는 것</th></tr></thead>
+<tbody>
+<tr><td><code>stat StateTree</code></td><td><code>Tick</code>·<code>TickTasks</code>·<code>TickEvaluators</code>·<code>TriggerTransition</code>·<code>SelectState</code>·<code>TestConditions</code>·<code>Task_Tick</code></td></tr>
+<tr><td>CSV 프로파일러</td><td>위 stat 들의 시간 합. AI 수로 나눠 한 마리 비용을 본다</td></tr>
+<tr><td>Unreal Insights</td><td><code>FStateTreeExecutionContext::Tick</code> 스코프와 그 아래 태스크</td></tr>
+<tr><td>StateTree Debugger</td><td>어느 상태가 언제 활성이고 어떤 전이가 발동했는지</td></tr>
+<tr><td><code>stat AI</code> · <code>stat Game</code></td><td>AI 전체에서 StateTree 가 차지하는 몫</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>숫자를 볼 때는 <b>AI 수 × 틱당 콜백 수</b>로 먼저 어림한다. 50마리 × 9회 = 450회/틱이면 콜백 하나가 10µs만 되어도 4.5ms다. 여기서 태스크 Tick 을 끄거나 OnTick 전이를 이벤트로 바꾸면 바로 줄어든다.</p>
+
+<h2>9. 소스 위치</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>심볼</th><th>파일</th></tr></thead>
+<tbody>
+<tr><td><code>FStateTreeExecutionContext::Tick</code> · <code>TickUpdateTasksInternal</code> · <code>TickTriggerTransitionsInternal</code></td><td><code>Engine/Plugins/Runtime/StateTree/Source/StateTreeModule/Private/StateTreeExecutionContext.cpp</code></td></tr>
+<tr><td><code>TickTasks</code> (활성 경로 전체) · <code>TickEvaluatorsAndGlobalTasks</code></td><td><code>.../Private/StateTreeExecutionContext.cpp</code></td></tr>
+<tr><td><code>TriggerTransitions</code> · <code>MaxIterations = 5</code></td><td><code>.../Private/StateTreeExecutionContext.cpp</code></td></tr>
+<tr><td><code>TestAllConditionsInternal</code> (단락 없음)</td><td><code>.../Private/StateTreeExecutionContext.cpp</code></td></tr>
+<tr><td><code>SelectStateInternal_TrySelectChildrenInOrder</code> · <code>...WithHighestUtility</code></td><td><code>.../Private/StateTreeExecutionContext.cpp</code></td></tr>
+<tr><td><code>FCompactStateTreeState::ShouldTickTasks</code> · <code>ShouldTickTransitions</code> · <code>CustomTickRate</code></td><td><code>.../Public/StateTreeTypes.h</code></td></tr>
+<tr><td><code>ScheduleTickFrame</code> · 수면</td><td><code>Engine/Plugins/Runtime/GameplayStateTree/Source/GameplayStateTreeModule/Private/Components/StateTreeComponent.cpp</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; UE 5.8. 줄 번호는 브랜치에 따라 달라지므로 심볼명으로 찾는다. 위 횟수는 코드 경로로 센 값이고, 실제 시간은 프로파일러로 재야 한다.</p>
+
+</article>
+
+<footer class="site-foot">
+<p>시리즈 처음은 <a href="statetree-structure.html">구조와 실행</a>. 전이 규칙은 <a href="statetree-transitions.html">전이와 선택</a>.</p>
+</footer>
+
+</div>
+
+<script>
+/* 한 틱의 연산 수 — 경로·태스크·전이·비활성 상태 */
+function initCost(){
+  if (!window.Viz) return;
+  var cv = document.getElementById('stCostCv');
+  var play = document.getElementById('stCostPlay');
+  var reset = document.getElementById('stCostReset');
+  var idleBtn = document.getElementById('stCostIdle');
+  var doneBtn = document.getElementById('stCostDone');
+  var depthEl = document.getElementById('stCostDepth');
+  var tasksEl = document.getElementById('stCostTasks');
+  var transEl = document.getElementById('stCostTrans');
+  var depthOut = document.getElementById('stCostDepthOut');
+  var tasksOut = document.getElementById('stCostTasksOut');
+  var transOut = document.getElementById('stCostTransOut');
+  var out = document.getElementById('stCostOut');
+  if (!cv || !out) return;
+
+  var EVALS = 2, GLOBALS = 1, COND_PER_TRANS = 1, CHILDREN = 4;
+  var depth = 3, tasks = 1, trans = 1;
+  var extraIdle = false, doneOnly = false;
+  var running = true, tickNo = 0, timer = 0;
+  var TICK_SEC = 1.0;
+  var hist = [0,0,0,0,0,0,0,0,0,0,0,0];   // 최근 12틱 총 연산
+  var cur = { eval: 0, task: 0, trans: 0, cond: 0, select: 0, total: 0 };
+
+  function model(){
+    var t = doneOnly ? 0 : trans;
+    var ev = EVALS + GLOBALS;
+    var taskN = depth * tasks;
+    var transN = depth * t;
+    var condN = transN * COND_PER_TRANS;
+    var sel = 0;
+    // 5틱마다 전이가 발동한다고 보고 선택 비용을 넣는다
+    if (tickNo % 5 === 4) sel = CHILDREN * 2;
+    return { eval: ev, task: taskN, trans: transN, cond: condN, select: sel,
+      total: ev + taskN + transN + condN + sel };
+  }
+
+  var v = Viz.view('stCostCv', function(w){ return w < 520 ? 262 : 252; }, function(v){
+    var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+    var m = cur;
+
+    Viz.text(ctx, '이번 틱 연산 ' + m.total + '회', 12, 16, c.text, 10);
+
+    var totalStates = 3 + (extraIdle ? 37 : 0);
+    Viz.text(ctx, '트리 ' + totalStates + '개 상태 · 이번 틱에 만진 상태 ' + depth + '개',
+      w - 12, 16, c.dim, 8.5, 'right');
+
+    // 가로 막대 4개
+    var rows = [
+      {k:'eval',  label:'평가자·글로벌', color:'rgba(63,125,90,0.35)'},
+      {k:'task',  label:'태스크 Tick',   color:'rgba(63,125,90,0.55)'},
+      {k:'trans', label:'전이 검사',     color:'rgba(154,91,18,0.45)'},
+      {k:'cond',  label:'조건 평가',     color:'rgba(154,91,18,0.65)'}
+    ];
+    var max = 1;
+    for (var i = 0; i < rows.length; i++) max = Math.max(max, m[rows[i].k]);
+    max = Math.max(max, 6);
+
+    var top = 34, rowH = 32, bw = w - 24;
+    for (var r = 0; r < rows.length; r++){
+      var y = top + r * rowH;
+      var val = m[rows[r].k];
+      Viz.text(ctx, rows[r].label, 12, y + 9, c.dim, 8.5);
+      Viz.text(ctx, val + '', w - 12, y + 9, val > 0 ? c.text : c.dim, 9, 'right');
+      Viz.roundRect(ctx, 12, y + 16, bw, 8, 4);
+      ctx.fillStyle = c.sf2; ctx.fill();
+      var len = bw * (val / Math.max(max, 1));
+      if (len > 1){
+        Viz.roundRect(ctx, 12, y + 16, len, 8, 4);
+        ctx.fillStyle = rows[r].color; ctx.fill();
+      }
+    }
+
+    // 선택 비용
+    Viz.text(ctx, '전이 시 선택 비용' + (m.select > 0 ? '  +' + m.select + '회' : '  0 — 이번 틱은 전이 없음'),
+      12, 178, m.select > 0 ? c.warn : c.dim, 8.5);
+
+    // 최근 틱 막대
+    var baseY = h - 48, bh = 28;
+    Viz.text(ctx, '최근 틱 합계 (오른쪽이 최신)', 12, baseY - 9, c.dim, 8);
+    var gap = 3, bwid = (w - 24 - gap * 11) / 12;
+    var scale = Math.max(18, maxTotal());
+    for (var q = 0; q < 12; q++){
+      var x = 12 + q * (bwid + gap);
+      var val2 = hist[q] || 0;
+      ctx.fillStyle = c.sf2;
+      ctx.fillRect(x, baseY + bh - 2, bwid, 2);
+      var hh = Math.min(bh, (val2 / scale) * bh);
+      if (hh > 0.6){
+        Viz.roundRect(ctx, x, baseY + bh - hh, bwid, hh, 2);
+        ctx.fillStyle = 'rgba(63,125,90,0.45)'; ctx.fill();
+      }
+    }
+    Viz.text(ctx, '상태가 늘어도 이 막대는 그대로다', 12, h - 10, c.dim, 8);
+  });
+
+  function maxTotal(){
+    var m = model();
+    return Math.max(20, m.total * 1.2);
+  }
+
+  if (!v) return;
+
+  function verdict(){
+    out.className = 'verdict';
+    var m = model();
+    if (extraIdle){
+      out.textContent = '비활성 상태를 37개 더 넣어도 이번 틱 연산은 ' + m.total + '회 그대로다. 런타임은 활성 경로 밖의 상태를 읽지 않는다.';
+    } else if (doneOnly){
+      out.textContent = 'OnTick 전이를 완료 전이로 바꾸면 매 틱 전이·조건 검사가 0 이 된다. 전이될 때 한 번만 본다.';
+    } else {
+      out.textContent = '지금 이 틱은 연산 ' + m.total + '회 — 평가자 ' + m.eval + ' · 태스크 ' + m.task + ' · 전이 ' + m.trans + ' · 조건 ' + m.cond + '.';
+    }
+  }
+
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var loop = Viz.animate(v, function(v, t){
+    if (!running) return;
+    timer += 1 / 60;
+    if (timer >= TICK_SEC){
+      timer = 0;
+      tickNo++;
+      cur = model();
+      hist.push(cur.total);
+      if (hist.length > 12) hist.shift();
+      verdict();
+    }
+  }, { paused: reduce });
+
+  function sync(){
+    var on = !!(loop && loop.playing());
+    play.textContent = on ? '일시정지' : '재생';
+    play.setAttribute('aria-pressed', on ? 'true' : 'false');
+    idleBtn.setAttribute('aria-pressed', extraIdle ? 'true' : 'false');
+    doneBtn.setAttribute('aria-pressed', doneOnly ? 'true' : 'false');
+    depthOut.textContent = depth + '단';
+    tasksOut.textContent = tasks + '개/상태';
+    transOut.textContent = (doneOnly ? 0 : trans) + '개/상태';
+  }
+
+  function refresh(){
+    cur = model();
+    verdict(); sync(); v.render();
+  }
+
+  play.addEventListener('click', function(){
+    if (!loop) return;
+    if (loop.playing()) loop.pause(); else loop.play();
+    running = loop.playing(); sync();
+  });
+  idleBtn.addEventListener('click', function(){ extraIdle = !extraIdle; refresh(); });
+  doneBtn.addEventListener('click', function(){ doneOnly = !doneOnly; refresh(); });
+  depthEl.addEventListener('input', function(){ depth = parseInt(depthEl.value, 10); refresh(); });
+  tasksEl.addEventListener('input', function(){ tasks = parseInt(tasksEl.value, 10); refresh(); });
+  transEl.addEventListener('input', function(){ trans = parseInt(transEl.value, 10); refresh(); });
+  reset.addEventListener('click', function(){
+    tickNo = 0; timer = 0; hist = [0,0,0,0,0,0,0,0,0,0,0,0]; v.t = 0; cur = model(); verdict(); sync(); v.render();
+  });
+
+  cur = model();
+  running = loop ? loop.playing() : true;
+  sync(); verdict();
+}
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initCost);
+else initCost();
+</script>
+
+</body>
+</html>

@@ -21,6 +21,7 @@
 .tablewrap th{white-space:nowrap}
 .tablewrap td,.tablewrap th{overflow-wrap:normal}
 .tablewrap code{white-space:nowrap}
+pre code{font-size:.76rem}
 </style>
 </head>
 <body>
@@ -37,6 +38,7 @@
 <a href="statetree-structure.html" aria-current="page">구조와 실행</a>
 <a href="statetree-nodes.html">노드 4종</a>
 <a href="statetree-transitions.html">전이와 선택</a>
+<a href="statetree-tick-cost.html">틱 비용</a>
 </nav>
 
 <article>
@@ -113,6 +115,21 @@
 <li><code>UStateTreeAIComponent</code> 는 AIController 용이다. BT 안에서 <code>BTTask_RunStateTree</code> 로 서브트리처럼 돌릴 수도 있다.</li>
 </ul>
 
+<h3>예 — BeginPlay 에서 첫 상태까지</h3>
+
+<p>뒤에서 계속 쓰는 <b>경비 AI</b>를 예로 들자. 상태는 <code>Root › Combat › Melee</code>, 전역 평가자 2개(Distance, HealthRatio), 전역 태스크 1개(UpdateThreat), Melee 태스크 3개다.</p>
+
+<ol>
+<li><b>BeginPlay</b> → <code>StartLogic()</code> → <code>StartTree()</code>. 스키마의 <code>Actor</code> 컨텍스트를 못 찾으면 여기서 멈춘다.</li>
+<li><b>전역 시작</b> — 평가자 <code>TreeStart</code> 2회, 전역 태스크 <code>EnterState</code> 1회.</li>
+<li><b>Root 진입</b> — Root 에는 태스크가 없으니 바로 자식 선택으로 간다.</li>
+<li><b>첫 자식 선택</b> — <code>TrySelectChildrenInOrder</code> 면 첫 후보의 <b>진입 조건</b>부터 검사한다. 통과해야 그 상태로 들어간다.</li>
+<li><b>Idle 진입</b> — <code>Wait</code> 태스크의 <code>EnterState</code>. <code>Running</code> 을 돌려주면 상태가 유지된다.</li>
+<li><b>다음 틱부터</b> — 평가자 2 → 전역 태스크 1 → 상태 태스크 1 → OnTick 전이 검사.</li>
+</ol>
+
+<p>이 시작 과정에서 불린 사용자 콜백은 <b>4회</b>다(평가자 2 + 전역 태스크 1 + Wait 1). 이후 매 틱은 <b>4회 + 조건 검사</b>다. 이 숫자를 세는 방법과 상태가 늘어도 왜 그대로인지는 <a href="statetree-tick-cost.html">④ 한 틱에 얼마나 도나</a> 에서 다룬다.</p>
+
 <h2>4. 실행 컨텍스트</h2>
 
 <p>컴포넌트는 <b>매 Tick 마다</b> <code>FStateTreeExecutionContext</code> 를 스택에 만들어 쓴다. 이 객체가 "이번 틱의 트리 실행" 그 자체다. 트리 상태(활성 상태, 인스턴스 데이터, 이벤트 큐)는 컴포넌트가 들고 있는 <code>InstanceData</code> 에 남는다.</p>
@@ -134,12 +151,12 @@
 
 <pre><code>FStateTreeComponent::TickComponent
   └─ FStateTreeExecutionContext::Tick(dt)
-       ① TickPrelude()            // 외부 데이터 수집, 실행 중 확인
-       ② TickUpdateTasksInternal  // 평가자 → 글로벌 태스크 → 상태 태스크
-       ③ TickTriggerTransitions   // 전이 수집 → 우선순위 → Exit → 선택 → Enter
-       ④ TickPostlude()           // 예약된 Stop 처리</code></pre>
+       ① TickPrelude()
+       ② TickUpdateTasksInternal
+       ③ TickTriggerTransitions
+       ④ TickPostlude()</code></pre>
 
-<p>②의 순서는 기본값(<code>StateTree.TickGlobalNodesFollowingTreeHierarchy=1</code>)에서 <b>루트 평가자 → 루트 글로벌 태스크 → 상태 태스크</b> 다. 링크된 서브트리가 있으면 그 평가자·글로벌 태스크·상태 태스크가 뒤에 이어 붙는다. 즉 <b>데이터를 만드는 쪽이 먼저</b> 돈다.</p>
+<p>①은 외부 데이터 수집, ②는 평가자·태스크 Tick, ③은 전이 처리, ④는 예약된 Stop 이다. ②의 순서는 기본값(<code>StateTree.TickGlobalNodesFollowingTreeHierarchy=1</code>)에서 <b>루트 평가자 → 루트 글로벌 태스크 → 상태 태스크</b> 다. 링크된 서브트리가 있으면 그 평가자·글로벌 태스크·상태 태스크가 뒤에 이어 붙는다. 즉 <b>데이터를 만드는 쪽이 먼저</b> 돈다.</p>
 
 <div class="panel">
   <div class="ctl">
@@ -175,10 +192,11 @@
 
 <p>태스크는 <code>EnterState</code>/<code>ExitState</code> 에서 이 <code>ChangeType</code> 을 받는다. 여기서 많이 틀린다. <b>Sustained 라고 Enter 를 안 부르는 게 아니다.</b> 엔진은 <code>Changed</code> 이거나, <code>Sustained</code> 이면서 태스크의 <code>bShouldStateChangeOnReselect</code> 가 켜져 있을 때 <code>EnterState</code> 를 부른다. 이 값의 기본이 <b>true</b> 다.</p>
 
-<pre><code>// StateTreeExecutionContext.cpp — 상태 진입 시 태스크마다
+<pre><code>// StateTreeExecutionContext.cpp
 bShouldCallEnterState =
     ChangeType == Changed
- || (ChangeType == Sustained &amp;&amp; Task.bShouldStateChangeOnReselect);</code></pre>
+ || (ChangeType == Sustained
+     &amp;&amp; Task.bShouldStateChangeOnReselect);</code></pre>
 
 <p>그래서 기본 설정에서는 <b>Melee → Ranged 로 바뀌어도 Combat 의 태스크가 EnterState 를 다시 받는다</b>. 애니메이션 재생처럼 "들어갈 때마다 다시 시작"해야 하는 태스크에는 이게 맞다. 반대로 자원 점유나 등록처럼 <b>한 번만 하면 되는</b> 태스크는 이 스위치를 꺼서 유지 중 재진입을 막는다.</p>
 
@@ -186,15 +204,15 @@ bShouldCallEnterState =
 
 <p>전이 처리는 한 번 돌고 끝나지 않는다. <code>ExitState</code> → 상태 선택 → <code>EnterState</code> 를 마치고도 조건이 안 맞으면 <b>같은 틱 안에서</b> 다음 전이를 다시 본다. 반복 상한은 <b>5회</b>다.</p>
 
-<pre><code>// StateTreeExecutionContext.cpp — TickTriggerTransitionsInternal
-for (int32 Iter = 0; Iter &lt; MaxIterations /* 5 */; Iter++)
+<pre><code>// TickTriggerTransitionsInternal
+for (int32 Iter = 0; Iter &lt; 5; Iter++)
 {
-    if (TriggerTransitions())     // 후보를 모아 우선순위로 하나 고른다
+    if (TriggerTransitions())   // 우선순위로 하나
     {
         ExitState(...);
-        EnterState(...);          // 실패하면 다음 반복에서 새 상태를 고른다
+        EnterState(...);
     }
-    if (상태가 Running &amp;&amp; 브로드캐스트된 델리게이트가 없음) break;
+    if (Running &amp;&amp; !delegate) break;
 }</code></pre>
 
 <p>그래서 "이벤트 하나로 상태가 두 단계 넘어갔다"는 일이 생긴다. 반대로 <b>Enter 조건이 계속 실패</b>하면 그 틱에는 상태를 못 정하고 다음 틱으로 넘어간다.</p>
@@ -244,7 +262,7 @@ for (int32 Iter = 0; Iter &lt; MaxIterations /* 5 */; Iter++)
 </article>
 
 <footer class="site-foot">
-<p>다음은 <a href="statetree-nodes.html">Task · Condition · Evaluator</a>. 상태 안에 들어가는 네 종류 노드와, 인스턴스 데이터·바인딩이 언제 복사되는지.</p>
+<p>다음은 <a href="statetree-nodes.html">Task · Condition · Evaluator</a>. 상태 안에 들어가는 네 종류 노드와, 인스턴스 데이터·바인딩이 언제 복사되는지. 한 틱의 비용은 <a href="statetree-tick-cost.html">④ 틱 비용</a>.</p>
 </footer>
 
 </div>

@@ -21,6 +21,10 @@
 .tablewrap th{white-space:nowrap}
 .tablewrap td,.tablewrap th{overflow-wrap:normal}
 .tablewrap code{white-space:nowrap}
+.branch{margin:0 0 16px;padding:0;list-style:none;display:grid;gap:8px}
+.branch li{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--surface);font-size:.88rem;line-height:1.55}
+.branch code{font-size:.92em}
+pre code{font-size:.76rem}
 </style>
 </head>
 <body>
@@ -37,6 +41,7 @@
 <a href="statetree-structure.html">구조와 실행</a>
 <a href="statetree-nodes.html">노드 4종</a>
 <a href="statetree-transitions.html" aria-current="page">전이와 선택</a>
+<a href="statetree-tick-cost.html">틱 비용</a>
 </nav>
 
 <article>
@@ -108,6 +113,34 @@ Melee → Combat → Root
 </div>
 
 <p class="try"><b>해 볼 것.</b> <b>Combat = High</b> 를 끄면 세 전이가 모두 <code>Normal</code> 이 된다. 그러면 우선순위로 갈리지 않으니 <b>먼저 방문한 Melee</b> 가 이긴다. 같은 조건이라도 "누가 더 안쪽이냐"가 승자를 바꾼다는 것이 이 규칙의 요점이다.</p>
+
+<h3>예 — 다섯 개 전이가 겹칠 때</h3>
+
+<p>경비 AI 에 전이를 이렇게 달았다고 하자. 같은 틱에 여러 개가 맞을 수 있다.</p>
+
+<ul class="branch">
+<li><b>1</b> &middot; <code>Melee</code> &middot; OnTick &middot; 타깃 없음 &middot; <b>Normal</b> &rarr; Idle</li>
+<li><b>2</b> &middot; <code>Melee</code> &middot; OnStateCompleted &middot; <b>Normal</b> &rarr; Ranged</li>
+<li><b>3</b> &middot; <code>Combat</code> &middot; OnTick &middot; 체력 30% 이하 &middot; <b>High</b> &rarr; Flee</li>
+<li><b>4</b> &middot; <code>Root</code> &middot; OnEvent(Alert) &middot; <b>Critical</b> &rarr; Combat</li>
+<li><b>5</b> &middot; <code>Root</code> &middot; OnTick &middot; <b>Low</b> &rarr; Patrol</li>
+</ul>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그 틱</th><th>검사</th><th>승자</th></tr></thead>
+<tbody>
+<tr><td>타깃 잃음, 체력 정상</td><td>1 &middot; 3(실패) &middot; 5</td><td><b>1</b></td></tr>
+<tr><td>타깃 잃음 + 체력 20%</td><td>1 &middot; 3(성공) &middot; 5</td><td><b>3</b></td></tr>
+<tr><td>Alert 이벤트</td><td>4</td><td><b>4</b></td></tr>
+<tr><td>아무 일 없음</td><td>5</td><td><b>5</b></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>두 번째 줄이 핵심이다. <b>1번(Melee, Normal)</b> 과 <b>3번(Combat, High)</b> 이 같은 틱에 맞았는데, 더 안쪽인 1번이 아니라 <b>우선순위가 높은 3번</b>이 이긴다. 우선순위가 같을 때만 안쪽이 이긴다 &mdash; 위 시뮬레이션에서 <code>Combat = Normal</code> 로 바꾸면 그 경우를 볼 수 있다.</p>
+
+<p>참고로 2번(완료 전이)은 이 틱에 검사되지 않는다. Melee 가 <b>완료되는 순간</b>에만 후보가 된다.</p>
 
 <h2>5. Delay — 바로 가지 않고 기다리기</h2>
 
@@ -192,7 +225,7 @@ Melee → Combat → Root
 </article>
 
 <footer class="site-foot">
-<p>시리즈 처음은 <a href="statetree-structure.html">구조와 실행</a>. 노드의 수명과 바인딩은 <a href="statetree-nodes.html">Task · Condition · Evaluator</a>. BT 와 비교하려면 <a href="ai-behavior-tree.html">Behavior Tree ①</a>.</p>
+<p>시리즈 처음은 <a href="statetree-structure.html">구조와 실행</a>. 노드의 수명과 바인딩은 <a href="statetree-nodes.html">Task · Condition · Evaluator</a>. 이 규칙이 한 틱에 얼마나 드는지는 <a href="statetree-tick-cost.html">④ 틱 비용</a>.</p>
 </footer>
 
 </div>
