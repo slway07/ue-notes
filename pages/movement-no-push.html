@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CharacterMovement — 캐릭터는 왜 서로 밀지 않나</title>
+<meta name="note-title" content="CharacterMovement — 캐릭터는 왜 서로 밀지 않나">
+<meta name="note-summary" content="쓸기(sweep)와 그냥 옮기기의 차이, 막히면 미끄러지기만 하는 CharacterMovement, &quot;밀림&quot;의 정체인 겹침 풀기, 멈춰 있을 때 생기는 빈틈, Walking과 NavWalking, UpdatedComponent가 하나뿐이라는 제약까지.">
+<meta name="note-tags" content="CharacterMovement, Sweep, SafeMoveUpdatedComponent, ResolvePenetration, SlideAlongSurface, NavWalking, PathFollowing">
+<meta name="note-order" content="13">
+<meta name="note-category" content="충돌과 물리">
+<link rel="stylesheet" href="../assets/style.css?v=440c6c87">
+<script src="../assets/viz.js?v=38fafd0b"></script>
+<style>
+.stage canvas{touch-action:none}
+.yn{font-family:ui-monospace,Consolas,monospace;font-size:.85rem}
+.yn.dep{color:var(--warn);font-weight:600}
+.yn.ok{color:var(--accent)}
+.tablewrap{overflow-x:auto;margin:0 0 16px}
+.tablewrap table{margin:0}
+.tablewrap table.wide{min-width:560px}
+.tablewrap th{white-space:nowrap}
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 14px}
+.fstep{border:1px solid var(--line);border-radius:10px;padding:10px 8px;background:var(--surface-2);text-align:center}
+.fstep b{display:block;font-size:.82rem;word-break:break-all}
+.fstep span{display:block;font-size:.7rem;color:var(--text-dim);line-height:1.4;margin-top:2px}
+.ctl .k{font-family:ui-monospace,Consolas,monospace;font-size:.8rem;color:var(--accent);min-width:7.5em}
+.scene{border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;background:var(--surface-2);margin:0 0 18px;font-size:.9rem;line-height:1.6}
+.scene ol{margin:6px 0 0;padding-left:1.3em}
+@media (max-width:560px){.flow{grid-template-columns:repeat(2,1fr)}.ctl .k{min-width:0;width:100%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p><a class="back" href="../index.html">&larr; 목차</a></p>
+
+<header class="site-head">
+<h1>CharacterMovement — 캐릭터는 왜 서로 밀지 않나</h1>
+<p>두 캐릭터가 부딪히면 한쪽이 다른 쪽을 밀 것 같지만, <code>CharacterMovementComponent</code> 는 <b>남을 밀지 않는다.</b> 막히면 멈추거나 미끄러질 뿐이다. 가끔 보이는 "밀림"은 겹쳐진 쪽이 <b>스스로 빠져나가는</b> 것이고, 그마저 그 캐릭터가 움직이고 있을 때만 일어난다.</p>
+</header>
+
+<nav class="series" aria-label="Movement 시리즈">
+<a href="movement-component.html">개요</a>
+<a href="movement-character.html">캐릭터 물리</a>
+<a href="movement-no-push.html" aria-current="page">밀지 않는 이유</a>
+<a href="movement-network.html">네트워크</a>
+<a href="movement-root-motion.html">Root Motion</a>
+<a href="movement-other.html">그 외</a>
+</nav>
+
+<article>
+
+<div class="scene">
+<b>이 페이지가 설명하는 장면.</b> 좁은 통로에 플레이어가 가만히 서 있고, AI 캐릭터 셋이 차례로 통로를 지나간다.
+<ol>
+<li>첫 번째 AI 는 플레이어 정면에 막혀 <b>제자리걸음</b>을 하다가 몇 초 뒤 이동을 포기한다.</li>
+<li>두 번째 AI 는 플레이어 몸을 <b>뚫고</b> 지나간다. 플레이어는 꼼짝도 하지 않는다.</li>
+<li>세 번째 AI 가 플레이어 몸에 반쯤 들어와 있을 때 플레이어가 한 걸음 내디딘다. 그 순간 플레이어가 옆으로 <b>툭 튕겨 나간다.</b></li>
+</ol>
+세 장면 모두 엔진이 정상적으로 동작한 결과다. 1절~4절을 읽고 나면 각 장면이 왜 그렇게 되는지 설명할 수 있다.
+</div>
+
+<h2>1. 쓸기(sweep)와 그냥 옮기기</h2>
+
+<p>컴포넌트를 움직이는 함수는 결국 <code>UPrimitiveComponent::MoveComponent(Delta, NewRotation, bSweep, ...)</code> 하나다. 마지막 인자 <code>bSweep</code> 가 모든 것을 가른다.</p>
+
+<ul>
+<li><b>쓸기(<code>bSweep = true</code>)</b> &mdash; 콜리전 모양을 출발점에서 도착점까지 <b>끌고 가며</b> 부딪히는 것을 찾는다. Block 인 상대를 만나면 닿는 지점에서 멈춘다.</li>
+<li><b>그냥 옮기기(<code>bSweep = false</code>)</b> &mdash; 검사 없이 도착점에 <b>놓는다.</b> 순간이동과 같다.</li>
+</ul>
+
+<p>여기서 많이 헷갈리는 점이 있다. <b>Block · Overlap · Ignore 응답은 쓸기를 할 때만 이동을 막는다.</b> 응답은 "누가 검사했을 때 어떻게 답할까"이지, 상대를 밀어내는 힘이 아니다. 쓸기를 끄면 검사가 없으므로 Block 끼리도 그대로 겹친다.</p>
+
+<p>쓸기에서도 막히려면 <b>양쪽 응답이 모두 Block</b> 이어야 한다. 두 응답 중 약한 쪽(Ignore &lt; Overlap &lt; Block)이 최종 결과다. 이 규칙은 <a href="collision-preset-channel.html">Collision — Preset · Channel · Trace</a> 5절에 자세히 있다.</p>
+
+<h3>그림 1 — 쓸기 켬·끔</h3>
+
+<p><b>무엇을 보고 있나.</b> 위에서 내려다본 두 캐릭터다. A 가 오른쪽으로 걸어가고, B 는 길 한가운데 서 있다. 그림은 <b>틱 단위로</b> 움직인다. 한 틱마다 A 는 <code>Delta</code> 만큼 이동을 요청받는다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>A (초록 원)</b></td><td>움직이는 캐릭터의 캡슐. 위에서 보면 원이다</td></tr>
+<tr><td><b>B (주황 원)</b></td><td>서 있는 캐릭터의 캡슐</td></tr>
+<tr><td><b>흐린 원들</b></td><td>A 가 지난 몇 틱 동안 있던 자리. 틱마다 한 칸씩 건너뛴다</td></tr>
+<tr><td><b>옅은 띠</b></td><td>이번 틱의 쓸기 구간. 쓸기를 끄면 띠가 없다 &mdash; 검사한 구간이 없다는 뜻</td></tr>
+<tr><td><b>빨간 테두리</b></td><td>두 캡슐이 지금 겹쳐 있다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>무엇을 보면 되나.</b> 처음에는 쓸기 켬 + 양쪽 Block 이라 A 가 B 앞에서 멈춘다. 쓸기를 끄면 같은 Block 인데도 A 가 B 를 뚫고 지나간다. 응답을 하나만 Overlap 이나 Ignore 로 바꿔 보라 &mdash; 쓸기가 켜져 있어도 지나간다. <code>Delta</code> 를 크게 올리고 쓸기를 끄면 A 가 B 를 <b>건너뛰기도</b> 한다.</p>
+
+<div class="panel" data-sim="sweep">
+  <div class="ctl">
+    <button type="button" id="swPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="swReset">처음으로</button>
+  </div>
+  <div class="ctl" id="swSweep"><span class="k">bSweep</span>
+    <button type="button" data-v="on">켬</button><button type="button" data-v="off">끔</button>
+  </div>
+  <div class="ctl" id="swRA"><span class="k">A → B 응답</span>
+    <button type="button" data-v="2">Block</button><button type="button" data-v="1">Overlap</button><button type="button" data-v="0">Ignore</button>
+  </div>
+  <div class="ctl" id="swRB"><span class="k">B → A 응답</span>
+    <button type="button" data-v="2">Block</button><button type="button" data-v="1">Overlap</button><button type="button" data-v="0">Ignore</button>
+  </div>
+  <div class="sl">
+    <label for="swDelta"><code>Delta</code> (틱당)</label>
+    <input type="range" id="swDelta" min="10" max="200" step="5" value="40">
+    <output id="swDeltaOut">40 cm</output>
+  </div>
+  <div class="stage"><canvas id="cvSweep" aria-label="위에서 본 두 캐릭터. A가 오른쪽으로 틱마다 이동한다. 쓸기가 켜져 있고 양쪽 응답이 Block이면 B 앞에서 멈추고, 쓸기를 끄거나 한쪽 응답이 Overlap·Ignore면 B를 지나간다."></canvas></div>
+  <p class="verdict" id="swOut"></p>
+</div>
+
+<p class="note"><b>모형이다.</b> 실제 엔진에서는 A 가 B 에 막힌 뒤 표면을 따라 미끄러지기를 시도한다(2절). 이 그림은 두 원의 중심이 한 줄 위에 있어 미끄러질 방향이 없는 경우다. 또 Overlap 응답이라도 이벤트(<code>OnComponentBeginOverlap</code>)는 양쪽 모두 <code>bGenerateOverlapEvents</code> 가 켜져 있어야 뜬다.</p>
+
+<p><b>언제 쓰기를 끄나.</b> 텔레포트, 스폰 직후 위치 맞추기, 서버가 정해 준 위치로 클라이언트 쪽 액터를 옮길 때처럼 "그 자리에 반드시 있어야 하는" 이동이다. 반대로 걷기·낙하처럼 매 틱 조금씩 나아가는 이동은 쓸기를 켠다. <code>CharacterMovementComponent</code> 의 걷기(<code>MoveAlongFloor</code>)는 항상 <code>SafeMoveUpdatedComponent(..., true, ...)</code> 로 쓸기를 한다.</p>
+
+<h2>2. CharacterMovementComponent 는 남을 밀지 않는다</h2>
+
+<p>A 가 걷다가 B 에 막히면 <code>MoveAlongFloor</code> 에서 다음 순서가 일어난다.</p>
+
+<div class="flow">
+  <div class="fstep"><b>SafeMove</b><span>쓸기. B 와 닿는 지점에서 멈춤</span></div>
+  <div class="fstep"><b>CanStepUp?</b><span>B 위로 올라설 수 있나</span></div>
+  <div class="fstep"><b>HandleImpact</b><span>물리 물체면 힘을 준다</span></div>
+  <div class="fstep"><b>SlideAlongSurface</b><span>남은 이동을 표면 방향으로</span></div>
+  <div class="fstep"><b>B</b><span>아무 일도 없다</span></div>
+  <div class="fstep"><b>다음 틱</b><span>같은 일을 반복</span></div>
+</div>
+
+<p><b>B 위로 올라서지 못한다.</b> <code>ACharacter</code> 생성자가 자기 캡슐에 <code>CanCharacterStepUpOn = ECB_No</code> 를 넣는다. <code>CanStepUp()</code> 은 부딪힌 컴포넌트의 <code>CanCharacterStepUp()</code> 을 묻고, 캐릭터 캡슐은 "안 된다"고 답한다. 그래서 계단 오르기(<code>StepUp</code>) 대신 미끄러지기로 간다. 캐릭터가 서로의 머리 위로 올라타지 않는 이유가 이것이다.</p>
+
+<p><b>표면을 따라 미끄러진다.</b> <code>SlideAlongSurface</code> 는 남은 이동량에서 부딪힌 면의 법선 방향 성분을 빼고 나머지만큼 다시 움직인다. 비스듬히 부딪히면 옆 성분이 남아 B 를 <b>돌아 나가고</b>, 정면으로 부딪히면 남는 성분이 0 이라 <b>제자리걸음</b>이 된다. 애니메이션은 계속 걷는데 위치는 그대로다.</p>
+
+<p><b>힘을 주는 대상은 물리 시뮬레이션 중인 물체뿐이다.</b> <code>HandleImpact</code> 는 <code>bEnablePhysicsInteraction</code>(기본 true)이 켜져 있으면 <code>ApplyImpactPhysicsForces</code> 를 부른다. 이 함수는 부딪힌 바디가 <code>IsInstanceSimulatingPhysics()</code> 일 때만 힘을 준다. 캐릭터 캡슐은 물리 시뮬레이션을 하지 않으므로 힘을 받지 않는다. 상자는 밀리고 캐릭터는 안 밀리는 이유다.</p>
+
+<p><b>AI 라면 길찾기가 이동을 끝낸다.</b> <code>UPathFollowingComponent</code> 는 길막힘 감지(<code>bUseBlockDetection</code>, 기본 true)를 한다. <code>BlockDetectionInterval</code>(0.5초)마다 위치를 하나씩 모아 <code>BlockDetectionSampleCount</code>(10개)가 차면, 모든 샘플이 그 평균점에서 <code>BlockDetectionDistance</code>(10cm) 안에 있을 때 <code>EPathFollowingResult::Blocked</code> 로 경로를 끝낸다. 장면 ①의 "몇 초 뒤 포기"가 이것이다.</p>
+
+<h3>그림 2 — 직진하는 A, 막아선 B</h3>
+
+<p><b>무엇을 보고 있나.</b> 위에서 본 AI 캐릭터 A 가 오른쪽 목표점(◎)으로 걸어간다. 매 틱 목표점을 향해 방향을 다시 잡는다(길찾기가 하는 일과 같다). 가는 길에 B 가 서 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>A (초록 원)</b></td><td>걸어가는 AI 의 캡슐. 반지름은 <code>ACharacter</code> 기본값 34cm</td></tr>
+<tr><td><b>B (주황)</b></td><td>길을 막은 것. 원이면 캐릭터, 네모면 물리 시뮬레이션 물체</td></tr>
+<tr><td><b>A 위의 화살표</b></td><td>실제로 움직인 방향. 막히면 짧아지거나 사라진다</td></tr>
+<tr><td><b>작은 점들</b></td><td>길막힘 감지 샘플(0.5초마다 하나, 최대 10개)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>무엇을 보면 되나.</b> 어긋남이 0 이면 A 가 B 앞에서 제자리걸음을 하고, 샘플 점이 한곳에 쌓이다가 10개가 차면 <code>Blocked</code> 로 끝난다. 어긋남을 조금만 올려 보라 &mdash; A 가 B 의 표면을 따라 미끄러져 돌아 나간다. B 를 물리 물체로 바꾸면 그때만 B 가 밀린다.</p>
+
+<div class="panel" data-sim="block">
+  <div class="ctl">
+    <button type="button" id="bkPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="bkReset">처음으로</button>
+  </div>
+  <div class="ctl" id="bkKind"><span class="k">B 는</span>
+    <button type="button" data-v="char">캐릭터</button><button type="button" data-v="phys">물리 시뮬레이션 물체</button>
+  </div>
+  <div class="sl">
+    <label for="bkOff">B 의 옆 어긋남</label>
+    <input type="range" id="bkOff" min="0" max="100" step="2" value="0">
+    <output id="bkOffOut">0 cm</output>
+  </div>
+  <div class="sl">
+    <label for="bkRad">B <code>CapsuleRadius</code></label>
+    <input type="range" id="bkRad" min="20" max="90" step="2" value="34">
+    <output id="bkRadOut">34 cm</output>
+  </div>
+  <div class="stage"><canvas id="cvBlock" aria-label="위에서 본 AI 캐릭터 A가 오른쪽 목표점으로 걸어간다. 정면에 캐릭터 B가 있으면 제자리걸음을 하다가 길막힘 감지로 이동이 끝나고, 옆으로 어긋나 있으면 표면을 따라 미끄러져 돌아 나간다. B가 물리 물체일 때만 밀린다."></canvas></div>
+  <p class="verdict" id="bkOut"></p>
+</div>
+
+<p class="note"><b>모형이다.</b> 속도는 300cm/s 로 고정했고, 물리 물체도 원으로 충돌시켰다. 길막힘 감지 값(0.5초 · 10개 · 10cm)은 <code>UPathFollowingComponent</code> 생성자 기본값 그대로다. 실제 길찾기는 NavMesh 경로의 다음 점을 향하지만, 여기서는 목표점 하나로 줄였다.</p>
+
+<h2>3. 겹침 풀기 — "밀림"의 정체</h2>
+
+<p>그렇다면 장면 ③에서 플레이어는 왜 튕겨 나갔을까. 누가 민 것이 아니다. <b>플레이어 자신의 이동이 겹침을 발견하고 스스로 빠져나간 것</b>이다.</p>
+
+<div class="flow">
+  <div class="fstep"><b>SafeMoveUpdatedComponent</b><span>이번 틱 이동을 쓸기로</span></div>
+  <div class="fstep"><b>bStartPenetrating?</b><span>출발점부터 이미 겹쳐 있었나</span></div>
+  <div class="fstep"><b>GetPenetrationAdjustment</b><span>빠져나갈 방향·거리</span></div>
+  <div class="fstep"><b>ResolvePenetration</b><span>그만큼 옮긴다</span></div>
+  <div class="fstep"><b>MoveUpdatedComponent</b><span>원래 이동을 다시 시도</span></div>
+  <div class="fstep"><b>결과</b><span>겹친 쪽이 튕겨 나간 것처럼 보인다</span></div>
+</div>
+
+<pre><code>// UMovementComponent::SafeMoveUpdatedComponent (요약)
+bMoveResult = MoveUpdatedComponent(Delta, NewRotation, bSweep, &amp;OutHit, Teleport);
+if (OutHit.bStartPenetrating &amp;&amp; UpdatedComponent)
+{
+    const FVector RequestedAdjustment = GetPenetrationAdjustment(OutHit);
+    if (ResolvePenetration(RequestedAdjustment, OutHit, NewRotation))
+    {
+        // Retry original move
+        bMoveResult = MoveUpdatedComponent(Delta, NewRotation, bSweep, &amp;OutHit, Teleport);
+    }
+}</code></pre>
+
+<p>쓸기의 출발점이 이미 상대 안에 있으면 히트 결과에 <code>bStartPenetrating</code> 이 켜지고, 빠져나갈 방향과 깊이가 함께 온다. 콘솔 변수 <code>p.MoveIgnoreFirstBlockingOverlap</code> 의 기본값이 0 이라서, 겹친 상대에게서 멀어지는 방향으로 움직이더라도 <b>먼저 빠져나가고</b> 나서 이동한다.</p>
+
+<p>빠져나가는 거리에는 한도가 있다. <code>UCharacterMovementComponent::GetPenetrationAdjustment</code> 가 상대에 따라 길이를 자른다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>변수</th><th>기본값</th><th>언제 쓰나</th></tr></thead>
+<tbody>
+<tr><td><code>MaxDepenetrationWithGeometry</code></td><td>500 cm</td><td>벽·바닥 같은 지오메트리와 겹쳤을 때</td></tr>
+<tr><td><code>MaxDepenetrationWithGeometryAsProxy</code></td><td>100 cm</td><td>위와 같고, 이 캐릭터가 시뮬레이티드 프록시일 때</td></tr>
+<tr><td><code>MaxDepenetrationWithPawn</code></td><td>100 cm</td><td>다른 Pawn 과 겹쳤을 때</td></tr>
+<tr><td><code>MaxDepenetrationWithPawnAsProxy</code></td><td><b>2 cm</b></td><td>다른 Pawn 과 겹쳤고, 이 캐릭터가 시뮬레이티드 프록시일 때</td></tr>
+</tbody>
+</table>
+</div>
+
+<p>마지막 줄이 눈여겨볼 값이다. 남의 화면에 보이는 캐릭터(시뮬레이티드 프록시)는 Pawn 과 겹쳐도 한 번에 2cm 만 빠져나간다. 위치의 주인은 서버이므로, 프록시가 제멋대로 크게 튀지 않게 하려는 값이다.</p>
+
+<h2>4. 멈춰 있을 때의 빈틈</h2>
+
+<p>겹침 풀기는 <b>SafeMove 안에서만</b> 일어난다. 그런데 멈춰 있는 캐릭터는 SafeMove 까지 가지 않는다. 두 군데서 건너뛴다.</p>
+
+<ul>
+<li><b><code>PhysWalking</code></b> &mdash; 이번 틱 이동량 <code>Delta = timeTick * Velocity</code> 가 거의 0 이면(<code>bZeroDelta</code>) <code>MoveAlongFloor</code> 를 부르지 않고 남은 시간을 0 으로 만든다.</li>
+<li><b><code>UPrimitiveComponent::MoveComponentImpl</code></b> &mdash; 누가 0 거리 이동을 직접 요청해도, 이동 거리가 아주 작고 회전도 같으면 쓸기 없이 바로 <code>true</code> 를 돌려준다. 소스 주석이 <i>"Skip if no vector or rotation."</i> 이다.</li>
+</ul>
+
+<p>그래서 <b>멈춘 캐릭터 안으로 쓸기를 끈 액터가 들어오면, 겹침이 풀리지 않는다.</b> 들어온 쪽은 쓸기를 안 하니 자기가 겹친 줄 모르고, 멈춘 쪽은 이동을 건너뛰니 검사할 기회가 없다. 0 거리 이동을 억지로 불러도 위의 조기 종료 때문에 찾지 못한다. 장면 ②가 이것이다. 그러다 플레이어가 한 걸음 내디디면 SafeMove 가 돌고, 출발점이 겹쳐 있으니 <code>bStartPenetrating</code> &rarr; 겹침 풀기가 한 번에 일어난다. 장면 ③이다.</p>
+
+<p><b>멈춰 있어도 풀고 싶다면</b> 엔진 기본 동작이 아니므로 직접 넣어야 한다. 예를 들어 매 틱 <code>ComponentOverlapMulti</code> 로 겹친 Pawn 을 찾고, <code>ComputePenetration</code> 으로 빠져나갈 방향(MTD)을 구해 <code>ResolvePenetration</code> 을 부르는 식이다. 쿼리가 매 틱 늘어나므로 캐릭터 수만큼 비용이 든다. 정말 필요한 캐릭터(예: 로컬 플레이어 하나)에만 거는 것이 보통이다.</p>
+
+<h3>그림 3 — 멈춘 캐릭터 안으로 들어오는 액터</h3>
+
+<p><b>무엇을 보고 있나.</b> 위에서 본 플레이어 B 와, 쓸기를 끈 채 왼쪽에서 오른쪽으로 지나가는 액터 C 다. C 는 막히지 않으므로 B 를 뚫고 들어온다. B 가 어떤 상태냐에 따라 겹침이 풀리는지 본다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>B (초록 원)</b></td><td>플레이어 캡슐. 처음 자리는 점선 원</td></tr>
+<tr><td><b>C (주황 원)</b></td><td>쓸기 없이 이동하는 액터. 예: 쓸기를 끈 NavWalking AI</td></tr>
+<tr><td><b>빨간 테두리</b></td><td>지금 겹쳐 있다</td></tr>
+<tr><td><b>B 위의 짧은 화살표</b></td><td>이번 틱에 겹침 풀기로 옮겨진 방향</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>무엇을 보면 되나.</b> 「멈춤」에서는 C 가 B 를 통째로 지나가도 B 가 꿈쩍하지 않는다. 「걷는 중」으로 바꾸면 B 가 조금씩 걷고 있어서 SafeMove 가 돌고, C 가 닿는 순간 B 가 밀려난다. 이 "밀림"은 B 자신의 겹침 풀기다. <code>MaxDepenetrationWithPawn</code> 을 2 로 내리면(프록시 값) 한 틱에 2cm 씩만 빠져나가서 겹침이 한참 남는다.</p>
+
+<div class="panel" data-sim="penetration">
+  <div class="ctl">
+    <button type="button" id="pnPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="pnReset">처음으로</button>
+  </div>
+  <div class="ctl" id="pnMode"><span class="k">B 의 상태</span>
+    <button type="button" data-v="idle">멈춤</button><button type="button" data-v="walk">걷는 중</button><button type="button" data-v="check">멈춤 + 매 틱 겹침 검사</button>
+  </div>
+  <div class="sl">
+    <label for="pnSpeed">C 속도</label>
+    <input type="range" id="pnSpeed" min="100" max="600" step="20" value="240">
+    <output id="pnSpeedOut">240 cm/s</output>
+  </div>
+  <div class="sl">
+    <label for="pnOff">C 의 옆 어긋남</label>
+    <input type="range" id="pnOff" min="0" max="60" step="2" value="20">
+    <output id="pnOffOut">20 cm</output>
+  </div>
+  <div class="sl">
+    <label for="pnMax"><code>MaxDepenetrationWithPawn</code></label>
+    <input type="range" id="pnMax" min="2" max="100" step="2" value="100">
+    <output id="pnMaxOut">100 cm</output>
+  </div>
+  <div class="stage"><canvas id="cvPen" aria-label="위에서 본 플레이어 B와, 쓸기 없이 지나가는 액터 C. B가 멈춰 있으면 C가 B를 뚫고 지나가도 B는 움직이지 않는다. B가 걷는 중이거나 매 틱 겹침 검사를 하면 B가 겹침을 풀며 밀려난다."></canvas></div>
+  <p class="verdict" id="pnOut"></p>
+</div>
+
+<p class="note"><b>모형이다.</b> 「멈춤 + 매 틱 겹침 검사」는 엔진 기본 기능이 아니고, 위에서 말한 직접 구현을 흉내 낸 것이다. 「걷는 중」의 B 는 위아래로 40cm/s 로 천천히 오간다. 빠져나가는 거리에는 엔진처럼 <code>p.PenetrationPullbackDistance</code>(0.125cm)를 더했다.</p>
+
+<h2>5. Walking 과 NavWalking</h2>
+
+<p>AI 캐릭터는 <code>MOVE_NavWalking</code> 모드로 걸을 수 있다. 걷기 자체는 같지만, 바닥과 충돌을 다루는 방법이 다르다.</p>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th></th><th>Walking (<code>PhysWalking</code>)</th><th>NavWalking (<code>PhysNavWalking</code>)</th></tr></thead>
+<tbody>
+<tr><td><b>바닥 높이</b></td><td>캡슐을 아래로 쓸어서 실제 콜리전 바닥을 찾는다(<code>FindFloor</code>). 계단·경사를 정확히 따른다</td><td>NavMesh 위의 점으로 높이를 정한다(<code>FindNavFloor</code> = NavMesh <code>ProjectPoint</code>). 바닥 쓸기가 없어 가볍다. <code>bProjectNavMeshWalking</code>(기본 false)을 켜면 <code>ProjectLocationFromNavMesh</code> 가 실제 지오메트리로 높이를 한 번 더 맞춘다</td></tr>
+<tr><td><b>월드 충돌</b></td><td>캡슐 응답 그대로</td><td>모드에 들어갈 때 <code>SetNavWalkingPhysics(true)</code> 가 캡슐의 <b>WorldStatic · WorldDynamic</b> 응답을 Ignore 로 바꾼다. Pawn 채널 응답은 그대로 둔다</td></tr>
+<tr><td><b>이동 쓸기</b></td><td>항상 쓸기(<code>MoveAlongFloor</code>)</td><td><code>bSweepWhileNavWalking</code> 를 따른다(생성자 기본값 true). 끄면 다른 캐릭터도 쓸기 없이 통과한다</td></tr>
+<tr><td><b>이동량 0</b></td><td><code>bZeroDelta</code> 면 이동을 건너뛴다</td><td><code>AdjustedDelta.IsNearlyZero()</code> 면 SafeMove 를 부르지 않는다</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>언제 NavWalking 을 쓰나.</b> 수십 마리가 동시에 걷는 AI 처럼 바닥 쓸기 비용을 줄이고 싶을 때다. 대신 NavMesh 밖으로 나가면 <code>MOVE_Walking</code> 으로 돌아가고, NavMesh 의 높이가 실제 바닥과 어긋나면 발이 뜨거나 묻힌다. 플레이어처럼 정확한 바닥이 필요한 캐릭터는 Walking 이 맞다.</p>
+
+<h2>6. AI 이동과 서버가 위치를 정하는 게임</h2>
+
+<p>AI 이동이라고 특별한 이동이 따로 있지 않다. <code>UPathFollowingComponent</code> 는 경로를 따라 "이 속도로 가라"(<code>RequestDirectMove</code>)를 요청할 뿐이고, 실제 이동은 <code>CharacterMovementComponent</code> 가 한다. 그러니 AI 끼리, AI 와 플레이어 사이의 충돌도 지금까지 본 규칙을 그대로 따른다.</p>
+
+<ul>
+<li><b>NavWalking 에서 <code>bSweepWhileNavWalking</code> 를 끄면</b> 응답이 Block 이어도 AI 가 다른 캐릭터를 겹쳐 지나간다. 1절의 "쓸기 끔" 그림과 같은 상황이다.</li>
+<li><b>서버가 위치를 정하고 클라이언트는 받은 위치로 옮기는 구조</b>에서, 클라이언트 쪽 몬스터를 쓸기로 막으면 서버가 정한 위치와 클라이언트에 보이는 위치가 어긋난다. 그래서 그런 몬스터는 쓸기를 끄는 경우가 많다.</li>
+<li>쓸기를 끈 쪽은 겹침을 발견하지 못하므로, <b>겹침은 상대(플레이어) 쪽에서 풀어야</b> 한다. 플레이어가 멈춰 있으면 4절의 빈틈이 그대로 드러난다.</li>
+</ul>
+
+<p class="note">엔진 자신도 같은 고민을 한다. 3절 표의 <code>MaxDepenetrationWithPawnAsProxy = 2</code> 는 "위치의 주인이 아닌 쪽은 크게 움직이지 말라"는 뜻이다.</p>
+
+<h2>7. UpdatedComponent 는 하나</h2>
+
+<p>쓸기로 움직이는 것은 <b><code>UpdatedComponent</code> 하나</b>뿐이다(보통 루트 캡슐). 거기 붙은 자식 콜리전은 루트가 움직인 뒤 <b>충돌 검사 없이</b> 따라 옮겨질 뿐, 이동을 막지 못한다. 자세한 예는 <a href="movement-component.html">MovementComponent — 무엇이 액터를 움직이나</a> 2절·6절에 있다.</p>
+
+<p><b>깨지는 장면.</b> 몸집 큰 몬스터에게 "다른 캐릭터와는 큰 캡슐로, 벽과는 작은 캡슐로 부딪히게" 하고 싶어서 자식으로 큰 캡슐을 하나 더 붙였다. 결과는 아무 변화가 없다. 큰 캡슐은 UpdatedComponent 가 아니라서 쓸기를 하지 않는다. 다른 캐릭터 쪽에서 쓸기를 할 때만 그 캡슐에 막힌다.</p>
+
+<p><b>그래도 해야 한다면.</b> 이동 뒤에 <code>SetUpdatedComponent</code> 로 보조 캡슐을 잠깐 바꿔 끼우고, 한 번 더 SafeMove 를 돌린 뒤 되돌리는 식의 우회가 필요하다. 쓸기가 틱마다 두 번이 되고, 보조 캡슐만 움직였을 때 루트 위치를 맞추는 일, 네트워크 예측·보정 재생에 이 이동이 들어가지 않는 문제를 직접 처리해야 한다. 엔진이 보장하는 경로가 아니므로 비용과 한계를 감수할 때만 쓴다.</p>
+
+<p><b>이동과 상관없는 콜리전은 따로 둔다.</b> 마우스 클릭 판정용처럼 이동을 막을 필요가 없는 콜리전은 자식 컴포넌트에 <code>Collision Enabled = Query Only</code> 로 두고, Pawn 같은 이동 채널은 Ignore, 클릭에 쓰는 트레이스 채널(예: <code>Visibility</code>)만 Block 으로 둔다. 이동은 루트 캡슐이 맡고, 클릭은 그 컴포넌트가 맡는다.</p>
+
+<h2>8. 언제 무엇을 고르나</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>원하는 것</th><th>할 일</th></tr></thead>
+<tbody>
+<tr><td>캐릭터끼리 확실히 막히게</td><td>양쪽 캡슐의 상대 ObjectType 응답을 Block, 양쪽 이동 모두 쓸기(NavWalking 이면 <code>bSweepWhileNavWalking</code> 켬)</td></tr>
+<tr><td>캐릭터끼리 서로 지나가게</td><td>한쪽만 Pawn 응답을 Overlap·Ignore 로. 쓸기를 끄는 것보다 응답을 바꾸는 쪽이 의도가 분명하다</td></tr>
+<tr><td>캐릭터가 상자를 밀게</td><td>상자를 물리 시뮬레이션으로, <code>bEnablePhysicsInteraction</code> 켬. 미는 세기는 <code>PushForceFactor</code> 등</td></tr>
+<tr><td>캐릭터가 캐릭터를 밀게</td><td>엔진 기본 기능이 아니다. 부딪힌 쪽에 <code>LaunchCharacter</code> 나 <code>AddImpulse</code> 로 속도를 주는 식으로 직접 만든다</td></tr>
+<tr><td>멈춰 있어도 겹침이 풀리게</td><td>4절의 직접 구현(오버랩 쿼리 + <code>ComputePenetration</code> + <code>ResolvePenetration</code>)을 필요한 캐릭터에만</td></tr>
+<tr><td>막힌 AI 가 빨리 포기하게</td><td><code>UPathFollowingComponent::SetBlockDetection(거리, 간격, 개수)</code></td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>9. 흔한 함정</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>증상</th><th>먼저 볼 것</th></tr></thead>
+<tbody>
+<tr><td>양쪽 Block 인데 겹친다</td><td>움직인 쪽이 쓸기를 했는지. 텔레포트·<code>SetActorLocation(..., false)</code>·쓸기 끈 NavWalking</td></tr>
+<tr><td>겹친 채로 안 풀린다</td><td>겹쳐진 캐릭터가 멈춰 있는지(4절). 움직이기 시작하면 풀린다</td></tr>
+<tr><td>멈춰 있다 움직이는 순간 튄다</td><td>쌓여 있던 겹침이 첫 SafeMove 에서 한 번에 풀린 것. 한도는 <code>MaxDepenetrationWithPawn</code></td></tr>
+<tr><td>AI 가 제자리걸음 후 멈춘다</td><td>정면으로 막혔고 길막힘 감지가 <code>Blocked</code> 로 끝낸 것. RVO·Detour 회피를 켜거나 경로를 다시 요청</td></tr>
+<tr><td>자식 콜리전이 이동을 안 막는다</td><td>UpdatedComponent 가 아니다(7절)</td></tr>
+<tr><td>NavWalking AI 가 벽을 뚫는다</td><td><code>SetNavWalkingPhysics</code> 가 WorldStatic·WorldDynamic 을 Ignore 로 바꾼다. 경로가 NavMesh 안에 있으면 문제없지만, 밀려나거나 루트 모션으로 NavMesh 밖에 나가면 뚫린다</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>10. 디버깅</h2>
+
+<ul>
+<li><code>p.ShowInitialOverlaps 1</code> &mdash; 쓸기가 겹친 채 시작할 때 로그와 화살표를 그린다(Shipping·Test 빌드 제외). 파란 화살표는 빠져나가는 방향으로 움직인 경우, 빨간 화살표는 그 반대다</li>
+<li><code>show Collision</code> &mdash; 캡슐이 실제로 겹쳐 있는지 눈으로 본다</li>
+<li><code>showdebug Physics</code> &mdash; 지금 이동 모드(Walking·NavWalking)와 UpdatedComponent 이름을 본다</li>
+<li><code>p.MoveIgnoreFirstBlockingOverlap</code> &mdash; 1 로 두면 빠져나가는 방향의 이동일 때 겹침 풀기 대신 겹침을 무시한다. 기본값 0 과 비교하면 겹침 풀기가 일어나는 지점을 알 수 있다</li>
+</ul>
+
+<p>공식 문서: <a href="https://dev.epicgames.com/documentation/unreal-engine/collision-in-unreal-engine---overview">Collision in Unreal Engine &mdash; Overview</a> (양쪽 Block 규칙, Overlap 이벤트 조건) · <a href="https://dev.epicgames.com/documentation/unreal-engine/movement-components-in-unreal-engine">Movement Components in Unreal Engine</a> · <a href="https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/UCharacterMovementComponent">UCharacterMovementComponent API</a></p>
+
+<h2>11. 소스 위치</h2>
+
+<div class="tablewrap">
+<table class="wide">
+<thead><tr><th>항목</th><th>파일</th><th>줄</th></tr></thead>
+<tbody>
+<tr><td><code>MoveComponentImpl</code> · 0 거리 조기 종료</td><td><code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></td><td>3250 · 3286</td></tr>
+<tr><td>겹친 채 시작한 히트 무시 조건 (<code>ShouldIgnoreHitResult</code>)</td><td><code>Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp</code></td><td>3115</td></tr>
+<tr><td><code>SafeMoveUpdatedComponent</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>558</td></tr>
+<tr><td><code>p.MoveIgnoreFirstBlockingOverlap</code> (기본 0)</td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>548</td></tr>
+<tr><td><code>GetPenetrationAdjustment</code> · <code>ResolvePenetrationImpl</code> · <code>SlideAlongSurface</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/MovementComponent.cpp</code></td><td>608 · 624 · 725</td></tr>
+<tr><td><code>ResolvePenetration</code> (public)</td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/MovementComponent.h</code></td><td>334</td></tr>
+<tr><td><code>MaxDepenetration*</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>703~706</td></tr>
+<tr><td><code>bSweepWhileNavWalking</code> · <code>bEnablePhysicsInteraction</code> 기본값</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>767 · 770</td></tr>
+<tr><td>캐릭터용 <code>GetPenetrationAdjustment</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>3621</td></tr>
+<tr><td><code>MoveAlongFloor</code> (막힘 → StepUp 또는 Slide)</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>5552</td></tr>
+<tr><td><code>PhysWalking</code> · <code>bZeroDelta</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>5653 · 5734</td></tr>
+<tr><td><code>PhysNavWalking</code> · 이동 쓸기</td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>5892 · 6064</td></tr>
+<tr><td><code>FindNavFloor</code> · <code>ProjectLocationFromNavMesh</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>6082 · 6097</td></tr>
+<tr><td><code>SetNavWalkingPhysics</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>6465</td></tr>
+<tr><td><code>CanStepUp</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>7525</td></tr>
+<tr><td><code>ApplyImpactPhysicsForces</code></td><td><code>Engine/Source/Runtime/Engine/Private/Components/CharacterMovementComponent.cpp</code></td><td>7814</td></tr>
+<tr><td><code>bProjectNavMeshWalking</code> (기본 false)</td><td><code>Engine/Source/Runtime/Engine/Classes/GameFramework/CharacterMovementComponent.h</code></td><td>1118</td></tr>
+<tr><td>캡슐 34×88 · <code>CanCharacterStepUpOn = ECB_No</code></td><td><code>Engine/Source/Runtime/Engine/Private/Character.cpp</code></td><td>78 · 81</td></tr>
+<tr><td><code>CanCharacterStepUpOn</code> · <code>ComponentOverlapMulti</code> · <code>ComputePenetration</code></td><td><code>Engine/Source/Runtime/Engine/Classes/Components/PrimitiveComponent.h</code></td><td>822 · 1427 · 3177</td></tr>
+<tr><td>길막힘 감지 기본값</td><td><code>Engine/Source/Runtime/AIModule/Private/Navigation/PathFollowingComponent.cpp</code></td><td>138~144</td></tr>
+<tr><td>길막힘 → <code>Blocked</code> · <code>IsBlocked</code></td><td><code>Engine/Source/Runtime/AIModule/Private/Navigation/PathFollowingComponent.cpp</code></td><td>1096~1111 · 1556</td></tr>
+</tbody>
+</table>
+</div>
+
+<p class="src">출처 &mdash; 위 표의 파일과 줄 번호 (UE 5.8).</p>
+
+</article>
+
+<footer class="site-foot">
+<p>이 페이지는 캐릭터끼리 부딪힐 때 엔진이 하는 일과 하지 않는 일을 다뤘다. 걷기 한 틱의 전체 순서는 <a href="movement-character.html">CharacterMovement — 걷기와 낙하의 물리</a>, 응답 규칙은 <a href="collision-preset-channel.html">Collision — Preset · Channel · Trace</a> 에서 이어진다.</p>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var REDUCE = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var DT = 1 / 60;
+
+  /* 버튼 묶음 하나. data-v 값 중 하나가 선택된다. */
+  function group(id, init){
+    var box = document.getElementById(id);
+    var val = init;
+    if (!box) return { get: function(){ return val; } };
+    var bs = box.querySelectorAll('button[data-v]');
+    function sync(){
+      for (var i = 0; i < bs.length; i++)
+        bs[i].setAttribute('aria-pressed', bs[i].getAttribute('data-v') === val ? 'true' : 'false');
+    }
+    for (var i = 0; i < bs.length; i++){
+      bs[i].addEventListener('click', function(){ val = this.getAttribute('data-v'); sync(); });
+    }
+    sync();
+    return { get: function(){ return val; } };
+  }
+
+  function slider(id, outId, unit){
+    var s = document.getElementById(id), o = document.getElementById(outId);
+    function f(){ if (o) o.textContent = s.value + ' ' + unit; }
+    if (s) s.addEventListener('input', f);
+    f();
+    return { get: function(){ return s ? parseFloat(s.value) : 0; } };
+  }
+
+  /* 재생/일시정지/처음으로 버튼 연결 */
+  function wire(v, loop, playId, resetId, onReset){
+    var bp = document.getElementById(playId), br = document.getElementById(resetId);
+    function sync(){
+      var on = !!(loop && loop.playing());
+      bp.textContent = on ? '일시정지' : '재생';
+      bp.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    bp.addEventListener('click', function(){
+      if (!loop) return;
+      if (loop.playing()) loop.pause(); else loop.play();
+      sync();
+    });
+    br.addEventListener('click', function(){ v.t = 0; onReset(); v.render(); });
+    sync();
+  }
+
+  function circle(ctx, x, y, r, fill, stroke, lw){
+    if (!(r > 0)) return;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke){ ctx.strokeStyle = stroke; ctx.lineWidth = lw || 2; ctx.stroke(); }
+  }
+
+  var RED = '#d0453a';
+  var RESP = ['Ignore', 'Overlap', 'Block'];
+
+  /* ── 그림 1: 쓸기 켬·끔 ───────────────────────── */
+  function initSweep(){
+    if (!window.Viz) return;
+    var out = document.getElementById('swOut');
+    var gSweep = group('swSweep', 'on'), gA = group('swRA', '2'), gB = group('swRB', '2');
+    var sDelta = slider('swDelta', 'swDeltaOut', 'cm');
+
+    var R = 34, BX = 620, START = 80, END = 960, TICK = 0.12;
+    var st;
+    function reset(){ st = { x: START, from: START, acc: 0, trail: [], stuck: 0, hold: 0, done: false }; }
+    reset();
+
+    function resp(){ return Math.min(parseInt(gA.get(), 10), parseInt(gB.get(), 10)); }
+
+    function doTick(){
+      if (st.done){ st.hold += TICK; if (st.hold > 1.5) reset(); return; }
+      var d = sDelta.get();
+      var sweep = gSweep.get() === 'on';
+      var target = st.x + d;
+      var contact = BX - 2 * R;
+      var blocked = false;
+      if (sweep && resp() === 2 && st.x <= contact + 0.01 && target > contact){ target = contact; blocked = true; }
+      st.trail.push(st.x);
+      if (st.trail.length > 6) st.trail.shift();
+      st.from = st.x;
+      st.x = target;
+      if (blocked && Math.abs(st.from - st.x) < 0.01) st.stuck++;
+      if (st.stuck > 12 || st.x > END) st.done = true;
+    }
+
+    var v = Viz.view('cvSweep', function(w){ return w < 520 ? 140 : 170; }, function(v){
+      var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+      var sc = (w - 24) / 1000, ox = 12, cy = h / 2 + 10;
+      function X(x){ return ox + x * sc; }
+      var r = R * sc;
+      var sweep = gSweep.get() === 'on';
+      var rs = resp();
+
+      // 이번 틱 쓸기 구간
+      if (sweep && st.x > st.from){
+        ctx.fillStyle = c.accent; ctx.globalAlpha = 0.15;
+        Viz.roundRect(ctx, X(st.from) - r, cy - r, X(st.x) - X(st.from) + 2 * r, 2 * r, r);
+        ctx.fill(); ctx.globalAlpha = 1;
+      }
+      for (var i = 0; i < st.trail.length; i++){
+        ctx.globalAlpha = 0.12 + i * 0.05;
+        circle(ctx, X(st.trail[i]), cy, r, null, c.accent, 1);
+      }
+      ctx.globalAlpha = 1;
+
+      var overlap = Math.abs(st.x - BX) < 2 * R - 0.01;
+      circle(ctx, X(BX), cy, r, c.sf2, overlap ? RED : c.warn, overlap ? 3 : 2);
+      Viz.text(ctx, 'B', X(BX), cy, c.warn, 12, 'center');
+      circle(ctx, X(st.x), cy, r, c.sf2, overlap ? RED : c.accent, overlap ? 3 : 2.5);
+      Viz.text(ctx, 'A', X(st.x), cy, c.accent, 12, 'center');
+
+      Viz.text(ctx, 'bSweep ' + (sweep ? 'true' : 'false') + ' · 최종 응답 = ' + RESP[rs], 12, 16, c.text, 11, 'left');
+      Viz.text(ctx, 'A x = ' + Math.round(st.x) + ' cm' + (overlap ? ' · 겹침!' : ''), 12, 34, overlap ? RED : c.dim, 10, 'left');
+
+      var msg, cls;
+      if (!sweep){
+        cls = overlap ? 'verdict bad' : 'verdict';
+        msg = '쓸기 꺼짐 — 응답이 ' + RESP[rs] + ' 이어도 검사를 하지 않는다. A 는 도착점에 그냥 놓이고, Block 끼리도 겹친다.';
+      } else if (rs === 2){
+        cls = 'verdict ok';
+        msg = '쓸기 켬 + 양쪽 Block — 쓸기가 B 와 닿는 지점을 찾아 거기서 멈춘다. (실제 캐릭터는 여기서 미끄러지기를 시도한다)';
+      } else if (rs === 1){
+        cls = 'verdict bad';
+        msg = '최종 응답 Overlap — 쓸기는 B 를 "지나가는 것"으로만 기록하고 이동을 막지 않는다. 한쪽만 Block 이어서는 막히지 않는다.';
+      } else {
+        cls = 'verdict bad';
+        msg = '최종 응답 Ignore — 쓸기가 B 를 아예 보지 않는다. 한쪽만 Block 이어서는 막히지 않는다.';
+      }
+      out.className = cls; out.textContent = msg;
+    });
+    if (!v) return;
+    var loop = Viz.animate(v, function(){
+      st.acc += DT;
+      if (st.acc >= TICK){ st.acc -= TICK; doTick(); }
+    }, { paused: REDUCE });
+    wire(v, loop, 'swPlay', 'swReset', reset);
+  }
+
+  /* ── 그림 2: 직진하는 A, 막아선 B ─────────────── */
+  function initBlock(){
+    if (!window.Viz) return;
+    var out = document.getElementById('bkOut');
+    var gKind = group('bkKind', 'char');
+    var sOff = slider('bkOff', 'bkOffOut', 'cm');
+    var sRad = slider('bkRad', 'bkRadOut', 'cm');
+
+    var RA = 34, SPEED = 300, GX = 920, GY = 250, BX0 = 480;
+    var st;
+    function reset(){
+      st = { ax: 90, ay: 250, bx: BX0, bvx: 0, bvy: 0, moved: { x: 1, y: 0 }, moveLen: 1,
+             samples: [], sampleT: 0, result: '', hold: 0, t: 0, slid: 0 };
+    }
+    reset();
+
+    function step(){
+      if (st.result){ st.hold += DT; if (st.hold > 1.8) reset(); return; }
+      st.t += DT;
+      var rb = sRad.get(), by = GY + sOff.get(), phys = gKind.get() === 'phys';
+
+      // 물리 물체는 마찰로 느려지며 미끄러진다
+      if (phys){
+        st.bx += st.bvx * DT;
+        st.bvx *= 0.94; st.bvy *= 0.94;
+        st.byOff = (st.byOff || 0) + st.bvy * DT;
+      } else { st.bvx = 0; st.bvy = 0; st.byOff = 0; st.bx = BX0; }
+      by += st.byOff || 0;
+
+      var dx = GX - st.ax, dy = GY - st.ay, dl = Math.sqrt(dx * dx + dy * dy);
+      if (dl < 12){ st.result = 'arrive'; return; }
+      var mx = dx / dl * SPEED * DT, my = dy / dl * SPEED * DT;
+      var R = RA + rb;
+      var px = st.ax + mx, py = st.ay + my;
+      var ex = px - st.bx, ey = py - by;
+      var ox = st.ax, oy = st.ay;
+      if (ex * ex + ey * ey < R * R){
+        // 닿는 시점 s 를 구한다: |A + s*d - B| = R
+        var fx = st.ax - st.bx, fy = st.ay - by;
+        var a = mx * mx + my * my, b = 2 * (fx * mx + fy * my), cc = fx * fx + fy * fy - R * R;
+        var disc = b * b - 4 * a * cc, s = 0;
+        if (disc >= 0 && a > 0){ s = (-b - Math.sqrt(disc)) / (2 * a); }
+        if (!(s > 0)) s = 0; if (s > 1) s = 1;
+        st.ax += mx * s; st.ay += my * s;
+        var nx = st.ax - st.bx, ny = st.ay - by, nl = Math.sqrt(nx * nx + ny * ny) || 1;
+        nx /= nl; ny /= nl;
+        // 겹치지 않게 표면에 붙인다
+        st.ax = st.bx + nx * (R + 0.01); st.ay = by + ny * (R + 0.01);
+        // SlideAlongSurface: 남은 이동에서 법선 성분을 뺀다
+        var rx = mx * (1 - s), ry = my * (1 - s);
+        var dn = rx * nx + ry * ny;
+        if (dn < 0){ rx -= dn * nx; ry -= dn * ny; }
+        st.ax += rx; st.ay += ry;
+        st.slid = Math.sqrt(rx * rx + ry * ry) / (SPEED * DT);
+        // HandleImpact: 물리 물체에만 힘
+        if (phys){ st.bvx += -nx * 160; st.bvy += -ny * 160; }
+      } else {
+        st.ax = px; st.ay = py; st.slid = -1;
+      }
+      st.moved = { x: st.ax - ox, y: st.ay - oy };
+      st.moveLen = Math.sqrt(st.moved.x * st.moved.x + st.moved.y * st.moved.y) / (SPEED * DT);
+
+      // 길막힘 감지: 0.5초마다 샘플, 10개
+      st.sampleT += DT;
+      if (st.sampleT >= 0.5){
+        st.sampleT -= 0.5;
+        st.samples.push({ x: st.ax, y: st.ay });
+        if (st.samples.length > 10) st.samples.shift();
+        if (st.samples.length === 10){
+          var cx = 0, cy = 0, i;
+          for (i = 0; i < 10; i++){ cx += st.samples[i].x; cy += st.samples[i].y; }
+          cx /= 10; cy /= 10;
+          var blocked = true;
+          for (i = 0; i < 10; i++){
+            var qx = st.samples[i].x - cx, qy = st.samples[i].y - cy;
+            if (qx * qx + qy * qy > 100){ blocked = false; break; }
+          }
+          if (blocked) st.result = 'blocked';
+        }
+      }
+      if (st.t > 14) st.result = 'timeout';
+    }
+
+    var v = Viz.view('cvBlock', function(w){ return Math.min(300, Math.round(60 + (w - 24) * 0.38)); }, function(v){
+      var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+      var top = 44;
+      var sc = Math.min((w - 24) / 1000, (h - top - 8) / 380);
+      var ox = (w - 1000 * sc) / 2, oy = top;
+      function X(x){ return ox + x * sc; }
+      function Y(y){ return oy + (y - 80) * sc; }
+      var rb = sRad.get(), by = GY + sOff.get() + (st.byOff || 0), phys = gKind.get() === 'phys';
+
+      // 목표점
+      circle(ctx, X(GX), Y(GY), 8, null, c.dim, 1.5);
+      circle(ctx, X(GX), Y(GY), 3, c.dim, null);
+
+      // 샘플
+      for (var i = 0; i < st.samples.length; i++){
+        circle(ctx, X(st.samples[i].x), Y(st.samples[i].y) + 0, 2.5, c.warn, null);
+      }
+
+      // B
+      if (phys){
+        Viz.roundRect(ctx, X(st.bx) - rb * sc, Y(by) - rb * sc, 2 * rb * sc, 2 * rb * sc, 4);
+        ctx.fillStyle = c.sf2; ctx.fill(); ctx.strokeStyle = c.warn; ctx.lineWidth = 2; ctx.stroke();
+      } else {
+        circle(ctx, X(st.bx), Y(by), rb * sc, c.sf2, c.warn, 2);
+      }
+      Viz.text(ctx, 'B', X(st.bx), Y(by), c.warn, 11, 'center');
+
+      // A
+      circle(ctx, X(st.ax), Y(st.ay), RA * sc, c.sf2, c.accent, 2.5);
+      Viz.text(ctx, 'A', X(st.ax), Y(st.ay), c.accent, 11, 'center');
+      var ml = Math.sqrt(st.moved.x * st.moved.x + st.moved.y * st.moved.y);
+      if (ml > 0.05 && !st.result){
+        var k = 28 * st.moveLen / ml;
+        Viz.arrow(ctx, X(st.ax), Y(st.ay), X(st.ax) + st.moved.x * k, Y(st.ay) + st.moved.y * k, c.accent, 2);
+      }
+
+      var line1 = '이동 효율 ' + Math.round(Math.max(0, st.moveLen) * 100) + '%' +
+                  (st.slid >= 0 ? ' · 미끄러짐' : '');
+      Viz.text(ctx, line1, 12, 14, c.text, 11, 'left');
+      Viz.text(ctx, '길막힘 샘플 ' + st.samples.length + ' / 10 · ' + st.t.toFixed(1) + ' s', 12, 31, c.dim, 10, 'left');
+
+      var msg, cls = 'verdict';
+      if (st.result === 'blocked'){ cls = 'verdict bad'; msg = 'EPathFollowingResult::Blocked — 샘플 10개가 모두 평균점에서 10cm 안이다. 길찾기가 이동을 끝냈다. B 는 한 번도 움직이지 않았다.'; }
+      else if (st.result === 'arrive'){ cls = 'verdict ok'; msg = phys ? '도착 — B 가 물리 물체라 ApplyImpactPhysicsForces 로 밀려났다.' : '도착 — A 는 B 표면을 따라 미끄러져 돌아 나갔다. B 는 그대로다.'; }
+      else if (st.result === 'timeout'){ msg = '시간 초과 — 다시 시작한다.'; }
+      else if (st.slid >= 0){
+        cls = st.slid < 0.05 ? 'verdict bad' : 'verdict';
+        msg = st.slid < 0.05 ? '정면으로 막혔다 — 법선 성분을 빼면 남는 이동이 거의 없다. 제자리걸음.'
+                             : 'B 에 닿았다 — SlideAlongSurface 가 남은 이동의 ' + Math.round(st.slid * 100) + '% 를 표면 방향으로 돌렸다.';
+        if (phys) msg += ' B 는 물리 물체라 힘을 받는다.';
+      } else { msg = '목표점으로 걷는 중.'; }
+      out.className = cls; out.textContent = msg;
+    });
+    if (!v) return;
+    var loop = Viz.animate(v, function(){ step(); }, { paused: REDUCE });
+    wire(v, loop, 'bkPlay', 'bkReset', reset);
+  }
+
+  /* ── 그림 3: 멈춘 캐릭터 안으로 들어오는 액터 ─── */
+  function initPen(){
+    if (!window.Viz) return;
+    var out = document.getElementById('pnOut');
+    var gMode = group('pnMode', 'idle');
+    var sSpeed = slider('pnSpeed', 'pnSpeedOut', 'cm/s');
+    var sOff = slider('pnOff', 'pnOffOut', 'cm');
+    var sMax = slider('pnMax', 'pnMaxOut', 'cm');
+
+    var RB = 34, RC = 34, BX0 = 500, BY0 = 200, PULL = 0.125;
+    var st;
+    function reset(){
+      st = { bx: BX0, by: BY0, cx: 60, walkDir: 1, overlapT: 0, maxDepth: 0, push: null, hold: 0, done: false };
+    }
+    reset();
+
+    function step(){
+      if (st.done){ st.hold += DT; if (st.hold > 1.2) reset(); return; }
+      var mode = gMode.get();
+      var cy = BY0 + sOff.get();
+      st.cx += sSpeed.get() * DT;            // C: 쓸기 없이 옮긴다
+      st.push = null;
+
+      var bMoves = false, dx = 0, dy = 0;
+      if (mode === 'walk'){
+        dy = 40 * DT * st.walkDir;
+        if (st.by > BY0 + 30) st.walkDir = -1;
+        if (st.by < BY0 - 30) st.walkDir = 1;
+        bMoves = true;
+      }
+      // B 의 SafeMove (걷는 중) 또는 직접 넣은 매 틱 검사
+      if (bMoves || mode === 'check'){
+        var ex = st.bx - st.cx, ey = st.by - cy, el = Math.sqrt(ex * ex + ey * ey);
+        var depth = RB + RC - el;
+        if (depth > 0){
+          if (el < 0.001){ ex = 0; ey = -1; el = 1; }
+          var amt = Math.min(depth + PULL, sMax.get());
+          var nx = ex / el, ny = ey / el;
+          st.bx += nx * amt; st.by += ny * amt;
+          st.push = { x: nx, y: ny };
+        }
+        st.bx += dx; st.by += dy;
+      }
+      var fx = st.bx - st.cx, fy = st.by - cy;
+      var d2 = RB + RC - Math.sqrt(fx * fx + fy * fy);
+      if (d2 > 0.01){ st.overlapT += DT; if (d2 > st.maxDepth) st.maxDepth = d2; }
+      if (st.cx > 1000) st.done = true;
+    }
+
+    var v = Viz.view('cvPen', function(w){ return Math.min(240, Math.round(60 + (w - 24) * 0.24)); }, function(v){
+      var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+      var top = 44;
+      var sc = Math.min((w - 24) / 1000, (h - top - 8) / 240);
+      var ox = (w - 1000 * sc) / 2;
+      function X(x){ return ox + x * sc; }
+      function Y(y){ return top + (y - 90) * sc; }
+      var cy = BY0 + sOff.get();
+      var fx = st.bx - st.cx, fy = st.by - cy;
+      var overlap = RB + RC - Math.sqrt(fx * fx + fy * fy) > 0.01;
+
+      // C 의 길
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(X(0), Y(cy)); ctx.lineTo(X(1000), Y(cy)); ctx.stroke();
+      // B 의 처음 자리
+      ctx.beginPath(); ctx.arc(X(BX0), Y(BY0), RB * sc, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+
+      circle(ctx, X(st.bx), Y(st.by), RB * sc, c.sf2, overlap ? RED : c.accent, overlap ? 3 : 2.5);
+      Viz.text(ctx, 'B', X(st.bx), Y(st.by), c.accent, 11, 'center');
+      ctx.globalAlpha = 0.85;
+      circle(ctx, X(st.cx), Y(cy), RC * sc, null, overlap ? RED : c.warn, 2);
+      ctx.globalAlpha = 1;
+      Viz.text(ctx, 'C', X(st.cx), Y(cy), c.warn, 11, 'center');
+      if (st.push){
+        Viz.arrow(ctx, X(st.bx), Y(st.by), X(st.bx) + st.push.x * 22, Y(st.by) + st.push.y * 22, c.accent, 2);
+      }
+
+      var moved = Math.sqrt((st.bx - BX0) * (st.bx - BX0) + (st.by - BY0) * (st.by - BY0));
+      Viz.text(ctx, '겹친 시간 ' + st.overlapT.toFixed(2) + ' s · 최대 깊이 ' + Math.round(st.maxDepth) + ' cm', 12, 14, overlap ? RED : c.text, 11, 'left');
+      Viz.text(ctx, 'B 가 처음 자리에서 옮겨진 거리 ' + Math.round(moved) + ' cm', 12, 31, c.dim, 10, 'left');
+
+      var mode = gMode.get(), msg, cls;
+      if (mode === 'idle'){
+        cls = 'verdict bad';
+        msg = '멈춤 — B 의 이동량이 0 이라 PhysWalking 이 이동을 건너뛴다. SafeMove 가 돌지 않으니 겹침을 발견할 기회가 없다. C 도 쓸기를 하지 않는다.';
+      } else if (mode === 'walk'){
+        cls = 'verdict';
+        msg = '걷는 중 — B 의 SafeMove 가 bStartPenetrating 을 받고 ResolvePenetration 으로 빠져나간다. 이것이 "밀림"의 정체다. 한 틱 한도는 MaxDepenetrationWithPawn.';
+      } else {
+        cls = 'verdict ok';
+        msg = '매 틱 겹침 검사(직접 구현) — 멈춰 있어도 오버랩 쿼리로 겹침을 찾아 풀어 준다. 엔진 기본 동작이 아니다.';
+      }
+      out.className = cls; out.textContent = msg;
+    });
+    if (!v) return;
+    var loop = Viz.animate(v, function(){ step(); }, { paused: REDUCE });
+    wire(v, loop, 'pnPlay', 'pnReset', reset);
+  }
+
+  function init(){ initSweep(); initBlock(); initPen(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+})();
+</script>
+
+</body>
+</html>

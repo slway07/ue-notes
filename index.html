@@ -16,7 +16,7 @@
 </header>
 <main>
 <details class="cat" data-cat="충돌과 물리">
-<summary><span class="chev"></span>충돌과 물리<span class="n">10</span></summary>
+<summary><span class="chev"></span>충돌과 물리<span class="n">11</span></summary>
 <ul class="toc">
 <li><a href="pages/collision-simple-vs-complex.html?v=6e8d833f">
 <span class="t">Collision — Simple vs Complex</span>
@@ -28,27 +28,32 @@
 <span class="s">프리셋·채널·응답으로 충돌을 거르는 법과, ByChannel·ByObjectType·ByProfile, Line·Sweep·Overlap 트레이스를 고르는 법.</span>
 <span class="tags"><span class="tag">Collision</span><span class="tag">Collision Channel</span><span class="tag">Collision Preset</span><span class="tag">Trace</span><span class="tag">Physics</span></span>
 </a></li>
-<li><a href="pages/movement-component.html?v=98175166">
+<li><a href="pages/movement-component.html?v=3798c717">
 <span class="t">MovementComponent — 무엇이 액터를 움직이나</span>
 <span class="s">무브먼트는 자기 충돌이 없다. UpdatedComponent를 움직이고, 그 컴포넌트의 충돌을 쓴다. 루트·자식·메시 중 무엇이 UpdatedComponent냐에 따라 같은 몬스터를 통과하기도 막히기도 한다.</span>
 <span class="tags"><span class="tag">Movement</span><span class="tag">CharacterMovement</span><span class="tag">UpdatedComponent</span><span class="tag">Collision</span><span class="tag">Physics</span></span>
 </a></li>
-<li><a href="pages/movement-character.html?v=85da44bc">
+<li><a href="pages/movement-character.html?v=3eac4164">
 <span class="t">CharacterMovement — 걷기와 낙하의 물리</span>
 <span class="s">PerformMovement가 한 틱에 하는 순서, PhysWalking이 바닥을 찾고 계단을 오르는 법, MovementBase가 움직이는 발판을 따라가는 법, PhysFalling의 중력·공중 제어·점프.</span>
 <span class="tags"><span class="tag">CharacterMovement</span><span class="tag">PhysWalking</span><span class="tag">StepUp</span><span class="tag">FindFloor</span><span class="tag">MovementBase</span><span class="tag">PhysFalling</span></span>
 </a></li>
-<li><a href="pages/movement-network.html?v=a7a49d6e">
+<li><a href="pages/movement-no-push.html?v=c7c7206d">
+<span class="t">CharacterMovement — 캐릭터는 왜 서로 밀지 않나</span>
+<span class="s">쓸기(sweep)와 그냥 옮기기의 차이, 막히면 미끄러지기만 하는 CharacterMovement, &quot;밀림&quot;의 정체인 겹침 풀기, 멈춰 있을 때 생기는 빈틈, Walking과 NavWalking, UpdatedComponent가 하나뿐이라는 제약까지.</span>
+<span class="tags"><span class="tag">CharacterMovement</span><span class="tag">Sweep</span><span class="tag">SafeMoveUpdatedComponent</span><span class="tag">ResolvePenetration</span><span class="tag">SlideAlongSurface</span><span class="tag">NavWalking</span><span class="tag">PathFollowing</span></span>
+</a></li>
+<li><a href="pages/movement-network.html?v=afedfe4f">
 <span class="t">CharacterMovement — 네트워크 예측과 보정</span>
 <span class="s">클라이언트는 먼저 움직이고 서버가 검사한다. FSavedMove_Character, ReplicateMoveToServer, ServerMove, ClientAdjustPosition, SavedMoves 재생, NetworkSmoothing까지.</span>
 <span class="tags"><span class="tag">CharacterMovement</span><span class="tag">Network</span><span class="tag">Prediction</span><span class="tag">Replication</span><span class="tag">ClientAdjustPosition</span><span class="tag">Smoothing</span></span>
 </a></li>
-<li><a href="pages/movement-root-motion.html?v=1f23c3ef">
+<li><a href="pages/movement-root-motion.html?v=216d8926">
 <span class="t">Root Motion — 애니메이션이 이동을 소유할 때</span>
 <span class="s">ERootMotionMode의 네 값, FRootMotionSource의 우선순위·누적, 몽타주 루트 모션의 실제 스위치, CharacterMovement가 루트 모션을 속도로 바꿔 충돌시키는 순서, 네트워크 보정까지.</span>
 <span class="tags"><span class="tag">Root Motion</span><span class="tag">Animation</span><span class="tag">CharacterMovement</span><span class="tag">Montage</span><span class="tag">Network</span></span>
 </a></li>
-<li><a href="pages/movement-other.html?v=ffbe1553">
+<li><a href="pages/movement-other.html?v=307b3b69">
 <span class="t">Projectile · Rotating · InterpTo · Floating</span>
 <span class="s">발사체의 중력·바운스·호밍·정지, 충돌 없이 회전하는 Rotating, 제어점을 잇는 InterpTo, 입력으로 뜨는 Floating, 그리고 직접 만드는 커스텀 무브먼트.</span>
 <span class="tags"><span class="tag">ProjectileMovement</span><span class="tag">RotatingMovement</span><span class="tag">InterpToMovement</span><span class="tag">FloatingPawnMovement</span><span class="tag">Custom Movement</span></span>
@@ -222,7 +227,7 @@
 </details>
 </main>
 <footer class="site-foot">
-<p>마지막 갱신 2026-11-09 &middot; 페이지 36개</p>
+<p>마지막 갱신 2026-11-11 &middot; 페이지 37개</p>
 </footer>
 </div>
 <script>
