@@ -302,6 +302,46 @@ if (OutHit.bStartPenetrating &amp;&amp; UpdatedComponent)
 </table>
 </div>
 
+<p class="note"><b><code>bSweepWhileNavWalking</code> 의 엔진 기본값은 true 다.</b> 헤더 선언에는 기본값이 없고, <code>UCharacterMovementComponent</code> 생성자가 true 를 넣는다. Details 패널에서 false 로 보이면 그 클래스나 BP 에서 누가 바꿔 둔 값이다. 예외가 하나 있다. 이 플래그가 생기기 전(UE4 초기)에 저장된 에셋은 로드할 때 UpdatedComponent 의 <code>bGenerateOverlapEvents</code> 값으로 채워진다(<code>Serialize</code> &rarr; <code>SetUpdatedComponent</code>).</p>
+
+<h3>그림 4 — Walking 과 NavWalking 을 나란히</h3>
+
+<p><b>무엇을 보고 있나.</b> <b>옆에서 본</b> 두 길이다. 위 길은 Walking, 아래 길은 NavWalking 캐릭터가 같은 속도로 오른쪽으로 간다. 두 길에는 똑같이 계단 세 칸, 바닥에 놓인 상자(WorldDynamic), 서 있는 다른 캐릭터(Pawn)가 있다.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>그림의 요소</th><th>무엇인가</th></tr></thead>
+<tbody>
+<tr><td><b>초록 캡슐</b></td><td>걸어가는 캐릭터(반지름 34 · 반높이 88, <code>ACharacter</code> 기본값)</td></tr>
+<tr><td><b>회색 계단 · 바닥</b></td><td>WorldStatic 지오메트리. 한 칸 높이 20cm</td></tr>
+<tr><td><b>점선</b></td><td>NavMesh 표면. 계단 위에서는 계단 모양이 아니라 비탈로 단순화된다</td></tr>
+<tr><td><b>주황 상자</b></td><td>바닥에 놓인 WorldDynamic 물체. NavMesh 에는 영향을 주지 않는다고 가정했다</td></tr>
+<tr><td><b>주황 캡슐</b></td><td>서 있는 다른 캐릭터(Pawn)</td></tr>
+</tbody>
+</table>
+</div>
+
+<p><b>무엇을 보면 되나.</b> 세 군데를 차례로 본다. ① 계단: Walking 은 한 칸씩 올라서고, NavWalking 은 점선 비탈을 따라가서 발이 계단 모서리에 묻히거나 뜬다. ② 상자: Walking 은 상자가 <code>MaxStepHeight</code>(45cm) 이하면 올라서고 넘으면 막힌다. NavWalking 은 WorldDynamic 을 Ignore 하므로 상자를 그냥 뚫고 지나간다. ③ 캐릭터: Walking 은 항상 막힌다. NavWalking 은 <code>bSweepWhileNavWalking</code> 이 true 면 막히고, false 로 바꾸면 겹쳐 지나간다.</p>
+
+<div class="panel" data-sim="navwalking">
+  <div class="ctl">
+    <button type="button" id="nwPlay" aria-pressed="true">일시정지</button>
+    <button type="button" id="nwReset">처음으로</button>
+  </div>
+  <div class="ctl" id="nwSweep"><span class="k">bSweepWhileNavWalking</span>
+    <button type="button" data-v="on">true (엔진 기본)</button><button type="button" data-v="off">false</button>
+  </div>
+  <div class="sl">
+    <label for="nwBox">상자 높이</label>
+    <input type="range" id="nwBox" min="10" max="80" step="5" value="30">
+    <output id="nwBoxOut">30 cm</output>
+  </div>
+  <div class="stage"><canvas id="cvNav" aria-label="옆에서 본 두 길. 위 길의 Walking 캐릭터는 계단을 한 칸씩 오르고, 낮은 상자에 올라서며, 서 있는 캐릭터에 막힌다. 아래 길의 NavWalking 캐릭터는 NavMesh 비탈을 따라 높이를 정하고, 상자를 뚫고 지나가며, bSweepWhileNavWalking이 true일 때만 캐릭터에 막힌다."></canvas></div>
+  <p class="verdict" id="nwOut"></p>
+</div>
+
+<p class="note"><b>모형이다.</b> 옆에서 본 그림이라 막히면 그 자리에 멈춘 것으로 그렸다. 실제로는 2절처럼 옆으로 미끄러질 수 있다. NavMesh 가 계단을 얼마나 매끈하게 덮는지는 NavMesh 생성 설정(셀 높이·<code>AgentMaxStepHeight</code> 등)에 따라 다르다. 실제 지오메트리 높이를 따르게 하려면 <code>bProjectNavMeshWalking</code> 을 켠다(위 표).</p>
+
 <p><b>언제 NavWalking 을 쓰나.</b> 수십 마리가 동시에 걷는 AI 처럼 바닥 쓸기 비용을 줄이고 싶을 때다. 대신 NavMesh 밖으로 나가면 <code>MOVE_Walking</code> 으로 돌아가고, NavMesh 의 높이가 실제 바닥과 어긋나면 발이 뜨거나 묻힌다. 플레이어처럼 정확한 바닥이 필요한 캐릭터는 Walking 이 맞다.</p>
 
 <h2>6. AI 이동과 서버가 위치를 정하는 게임</h2>
@@ -790,7 +830,143 @@ if (OutHit.bStartPenetrating &amp;&amp; UpdatedComponent)
     wire(v, loop, 'pnPlay', 'pnReset', reset);
   }
 
-  function init(){ initSweep(); initBlock(); initPen(); }
+  /* ── 그림 4: Walking 과 NavWalking (옆에서 본 모습) ── */
+  function initNav(){
+    if (!window.Viz) return;
+    var out = document.getElementById('nwOut');
+    var gSweep = group('nwSweep', 'on');
+    var sBox = slider('nwBox', 'nwBoxOut', 'cm');
+
+    var R = 34, HH = 88, STEP = 45, SPEED = 200, START = 60, END = 960;
+    var BOX0 = 520, BOX1 = 600, PAWN = 800, LVL = 60;
+
+    // 실제 지오메트리 높이 (계단 + 상자)
+    function floorW(x, withBox){
+      var z = 0;
+      if (x >= 250) z = 20;
+      if (x >= 290) z = 40;
+      if (x >= 330) z = LVL;
+      if (withBox && x >= BOX0 && x <= BOX1) z = LVL + sBox.get();
+      return z;
+    }
+    // NavMesh 높이: 계단 위는 비탈로 단순화, 상자는 반영 안 됨
+    function navH(x){
+      if (x <= 230) return 0;
+      if (x >= 390) return LVL;
+      return (x - 230) / 160 * LVL;
+    }
+    function walkH(x){ return Math.max(floorW(x - 20, true), floorW(x, true), floorW(x + 20, true)); }
+
+    var st;
+    function reset(){
+      st = { w: { x: START, z: 0, stop: '', stuck: 0 }, n: { x: START, z: 0, stop: '', stuck: 0 }, hold: 0, done: false };
+    }
+    reset();
+
+    function stepWalk(a){
+      var nx = a.x + SPEED * DT;
+      a.stop = '';
+      // 앞면이 MaxStepHeight 보다 높으면 막힌다 (계단·상자)
+      var rise = floorW(nx + R, true) - a.z;
+      if (rise > STEP){ a.stop = 'box'; nx = BOX0 - R; if (nx < a.x) nx = a.x; }
+      // 캐릭터 위로는 못 올라선다
+      if (nx + R > PAWN - R){ nx = PAWN - 2 * R; a.stop = 'pawn'; }
+      if (Math.abs(nx - a.x) < 0.01) a.stuck += DT; else a.stuck = 0;
+      a.x = nx; a.z = walkH(a.x);
+    }
+    function stepNav(a){
+      var nx = a.x + SPEED * DT;
+      a.stop = '';
+      if (gSweep.get() === 'on' && a.x <= PAWN - 2 * R + 0.01 && nx + R > PAWN - R){ nx = PAWN - 2 * R; a.stop = 'pawn'; }
+      if (Math.abs(nx - a.x) < 0.01) a.stuck += DT; else a.stuck = 0;
+      a.x = nx; a.z = navH(a.x);
+    }
+
+    function step(){
+      if (st.done){ st.hold += DT; if (st.hold > 1.5) reset(); return; }
+      stepWalk(st.w); stepNav(st.n);
+      var wEnd = st.w.x > END || st.w.stuck > 1.2;
+      var nEnd = st.n.x > END || st.n.stuck > 1.2;
+      if (wEnd && nEnd) st.done = true;
+    }
+
+    function scOf(w){ return Math.min((w - 24) / 1000, 0.42); }
+    var LANE = 330;   // 한 길의 세계 높이(cm)
+
+    var v = Viz.view('cvNav', function(w){ var sc = scOf(w); return Math.round(2 * (LANE * sc + 26) + 8); }, function(v){
+      var c = v.c, ctx = v.ctx, w = v.w, h = v.h;
+      var sc = scOf(w), ox = (w - 1000 * sc) / 2;
+      function X(x){ return ox + x * sc; }
+
+      function lane(top, a, isNav){
+        var y0 = top + 22 + LANE * sc;
+        function Z(z){ return y0 - z * sc; }
+        // 지오메트리
+        ctx.fillStyle = c.line;
+        var cols = [[250, 290, 20], [290, 330, 40], [330, 1000, LVL]];
+        for (var i = 0; i < cols.length; i++){
+          ctx.fillRect(X(cols[i][0]), Z(cols[i][2]), (cols[i][1] - cols[i][0]) * sc, cols[i][2] * sc);
+        }
+        ctx.strokeStyle = c.dim; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(1000), Z(0)); ctx.stroke();
+        // NavMesh
+        if (isNav){
+          ctx.strokeStyle = c.accent; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(X(0), Z(0)); ctx.lineTo(X(230), Z(0)); ctx.lineTo(X(390), Z(LVL)); ctx.lineTo(X(1000), Z(LVL)); ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        // 상자 (WorldDynamic)
+        var bh = sBox.get();
+        ctx.fillStyle = c.sf2; ctx.fillRect(X(BOX0), Z(LVL + bh), (BOX1 - BOX0) * sc, bh * sc);
+        ctx.strokeStyle = c.warn; ctx.lineWidth = 1.5; ctx.strokeRect(X(BOX0), Z(LVL + bh), (BOX1 - BOX0) * sc, bh * sc);
+        // 서 있는 캐릭터 (Pawn)
+        Viz.roundRect(ctx, X(PAWN - R), Z(LVL + 2 * HH), 2 * R * sc, 2 * HH * sc, R * sc);
+        ctx.fillStyle = c.sf2; ctx.fill(); ctx.strokeStyle = c.warn; ctx.lineWidth = 2; ctx.stroke();
+        // 움직이는 캐릭터
+        var inBox = isNav && a.x + R > BOX0 && a.x - R < BOX1 && a.z < LVL + bh;
+        var inPawn = Math.abs(a.x - PAWN) < 2 * R - 0.5;
+        var bad = inBox || inPawn;
+        Viz.roundRect(ctx, X(a.x - R), Z(a.z + 2 * HH), 2 * R * sc, 2 * HH * sc, R * sc);
+        ctx.fillStyle = c.sf2; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.strokeStyle = bad ? RED : c.accent; ctx.lineWidth = bad ? 3 : 2.5; ctx.stroke();
+        // 제목과 발 높이 차이
+        var gap = Math.round(a.z - floorW(a.x, false));
+        var title = isNav ? 'NavWalking · bSweepWhileNavWalking ' + (gSweep.get() === 'on' ? 'true' : 'false') : 'Walking · 항상 쓸기';
+        Viz.text(ctx, title, 12, top + 9, c.text, 11, 'left');
+        if (isNav){
+          var gs = gap > 0 ? '발이 바닥에서 ' + gap + 'cm 뜸' : (gap < 0 ? '발이 바닥에 ' + (-gap) + 'cm 묻힘' : '발 = 바닥');
+          if (w >= 520) Viz.text(ctx, gs, w - 12, top + 9, gap !== 0 ? c.warn : c.dim, 10, 'right');
+          else Viz.text(ctx, gs, 12, top + 24, gap !== 0 ? c.warn : c.dim, 10, 'left');
+        }
+        return { inBox: inBox, inPawn: inPawn };
+      }
+
+      var lw = lane(0, st.w, false);
+      var laneH = LANE * sc + 26;
+      ctx.strokeStyle = c.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(8, laneH + 2); ctx.lineTo(w - 8, laneH + 2); ctx.stroke();
+      var ln = lane(laneH + 6, st.n, true);
+
+      var bh = sBox.get(), m1, m2;
+      if (st.w.stop === 'box') m1 = 'Walking — 상자 ' + bh + 'cm > MaxStepHeight 45cm. 올라서지 못하고 막혔다.';
+      else if (st.w.stop === 'pawn') m1 = 'Walking — 캐릭터에 막혔다. 캐릭터 캡슐은 CanCharacterStepUpOn = No 라 올라설 수도 없다.';
+      else if (st.w.x > BOX0 - R && st.w.x < BOX1 + R) m1 = 'Walking — 상자 ' + bh + 'cm ≤ 45cm 라 StepUp 으로 올라섰다.';
+      else if (st.w.x > 230 && st.w.x < 400) m1 = 'Walking — FindFloor 가 실제 계단을 찾아 한 칸씩 올라선다.';
+      else m1 = 'Walking — 걷는 중.';
+      if (st.n.stop === 'pawn') m2 = 'NavWalking — bSweepWhileNavWalking true: 이동을 쓸기로 해서 Pawn 에 막혔다.';
+      else if (ln.inPawn) m2 = 'NavWalking — bSweepWhileNavWalking false: 쓸기가 없어 Block 인 캐릭터와 겹쳐 지나간다.';
+      else if (ln.inBox) m2 = 'NavWalking — 상자를 뚫고 지나간다. SetNavWalkingPhysics 가 WorldDynamic 을 Ignore 로 바꿨다.';
+      else if (st.n.x > 230 && st.n.x < 400) m2 = 'NavWalking — 높이는 NavMesh 비탈을 따른다. 실제 계단과 어긋난다.';
+      else m2 = 'NavWalking — 걷는 중.';
+      out.className = 'verdict'; out.style.whiteSpace = 'pre-line';
+      out.textContent = m1 + '\n' + m2;
+    });
+    if (!v) return;
+    var loop = Viz.animate(v, function(){ step(); }, { paused: REDUCE });
+    wire(v, loop, 'nwPlay', 'nwReset', reset);
+  }
+
+  function init(){ initSweep(); initBlock(); initPen(); initNav(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();
